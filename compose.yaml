@@ -1,0 +1,25 @@
+name: remittance-agent
+services:
+  backend:
+    build: .
+    env_file: .env
+    environment:
+      FINANCE_DB: /app/data/finance.sqlite3
+    volumes:
+      - finance_data:/app/data
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8787}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  finance_data:
