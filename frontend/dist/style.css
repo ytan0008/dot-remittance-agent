@@ -115,6 +115,8 @@ main{padding:clamp(20px,3vw,40px) clamp(16px,3vw,40px) 30px;outline:none}
 .tilt.tilting::before{opacity:1}
 .magnetic{transform:translate(var(--tx,0),var(--ty,0));transition:transform .35s var(--ease),background .2s,color .2s}
 
+/* Quiet repaint (data refresh of the current page): nothing replays its entrance animation. */
+html[data-quiet] #view *,html[data-quiet] #view *::before,html[data-quiet] #view *::after{animation-delay:0s!important;animation-duration:0s!important;transition:none!important}
 /* View Transitions: forward pushes the old view away; back pulls it close; swipes slide. */
 ::view-transition-old(view){animation:vt-out .32s var(--ease-in) both}
 ::view-transition-new(view){animation:vt-in .62s var(--ease) both}

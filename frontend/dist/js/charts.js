@@ -79,7 +79,7 @@ export function lineChart(host, series, {format = v => v, dateFormat = d => d, f
     return {x, y};
   }
   let scale = draw();
-  if (!reduced()) {
+  if (!reduced() && !document.documentElement.dataset.quiet) {
     const len = line.getTotalLength?.() || 1000;
     line.style.strokeDasharray = len; line.style.strokeDashoffset = len;
     line.getBoundingClientRect();
@@ -164,7 +164,7 @@ export function gauge(value, {size = 120, stroke = 7, label = '', sub = ''} = {}
 
 /** Animates gauges from empty when they mount. */
 export function animateGauges(root) {
-  if (reduced()) return;
+  if (reduced() || document.documentElement.dataset.quiet) return;
   root.querySelectorAll('.gauge-value:not([data-done])').forEach(c => {
     c.dataset.done = 1;
     const target = c.getAttribute('stroke-dashoffset');

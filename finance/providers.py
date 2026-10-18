@@ -120,6 +120,7 @@ class EvmProvider:
             account, origin = load_account(config)
         self.account = account
         self.origin = origin
+        self._info = (0.0, None)
 
     @property
     def environment(self):
@@ -133,7 +134,18 @@ class EvmProvider:
         self.check_chain()
         return self.w3.eth.get_balance(self.account.address)
 
-    def info(self):
+    def invalidate(self):
+        self._info = (0.0, None)
+
+    def display_balance(self, max_age=15):
+        """For display only; guardrails always call balance() for a fresh read."""
+        return int(self.info(max_age)["balance"]) if self.info(max_age).get("connected") else self.balance()
+
+    def info(self, max_age=15):
+        import time
+        stamp, cached = self._info
+        if cached and time.time() - stamp < max_age:
+            return dict(cached)
         info = dict(address=self.account.address, chain_id=self.config.chain_id, environment=self.environment,
                     key_origin=self.origin, confirmations=self.config.confirmations,
                     explorer={11155111: "https://sepolia.etherscan.io", 1: "https://etherscan.io"}.get(self.config.chain_id))
@@ -144,7 +156,9 @@ class EvmProvider:
                         block=self.w3.eth.block_number, gas_price=str(self.w3.eth.gas_price))
         except Exception:
             info.update(connected=False)
-        return info
+            return info
+        self._info = (time.time(), info)
+        return dict(info)
 
     def quote(self, recipient, purpose, amount):
         self.check_chain()

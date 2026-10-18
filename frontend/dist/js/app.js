@@ -52,20 +52,24 @@ function heading(id) {
     ${id === 'overview' ? `<div class="head-actions"><button class="button ghost" data-action="go" data-view="agent">${icons.agent}${t('overview.ask')}</button><button class="button primary magnetic" data-action="go" data-view="send">${icons.plus}${t('action.new_transfer')}</button></div>` : ''}</div>`;
 }
 
-export function enhance(root) {
+export function enhance(root, quiet = false) {
+  if (quiet) root.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
   reveal(root); interactive(root);
-  countUp(root, (n, d) => new Intl.NumberFormat(lang, {minimumFractionDigits: d, maximumFractionDigits: d}).format(n));
+  if (!quiet) countUp(root, (n, d) => new Intl.NumberFormat(lang, {minimumFractionDigits: d, maximumFractionDigits: d}).format(n));
 }
 bus.enhance = enhance;
 
-function paint() {
-  const v = BY_ID[state.view], root = $('#view');
+/** quiet: a data refresh of the page already on screen; entrance animations must not replay. */
+function paint(quiet = false) {
+  const v = BY_ID[state.view], root = $('#view'), html = document.documentElement;
   pendingPaint = false;
-  if (!state.role) { root.innerHTML = heading(state.view) + loginPanel(); enhance(root); return; }
-  root.innerHTML = heading(state.view) + v.render();
-  enhance(root);
-  v.mount?.(root);
+  if (quiet) html.dataset.quiet = '1';
+  if (!state.role) root.innerHTML = heading(state.view) + loginPanel();
+  else root.innerHTML = heading(state.view) + v.render();
+  enhance(root, quiet);
+  if (state.role) v.mount?.(root);
   status();
+  if (quiet) requestAnimationFrame(() => requestAnimationFrame(() => { delete html.dataset.quiet; }));
 }
 
 const editing = () => document.activeElement?.closest?.('#view') && document.activeElement.matches('input:not([type=checkbox]):not([type=range]),textarea,select');
@@ -73,7 +77,7 @@ const editing = () => document.activeElement?.closest?.('#view') && document.act
 function render() {
   if (editing()) { pendingPaint = true; return; }
   const y = scrollY;
-  paint();
+  paint(true);
   scrollTo(0, y);
 }
 bus.render = render;
@@ -84,12 +88,16 @@ async function show(id, mode = 'forward') {
   state.view = v;
   shellText();
   closeSheets();
-  const work = Promise.all([need(BY_ID[v].needs), BY_ID[v].load?.()]).catch(() => {});
-  if (!changed) { await work; paint(); return; }
-  await Promise.race([work, new Promise(r => setTimeout(r, 260))]);
+  let done = false;
+  const work = Promise.all([need(BY_ID[v].needs), BY_ID[v].load?.()]).catch(() => {}).then(() => { done = true; });
+  if (!changed) { await work; paint(true); return; }
+  // Cached data renders at once; otherwise wait briefly so the transition shows a complete page.
+  await Promise.race([work, new Promise(r => setTimeout(r, 450))]);
+  const complete = done;
   await transition(async () => { paint(); scrollTo(0, 0); }, mode);
+  if (complete) return;
   await work;
-  if (!editing()) paint();
+  if (state.view === v && !editing()) { const y = scrollY; paint(true); scrollTo(0, y); }
 }
 bus.go = id => { location.hash = id; };
 bus.refresh = async () => { const v = BY_ID[state.view]; await Promise.all([need(v.needs), v.load?.()]); render(); };

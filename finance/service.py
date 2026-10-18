@@ -670,6 +670,8 @@ class Finance(PlanningMixin, HabitsMixin):
                     status, cost = "unknown", None
             if status == row["status"] and status in ACTIVE:
                 return self.public(self._get(c, transfer_id))
+            if self.evm and body.get("rail") == "evm":
+                self.evm.invalidate()
             if body.get("rail", "sandbox") == "sandbox" and status == "completed":
                 total = int(c.execute("SELECT total FROM balances WHERE currency=?", (body["source"],)).fetchone()[0])
                 c.execute("UPDATE balances SET total=? WHERE currency=?", (str(total - cost), body["source"]))
@@ -732,7 +734,7 @@ class Finance(PlanningMixin, HabitsMixin):
         if self.evm:
             reserved = sum(b["reserve"] for b in active if b.get("rail") == "evm")
             try:
-                total = self.evm.balance()
+                total = self.evm.display_balance()
                 out.append({"currency": "ETH", "decimals": 18, "total": str(total), "reserved": str(reserved), "rail": "evm",
                             "available": str(max(0, total - reserved)),
                             "source": "RPC latest block; reservation held until confirmations"})

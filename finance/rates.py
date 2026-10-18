@@ -65,6 +65,8 @@ class Rates:
         with self._lock:
             hit = self._cache.get(key)
             if hit and hit[0] > time.time() - self.ttl and not self.client:
+                if hit[1] is None:  # a pair the sources do not cover, confirmed recently
+                    raise Denied("reference data unavailable or unsupported; no synthetic fallback", "rates_unavailable")
                 return hit[1]
         today = datetime.now(timezone.utc).date()
         start = today - timedelta(days=max(days, 14))
@@ -78,6 +80,8 @@ class Rates:
                     return result
         except Exception:
             raise Denied("reference data unavailable or unsupported; no synthetic fallback", "rates_unavailable") from None
+        with self._lock:
+            self._cache[key] = (time.time(), None)  # only confirmed "not covered", never network failures
         raise Denied("reference data unavailable or unsupported; no synthetic fallback", "rates_unavailable")
 
     @staticmethod

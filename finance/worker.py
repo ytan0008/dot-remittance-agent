@@ -12,6 +12,8 @@ async def run(finance, stop, interval=3):
             await asyncio.to_thread(finance.reconcile_open)
             if tick % 20 == 0:
                 await asyncio.to_thread(finance.refresh_reminders)
+            if tick % 4 == 0 and finance.evm:
+                await asyncio.to_thread(finance.evm.info, 10)  # keep the wallet view warm; RPC calls are slow
             if tick % 600 == 0:
                 await asyncio.to_thread(finance.check_rate_alerts)
         except Exception:  # keep tracking; details may contain RPC credentials, so do not log them
