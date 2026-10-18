@@ -1,81 +1,81 @@
 <div align="center">
 
-# ◉ DOT · AI 跨境汇款助手
+**English** · [简体中文](README.zh-CN.md)
 
-**一个会「理解 · 规划 · 安全执行」的金融 Agent —— 拥有自己的链上钱包，只在你划定的边界内花钱。**
+# ◉ DOT · AI Cross-Border Remittance Agent
 
-*An AI remittance agent that understands, plans and executes safely — with its own on-chain wallet, spending only inside the limits you grant.*
+**A finance agent that understands, plans and executes safely — with its own on-chain wallet, spending only inside the limits you grant.**
 
 ![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Sepolia](https://img.shields.io/badge/EVM-Sepolia%20testnet-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-96%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
-![总览](docs/screenshots/overview.png)
+![Overview](docs/screenshots/overview.png)
 
 </div>
 
 ---
 
-## 这是什么
+## What it is
 
-跨境汇款时，人们要同时考虑汇率、手续费、可用资金、收款人和到账时间。**参考汇率算出的金额 ≠ 扣费后真正到账的金额**，最低手续费也不一定到账最多。
+Sending money across borders means weighing exchange rates, fees, available funds, recipient details and delivery time at once. **The amount implied by a reference rate is not what arrives after charges**, and the lowest advertised fee does not always deliver the most.
 
-DOT 是一个自然语言 AI Agent，帮你：
+DOT is a natural-language AI agent that helps you:
 
-- 🔍 **看懂汇率**：真实的 ECB 日参考汇率，带来源与时间；按你的汇款方向解读历史高低位
-- ⚖️ **比较方案**：参考计算、模拟方案、沙盒报价三者严格区分，按到账金额或速度排序
-- 📝 **准备支付**：固定发送额，或按“对方要收到多少”反算
-- 🛡️ **安全执行**：13 项风控检查 + 你的明确授权，Agent 永远不能批准自己的支付
-- ⛓️ **链上自主花钱**：Agent 拥有自己的加密钱包，在你授予的预授权（固定收款人、单笔上限、总预算、期限）内自主签名转账
-- 🧾 **全程可追溯**：谁授权了什么、跑了哪些检查、之后发生了什么，一条审计轨迹全部回答
+- 🔍 **Read rates honestly** — real ECB daily reference rates with source and timestamp, and historical position interpreted for *your* transfer direction
+- ⚖️ **Compare options** — reference calculations, simulated options and the sandbox quote are kept strictly apart, ranked by amount received or speed
+- 📝 **Prepare payments** — fix the amount you send, or the amount the recipient must receive (reverse-quoted)
+- 🛡️ **Execute safely** — 13 guardrail checks plus your explicit authorization; the agent can never approve its own payment
+- ⛓️ **Spend on-chain autonomously** — the agent owns an encrypted wallet and signs transfers by itself, but only inside a mandate you grant (fixed recipient, per-payment cap, total budget, expiry)
+- 🧾 **Trace everything** — one audit trail answers who authorized what, which checks ran, and what happened next
 
-> 本项目实现了课程/产品文档《AI Cross-Border Remittance Assistant》v4.0 中的全部功能模块（4.1–4.15），对照表见[下文](#-文档需求对照)。
+> Implements every functional module (4.1–4.15) of the product specification *AI Cross-Border Remittance Assistant* v4.0 — see the [requirements mapping](#-requirements-mapping).
 
 ---
 
-## ✨ 亮点
+## ✨ Highlights
 
-### 1. 理解 → 规划 → 执行，每一步都看得见
+### 1. Understand → plan → act, every stage visible
 
-Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种收款人、缺失信息、计划步骤**，再按权限等级调用工具。三个阶段通过 SSE 实时流式呈现，工具结果以卡片展示（汇率、比较、草稿、链上状态），并标注数据类型——参考数据、模拟、账本记录还是链上状态。
+On each turn the agent first calls `record_plan` to record its **intent, extracted amounts/currencies/recipient, missing details and planned steps**, then calls tools within its permission tier. The three stages stream live over SSE, and tool results render as cards (rates, comparisons, drafts, on-chain status), each labeled by data kind — reference data, simulation, ledger record or on-chain state.
 
-![AI 助手](docs/screenshots/agent.png)
+![AI agent](docs/screenshots/agent.png)
 
-- 未配置大模型时，由**离线规则规划器**驱动同一条流水线（明确标注“不是 AI”），支持 6 种语言的常见意图，缺信息会追问并在下一句补全
-- 配置任意 **OpenAI 兼容**、支持 function calling 的模型后即为真 AI
-- 模型工具里**没有**“批准”“授予预授权”“提高额度”——说“好的”永远不等于授权
+- Without a model key, an **offline rule planner** drives the same pipeline (clearly labeled “not an AI model”). It understands common intents in 6 languages, asks for missing details and fills them from your next message.
+- Configure any **OpenAI-compatible** model with function calling and it becomes a real AI agent.
+- The model has **no** tool to approve payments, grant mandates or raise limits — saying “OK” never authorizes anything.
 
-### 2. 先比较，再汇款
+### 2. Compare before you send
 
-![方案比较](docs/screenshots/compare.png)
+![Comparison](docs/screenshots/compare.png)
 
-输入金额实时比较：参考汇率基准、三种模拟方案（银行电汇 / 在线汇款 / 即时取现）与可执行的沙盒报价，列出固定费、百分比费、适用汇率、价差、时效、较参考损失和**未包含的费用**。
+Live comparison as you type: a reference-rate benchmark, three simulated options (bank wire / online remittance / instant pickup) and the executable sandbox quote — with fixed and percentage fees, applied rate, spread, delivery estimate, loss versus reference, and **charges not included**.
 
-### 3. 授权必须是一个刻意的动作
+### 3. Authorization is a deliberate act
 
-![授权](docs/screenshots/authorize.png)
+![Authorization](docs/screenshots/authorize.png)
 
-授权屏显示环境标签、精确金额、费率来源、报价倒计时、状态时间线和逐项风控检查。勾选确认后需要**长按圆环**才能授权；授权绑定详情摘要（SHA-256），任何改动都会使其失效。
+The authorization screen shows the environment label, exact amounts, rate source, a live quote countdown, the status timeline and every guardrail check. After ticking the confirmation you must **press and hold** the ring. The approval is bound to a SHA-256 digest of the exact details — any change voids it.
 
-### 4. AI 拥有自己的链上钱包
+### 4. The AI owns its own wallet
 
-后端首次启动时为 Agent 生成**加密 keystore**（私钥只存在于签名进程内存，模型、浏览器、日志都拿不到）。你在「权限」页授予预授权后，Agent 就能在范围内自主转账 Sepolia ETH，并按确认数跟踪到完成。
+On first start the backend creates an **encrypted keystore** for the agent. The private key lives only in the signer process — never in the model, the browser or the logs. Once you grant a mandate on the Permissions page, the agent can send Sepolia ETH on its own within that scope and tracks each transaction to the required confirmations.
 
-![权限](docs/screenshots/permissions.png)
+![Permissions](docs/screenshots/permissions.png)
 
-### 5. 黑白点线圆 · 会动的极简
+### 5. Black & white · dots, lines, circles · in motion
 
-| 拉近推远 · 景深模糊 | 深色模式 |
+| Pull close · depth-of-field blur | Dark mode |
 | --- | --- |
-| ![缩放](docs/screenshots/zoom.png) | ![深色](docs/screenshots/dark.png) |
+| ![Zoom](docs/screenshots/zoom.png) | ![Dark](docs/screenshots/dark.png) |
 
-- 点阵背景随鼠标形成**放大镜**，点线圆星群缓慢漂移、随滚动视差
-- 页面切换的**景深过渡**：前进时旧页推远模糊、新页拉近；手机**左右滑动**切页
-- 旅程轨道图与汇率图支持**滚轮/双指缩放、拖拽平移**，点击节点拉近并让背景层虚化
-- 弹窗从点击处缩放展开、背景模糊；滚动揭示、3D 卡片倾斜、磁吸按钮、数字滚动、绘线动画
-- 尊重 `prefers-reduced-motion`；零外部依赖，严格 CSP（仅 `'self'`）
+- The dot-grid background becomes a **magnifying lens** around the cursor; a constellation of dots, lines and circles drifts with scroll parallax
+- **Depth transitions** between pages: going forward pushes the old page away and blurs it while the new one pulls close; **swipe** between pages on mobile
+- The journey orbit and the rate chart support **wheel / pinch zoom and drag to pan**; clicking a node pulls the camera close and blurs the background layers
+- Modals zoom out of the click point over a blurred backdrop; scroll reveal, 3D card tilt, magnetic buttons, count-up numbers, line-drawing animations
+- Respects `prefers-reduced-motion`; zero external dependencies under a strict `'self'` CSP
 
-### 6. 六种语言
+### 6. Six languages
 
-English · 简体中文 · 繁體中文 · Tiếng Việt · 日本語 · 한국어 —— 数字、日期、地区名均用 `Intl` 本地化，后端错误码由前端翻译。
+English · 简体中文 · 繁體中文 · Tiếng Việt · 日本語 · 한국어 — numbers, dates and region names localized with `Intl`; backend errors arrive as stable codes and are translated in the UI.
 
 | 한국어 | Tiếng Việt |
 | --- | --- |
@@ -83,130 +83,130 @@ English · 简体中文 · 繁體中文 · Tiếng Việt · 日本語 · 한국
 
 ---
 
-## 🏗 架构
+## 🏗 Architecture
 
 ```mermaid
 flowchart LR
-    U[用户 · 6 种语言 UI] -->|会话 cookie / SSE| N[Nginx]
+    U[User · 6-language UI] -->|session cookie / SSE| N[Nginx]
     N --> API[FastAPI]
-    API --> AG[Agent<br/>理解 → 规划 → 执行]
-    AG -->|白名单工具 · 权限等级| S[Finance 服务]
+    API --> AG[Agent<br/>understand → plan → act]
+    AG -->|whitelisted tools · permission tiers| S[Finance service]
     API --> S
-    S --> G[13 项风控检查]
-    G --> SB[沙盒提供方<br/>本地模拟 · 异步结算]
-    G --> EVM[Agent 钱包<br/>Sepolia · 加密 keystore]
-    S --> R[参考汇率<br/>ECB / Frankfurter]
-    S --> DB[(SQLite<br/>账本 · 追加式审计)]
-    W[后台 worker] -->|对账 · 提醒 · 汇率提醒| S
+    S --> G[13 guardrail checks]
+    G --> SB[Sandbox provider<br/>local simulation · async settlement]
+    G --> EVM[Agent wallet<br/>Sepolia · encrypted keystore]
+    S --> R[Reference rates<br/>ECB / Frankfurter]
+    S --> DB[(SQLite<br/>ledger · append-only audit)]
+    W[Background worker] -->|reconcile · reminders · rate alerts| S
 ```
 
-| 模块 | 文件 |
+| Module | Files |
 | --- | --- |
-| Agent（模型循环 + 离线规则规划器） | `finance/agent.py`, `finance/agent_rules.py` |
-| 支付核心、风控、授权、预授权、路线 | `finance/service.py` |
-| 比较、情景、目标预算、建议与提案 | `finance/planning.py` |
-| 付款习惯、提醒去重、汇率提醒 | `finance/habits.py` |
-| 参考汇率、历史分析、回测预测 | `finance/rates.py` |
-| 沙盒提供方 / EVM 钱包 | `finance/providers.py`, `finance/wallet.py` |
-| API、SSE、独立服务 | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
-| 前端（原生 ES modules） | `frontend/dist/js/**` |
+| Agent (model loop + offline rule planner) | `finance/agent.py`, `finance/agent_rules.py` |
+| Payments core, guardrails, approvals, mandates, routes | `finance/service.py` |
+| Comparison, scenarios, goals & budget, decisions & proposals | `finance/planning.py` |
+| Payment habits, deduplicated reminders, rate alerts | `finance/habits.py` |
+| Reference rates, historical analysis, backtested forecast | `finance/rates.py` |
+| Sandbox provider / EVM wallet | `finance/providers.py`, `finance/wallet.py` |
+| API, SSE, standalone server | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
+| Frontend (native ES modules) | `frontend/dist/js/**` |
 
 ---
 
-## 🚀 快速开始
+## 🚀 Getting started
 
-### Docker（推荐）
+### Docker (recommended)
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.lock.txt
-.\.venv\Scripts\python scripts/configure.py      # 生成 .env：令牌、Sepolia RPC、钱包密码（不输出密钥）
+.\.venv\Scripts\python scripts/configure.py      # writes .env: tokens, Sepolia RPC, wallet password (never printed)
 docker compose up --build -d --wait
 ```
 
-打开 **http://localhost:8787**。本机演示模式会自动以 Owner 身份登录（正式链上会拒绝演示登录）。
+Open **http://localhost:8787**. Local demo mode signs you in as the owner automatically (demo login is always refused when a live chain is configured).
 
-### 不用 Docker
+### Without Docker
 
 ```powershell
-$env:EVM_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com'   # 留空则只运行沙盒
-$env:AGENT_WALLET_PASSWORD = '<至少 12 个字符>'
+$env:EVM_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com'   # leave empty to run the sandbox only
+$env:AGENT_WALLET_PASSWORD = '<at least 12 characters>'
 $env:ENABLE_DEMO_LOGIN = 'true'
-.\.venv\Scripts\python -m finance.cli serve       # UI: http://127.0.0.1:8000  · API 文档: /api/docs
+.\.venv\Scripts\python -m finance.cli serve       # UI: http://127.0.0.1:8000 · API docs: /api/docs
 ```
 
-### 接入大模型（可选）
+### Connect a language model (optional)
 
-在 `.env` 设置 `OPENAI_API_KEY`、`OPENAI_MODEL`，可选 `OPENAI_BASE_URL`（任意 OpenAI 兼容服务），然后 `docker compose up -d --force-recreate backend`。
+Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenAI-compatible service) in `.env`, then run `docker compose up -d --force-recreate backend`.
 
-### 让 Agent 在链上自主花钱
+### Let the agent spend on-chain by itself
 
-1. 「钱包」页复制 Agent 地址，用 Sepolia 水龙头充值测试 ETH
-2. 「钱包 → 添加收款人 → Agent 钱包」填入收款地址
-3. 「权限」页授予预授权：收款人、单笔上限、总预算、有效期（≤ 7 天，gas 计入预算）
-4. 在 AI 助手说 `Send 0.001 ETH to <收款人ID> for test`，再说 `execute it` —— Agent 在预授权内自主签名广播，回执附 Etherscan 链接
+1. On **Wallets**, copy the agent's address and fund it with test ETH from a Sepolia faucet
+2. **Wallets → Add recipient → Agent wallet**: enter the receiving address
+3. On **Permissions**, grant a mandate: recipient, per-payment cap, total budget, validity (≤ 7 days; gas counts toward the budget)
+4. Tell the agent `Send 0.001 ETH to <recipient-id> for test`, then `execute it` — it signs and broadcasts inside the mandate, and the receipt links to Etherscan
 
-### 沙盒测试金额
+### Sandbox test amounts
 
-| 金额小数 | 结果 |
+| Amount ending in | Result |
 | --- | --- |
-| 普通金额 | 提交 → 处理中 → 约 8 秒后完成，结算一次 |
-| `.13` 结尾 | 服务商拒绝 → 失败，释放预留资金 |
-| `.57` 结尾 | 响应丢失 → “结果待核对”，按自身 ID 查回原交易，**绝不新建第二笔** |
+| anything else | submitted → processing → completed after ~8 s, settled exactly once |
+| `.13` | provider rejects → failed, reservation released |
+| `.57` | response lost → “outcome unknown”; the original payment is found by its own ID — **never a second payment** |
 
 ---
 
-## 📋 文档需求对照
+## 📋 Requirements mapping
 
-| 模块 | 实现要点 |
+| Module | What is implemented |
 | --- | --- |
-| 4.1 资金与转账需求 | 固定发送额或目标到账额（反算保证不少于目标）、用途、到账日期、关联目标；缺失信息先追问 |
-| 4.2 地区与 APEC 路线 | 21 个 APEC 经济体（币种/语言/时区）；路线增删启停；支付需单独开启且服务商支持；参考数据验证能力 |
-| 4.3 最新汇率 | ECB 优先，缺失时用 Frankfurter 混合源并标注；来源、方向、观测日、频率、变化、交叉推导；**不编造** |
-| 4.4 历史分析 | 30/90/365 天最低最高平均、百分位、高中低位、新高新低、覆盖率；按方向解读 |
-| 4.5 预测与情景 | 实验性 7 天模型 + 滚动回测，与“不变汇率”基线对比、留出数据检验区间覆盖；情景计算器 |
-| 4.6 方案比较 | 参考计算 / 模拟方案 / 沙盒报价三类区分；按到账或速度排序并说明依据；未计费用披露 |
-| 4.7 多币种资金 | 分币种总额/可用/预留；参考等值注明来源且“并非兑换”；确认后才结算，失败才释放 |
-| 4.8 目标与预算 | 已完成与已计划分离；收入/支出/安全缓冲/自填持有；一次性 vs 分期与资金缺口 |
-| 4.9 自然语言 Agent | 首步强制记录计划；SSE 流式三阶段；数据类型标注；聊天与界面共享状态 |
-| 4.10 权限与风控 | T1 查看 / T2 准备 / T3 提交；13 项检查在授权前与提交前各跑一次，逐项入审计 |
-| 4.11 端到端沙盒转账 | 报价 → 风控 → 授权屏 → 长按授权 → 幂等提交 → 异步跟踪 → 结算 → 回执；失败与超时恢复 |
-| 4.12 授权与历史 | 接受建议 / 确认修改 / 授权支付 三类独立记录；修改即作废旧授权 |
-| 4.13 审计 | 时间、执行者、动作、结果、关联 ID、请求 ID；拒绝也记录；敏感信息打码；触发器禁止改删 |
-| 4.14 信用习惯 | 应付项目与每月重复、按时/逾期、内部指标（显著标注“不是信用评分”）、信用知识 |
-| 4.15 提醒与回执 | 截止、报价过期、未决交易、资金不足、目标汇率；指纹去重；可打印回执 |
+| 4.1 Funds & transfer requirements | Fixed send amount or target receive amount (reverse quote never delivers less); purpose, arrival date, linked goal; missing details are asked for first |
+| 4.2 Regional & APEC routes | 21 APEC economies (currency / languages / time zones); add, enable and disable routes; payments enabled separately and only where the provider supports the pair; capabilities verified against reference data |
+| 4.3 Latest rates | ECB first, Frankfurter blended composite when ECB lacks the pair (labeled); source, direction, observation date, frequency, change, cross-rate derivation; **never invented** |
+| 4.4 Historical analysis | 30/90/365-day min, max, average, percentile, low/mid/high position, new highs/lows, coverage; read in your direction |
+| 4.5 Forecasts & scenarios | Experimental 7-day model with rolling backtest against an unchanged-rate baseline and held-out interval coverage; scenario calculator |
+| 4.6 Transfer comparison | Reference calculation / simulated option / sandbox quote kept apart; ranking by receive or speed with its basis; undisclosed charges listed |
+| 4.7 Multi-currency funds | Per-currency total / available / reserved; reference equivalents with source, labeled “not a conversion”; settle only on confirmed completion, release only on confirmed failure |
+| 4.8 Goals & budget | Completed and planned kept apart; income / expense / safety buffer / user-entered holdings; one-time vs installments and funding shortfall |
+| 4.9 Natural-language agent | Mandatory plan first; three stages streamed over SSE; data-kind labels; chat and UI share one state |
+| 4.10 Permission tiers & guardrails | T1 view / T2 prepare / T3 submit; 13 checks run before approval and again before submission, each recorded in the audit log |
+| 4.11 End-to-end sandbox transfer | Quote → guardrails → authorization screen → hold to authorize → idempotent submit → async tracking → settlement → receipt; failure and timeout recovery |
+| 4.12 Approvals & history | Accepting a recommendation, confirming a change and authorizing a payment are recorded separately; any change voids the old approval |
+| 4.13 Audit log | Time, actor, action, outcome, correlation ID, request ID; denials recorded too; sensitive identifiers masked; triggers block edits and deletes |
+| 4.14 Credit-building support | Obligations with monthly recurrence, on-time / late history, an internal indicator clearly labeled “not a credit score”, credit education |
+| 4.15 Reminders & receipts | Deadlines, quote expiry, unresolved payments, insufficient funds, target rates; fingerprint deduplication; printable receipts |
 
 ---
 
-## 🔐 安全模型
+## 🔐 Security model
 
-- **角色分离**：Owner / Agent / Viewer 令牌由后端区分；浏览器使用 HttpOnly + SameSite=Strict 会话，写请求要求同源头
-- **授权绑定**：沙盒支付需 Owner 对报价摘要逐笔授权；字段、收款人变化或报价过期即失效
-- **链上**：先持久化已签名交易再广播、未决期间不换 nonce、校验 chain ID 与区块哈希、gas 上限、仅普通地址原生 ETH；非 Sepolia 需显式开启并使用独立数据库
-- **精确金额**：后端一律最小单位整数，超过 2^53 以字符串传输，前端 BigInt 格式化
-- **模型约束**：工具白名单、参数校验、轮数上限；疑似私钥/API key 的消息直接拒绝
+- **Separate roles**: owner / agent / viewer tokens are distinguished server-side; browser sessions use HttpOnly + SameSite=Strict cookies and writes require a same-origin header
+- **Bound authorization**: every sandbox payment needs the owner's approval of its quote digest; any field change, recipient change or quote expiry voids it
+- **On-chain**: the signed transaction is persisted before broadcast; no new nonce while unresolved; chain ID and block hash checked; gas ceiling; plain native ETH to normal accounts only; non-Sepolia chains need an explicit opt-in and a separate database
+- **Exact amounts**: integer minor units everywhere; values above 2^53 travel as strings and are formatted with BigInt in the browser
+- **Model constraints**: tool whitelist, argument validation, bounded rounds; messages that look like private keys or API keys are rejected
 
 ---
 
-## 🧪 测试
+## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 96 项：服务、风控、进程内 EVM、API、规则规划器、6 语言建议语句
-.\.venv\Scripts\python -m finance.demo     # 离线演示：未授权被拒 → 授权 → 执行 → 幂等 → 超时恢复
+.\.venv\Scripts\python -m pytest -q        # 96 tests: service, guardrails, in-process EVM, API, rule planner, suggestions in 6 languages
+.\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
 docker run --rm --network remittance-agent_default --mount "type=bind,source=$PWD/artifacts,target=/artifacts" remittance-agent-browser-test
 ```
 
-浏览器验收：完整支付流程 + 11 个页面 × 6 种语言 × 桌面/手机全量巡检（无 JS 错误、无漏翻、无横向溢出）。
+Browser acceptance covers the full payment flow plus a sweep of 11 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
 
 ---
 
-## ⚠️ 已知边界
+## ⚠️ Known limits
 
-- 文档要求的“服务商沙盒”需真实服务商凭据，当前以**带标注的本地模拟**代替；接入时实现 `quote / submit / find / status` 即可
-- Agent 钱包仅支持 Sepolia 原生 ETH 普通转账；ETH 转账不等于法币跨境汇款，无跨链桥或出入金
-- 预测为实验性功能；付款习惯指标不是信用评分，沙盒记录不构成信用历史
-- 单用户开发原型。正式上线还需 HSM/KMS 签名、身份与 MFA、多租户、限流、备份与合规审查
+- The spec's “provider-supported sandbox” needs real provider credentials; it is replaced by a **clearly labeled local simulation**. Connecting a provider means implementing `quote / submit / find / status`.
+- The agent wallet supports plain native ETH transfers on Sepolia only. An ETH transfer is not a fiat remittance; there is no bridge or on/off-ramp.
+- Forecasts are experimental; the habit indicator is not a credit score, and sandbox records do not build credit history.
+- Single-user development prototype. Production would still need HSM/KMS signing, identity and MFA, multi-tenancy, rate limiting, backups and compliance review.
 
 <div align="center"><sub>◉ DOT — every action has a clear boundary.</sub></div>
