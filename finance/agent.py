@@ -215,8 +215,9 @@ class Agent:
             return {"type": "tool_result", "tool": name, "args": raw, "ok": True, "result": result}
         except Denied as exc:
             self.finance.audit_denial("agent", "tool." + name, None, str(exc), code=exc.code)
+            params = {k: v for k, v in exc.params.items() if isinstance(v, (str, int, float))}
             return {"type": "tool_result", "tool": name, "args": args if isinstance(args, dict) else None, "ok": False,
-                    "error": str(exc), "code": exc.code}
+                    "error": str(exc), "code": exc.code, "params": params}
         except Exception:
             self.finance.audit_denial("agent", "tool." + name, None, "tool failed")
             return {"type": "tool_result", "tool": name, "args": None, "ok": False, "error": "tool failed; inspect local service",

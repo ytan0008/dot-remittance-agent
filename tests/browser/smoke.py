@@ -42,6 +42,10 @@ with sync_playwright() as p:
     page.goto(base)
     expect(page.locator('#side-status')).to_have_text('Service connected', timeout=30000)
     assert 'Simulation' in page.locator('#env-badge').inner_text(), 'never test spending against a live environment'
+    # The agent steps need tier 3; restore whatever the owner had chosen when the test ends.
+    api = "async (a) => { const r = await fetch('/api' + a[0], {method: a[1], headers: {'Content-Type': 'application/json', 'X-Workspace-Request': '1'}, body: a[2] ? JSON.stringify(a[2]) : undefined}); return r.json(); }"
+    original_tier = page.evaluate(api, ['/settings', 'GET', None])['agent_tier']
+    page.evaluate(api, ['/settings/tier', 'PUT', {'tier': 3}])
 
     page.goto(base + '/#wallets'); page.wait_for_timeout(1200)
     if not page.locator('.list .row', has_text='ui-acceptance').count():
@@ -86,6 +90,7 @@ with sync_playwright() as p:
         page.goto(base + '/#' + view); page.wait_for_timeout(1500)
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'mobile overflow on {view}'
     page.screenshot(path=str(out / 'mobile.png'))
+    page.evaluate(api, ['/settings/tier', 'PUT', {'tier': original_tier}])
     browser.close()
 
 assert not errors, errors

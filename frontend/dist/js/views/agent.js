@@ -12,7 +12,7 @@ export const suggestions = () => [t('agent.s1'), t('agent.s2'), t('agent.s3'), t
 
 function card(step) {
   const r = step.result;
-  if (step.status === 'fail') return `<div class="rcard fail"><b>${t('agent.blocked')}</b><p>${esc(step.code && has('err.' + step.code) ? t('err.' + step.code) : step.error)}</p></div>`;
+  if (step.status === 'fail') return `<div class="rcard fail"><b>${t('agent.blocked')}</b><p>${esc(step.code && has('err.' + step.code) ? t('err.' + step.code, step.params) : step.error)}</p></div>`;
   if (step.status !== 'ok' || !r) return '';
   switch (step.tool) {
     case 'get_balances':
@@ -133,7 +133,7 @@ export async function send(text) {
       }
       if (e.type === 'tool_result') {
         const s = m.steps.find(x => x.tool === e.tool && x.status === 'running') || {};
-        Object.assign(s, {status: e.ok ? 'ok' : 'fail', result: e.result, error: e.error, code: e.code});
+        Object.assign(s, {status: e.ok ? 'ok' : 'fail', result: e.result, error: e.error, code: e.code, params: e.params});
         if (['prepare_payment', 'modify_payment', 'execute_payment', 'reconcile_payment', 'propose_change'].includes(e.tool)) invalidate();
       }
       if (e.type === 'message') m.text = e.text || (e.code ? t('err.' + e.code) : '');
