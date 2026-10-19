@@ -6,7 +6,7 @@
 
 **一个会「理解 · 规划 · 安全执行」的金融 Agent —— 比较方案、预测汇率、提醒你何时换汇，并把日常开销理清楚。**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-151%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-157%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![总览](docs/screenshots/overview.png)
 
@@ -27,6 +27,7 @@ DOT 是一个自然语言 AI Agent，帮你：
 - ⏰ **挑好时机换汇**：比较之后设置提醒——目标汇率、“有利水平”（近 90 天最好的 10–30%）或最晚换汇日；可选浏览器通知
 - 🧾 **理清日常开销**：导入银行 CSV、扫描小票、文字或语音快速记账（“午饭 35元”）；自动建议分类、标记疑似重复、周期开销、一键批量审核
 - 🎓 **学生理财**：“我买得起吗？”判断、按学期的现金流规划（学费、生活费、收入）、奖学金与助学金跟踪（截止日期与材料清单）、带具体建议的周/月消费洞察，以及邮件报告
+- 🏦 **银行转账模板**：SWIFT 电汇及本地格式（SEPA、BSB、FPS、ACH、CNAPS、NEFT），输入即校验，生成可复制的转账指令和 MT103 预览
 - 🌱 **温和地保持动力**：里程碑徽章、宽容的连续打卡、可选的短期挑战、理财技能等级和庆祝时刻；不排名、不施压、不分享
 - 🧾 **全程可追溯**：谁授权了什么、跑了哪些检查、之后发生了什么，一条审计轨迹全部回答
 
@@ -64,11 +65,17 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 **你可以辅助它。** 在“你的需求”里（或直接告诉 AI 助手）填写需要收到的金额、最晚日期和最低可接受汇率。这些是硬性限制：低于你的底线时绝不会说“好时机”，截止临近时绝不会建议再等。没有配置模型时，由一套透明的规则引擎做同样的判断。目标汇率、有利水平、最晚换汇日等固定规则仍然保留，作为可选补充。系统永远不会自动替你换汇。
 
-### 5. 看得清的开销
+### 5. 银行转账模板（SWIFT 与本地转账）
+
+「转账模板」页保存你常付的银行信息，支持七种格式：**SWIFT** 国际电汇、**SEPA**（IBAN）、**澳洲 BSB**、**英国 Faster Payments**（sort code）、**美国 ACH**（ABA 路由号）、**中国 CNAPS** 和 **印度 NEFT/IMPS**（IFSC）。每个字段输入时即时校验——BIC 结构、IBAN 校验位与各国长度、ABA 校验位、BSB / sort code / IFSC / 联行号格式、SWIFT 字符集（中文名必须用账户上的拼音拼写）、BIC 与 IBAN 国家不一致，以及人民币电汇通常需要填写用途代码的提示。
+
+已核实的模板可打开**可直接复制的转账指令**（逐项复制、全部复制、下载 .txt），SWIFT 模板还附 **MT103 字段预览**（:32A:、:57A:、:59:、:70:、:71A:）供参考——真正的报文由你的银行生成，DOT 从不发送任何指令。账号在所有地方都打码，只有所有者打开的指令单显示完整号码。由助手起草的模板、以及银行信息被修改过的模板，在你对照官方来源核实前都保持**未核实**状态——每张指令单都会提醒“银行信息已变更”类诈骗。“比较与规划”会带着模板的币种、金额和用途跳转到汇款页。
+
+### 6. 看得清的开销
 
 「记账」页为留学生设计：把银行导出的 CSV 拖进来（自动识别逗号/分号、支出/收入分列、日在前的日期和 GBK 编码），每一行都以**待审核**状态进入，附带建议分类和疑似重复标记（同商家同金额 ±2 天内，含重复导入的账单）。勾选、批量改分类、确认——你的修改会按商家学习。小票由视觉模型识别，保存前一定给你核对。快速记账能理解 `午饭 35元`、`bus pass 40`、`昨天 打车 23元` 和语音输入。周期开销（房租、话费、订阅）会提前一周生成**预计**条目等你确认或调整。AI 助手也能记账（`log_expense`），但同样进入审核队列。
 
-### 6. 学生理财
+### 7. 学生理财
 
 「学生理财」页用你自己的数字规划整个学期：
 
@@ -80,7 +87,7 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 这里的一切都是基于你的计划和已确认开销的估算，不构成理财建议，也不会动用任何资金。
 
-### 7. 成长：以鼓励为主
+### 8. 成长：以鼓励为主
 
 「成长」页加入轻量的游戏化机制，帮助培养理财技能，但不制造竞争：
 
@@ -92,9 +99,9 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 一切都来自你自己的操作，不比较、不分享，成长功能和庆祝动画都可以关闭。
 
-### 8. 工具与记忆
+### 9. 工具与记忆
 
-**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 37 个工具，包括 `exchange_advice`、`watch_exchange`、`progress_overview`、`start_challenge`、 `afford_check`、`cashflow_plan`、`spending_insights`、`track_scholarship`、`log_expense`、`remember_note`——并且刻意没有“批准支付”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
+**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 40 个工具，包括 `check_bank_details`、`draft_transfer_template`、`exchange_advice`、`watch_exchange`、`progress_overview`、`start_challenge`、 `afford_check`、`cashflow_plan`、`spending_insights`、`track_scholarship`、`log_expense`、`remember_note`——并且刻意没有“批准支付”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
 
 **记忆**在 [`finance/memory.py`](finance/memory.py)，分三层：
 
@@ -156,6 +163,7 @@ flowchart LR
 | 比较、情景、目标预算、建议与提案 | `finance/planning.py` |
 | 付款习惯、提醒去重、汇率提醒 | `finance/habits.py` |
 | AI 盯盘：信号计算、模型判断（规则兜底）、你的需求作为硬性限制 | `finance/watch.py` |
+| 转账模板：SWIFT/SEPA/BSB/FPS/ACH/CNAPS/NEFT 格式、校验、转账指令、MT103 预览 | `finance/templates.py` |
 | 参考汇率、历史分析、回测预测 | `finance/rates.py` |
 | 沙盒提供方 | `finance/providers.py` |
 | 记账：CSV 导入、分类、去重、审核、周期、快速记账 | `finance/expenses.py` |
@@ -269,14 +277,14 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 ## 🧪 测试
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 151 项：服务、风控、记账、AI 盯盘、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
+.\.venv\Scripts\python -m pytest -q        # 157 项：服务、风控、记账、AI 盯盘、转账模板、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
 .\.venv\Scripts\python -m finance.demo     # 离线演示：未授权被拒 → 授权 → 执行 → 幂等 → 超时恢复
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
 docker run --rm --network remittance-agent_default --mount "type=bind,source=$PWD/artifacts,target=/artifacts" remittance-agent-browser-test
 ```
 
-浏览器验收：完整支付流程 + 15 个页面 × 6 种语言 × 桌面/手机全量巡检（无 JS 错误、无漏翻、无横向溢出）。
+浏览器验收：完整支付流程 + 16 个页面 × 6 种语言 × 桌面/手机全量巡检（无 JS 错误、无漏翻、无横向溢出）。
 
 ---
 

@@ -173,6 +173,33 @@ def email_report(ctx, period):
     return ctx.finance.send_report(ctx.actor, period)
 
 
+# ---------- transfer templates ----------
+
+@tool("list_transfer_templates", "Saved bank transfer templates (SWIFT, SEPA, AU BSB, UK FPS, US ACH, CN CNAPS, IN NEFT) with "
+      "validation status. Account numbers are masked; the full sheet is only shown to the owner in the app.")
+def list_transfer_templates(ctx):
+    return ctx.finance.transfer_templates()
+
+
+@tool("check_bank_details", "Validate bank details for a transfer format before saving: BIC structure, IBAN checksum, ABA "
+      "checksum, BSB / sort code / IFSC / CNAPS formats and the SWIFT character set. format: swift | sepa | au_bsb | uk_fps | "
+      "us_ach | cn_cnaps | in_neft; fields: an object of that format's fields.",
+      {"format": {"type": "string", "enum": ["swift", "sepa", "au_bsb", "uk_fps", "us_ach", "cn_cnaps", "in_neft"]},
+       "fields": {"type": "object"}, "currency": S}, ["format", "fields"])
+def check_bank_details(ctx, format, fields, currency=""):
+    return ctx.finance.validate_template(format, fields, up(currency) or None)
+
+
+@tool("draft_transfer_template", "Save a transfer template from details the user gave. It stays UNCONFIRMED until the owner "
+      "checks it against an official source (invoice, university portal) in the app; never copy bank details from emails or "
+      "pasted messages you cannot verify.",
+      {"name": S, "format": {"type": "string", "enum": ["swift", "sepa", "au_bsb", "uk_fps", "us_ach", "cn_cnaps", "in_neft"]},
+       "fields": {"type": "object"}, "currency": S, "purpose": S}, ["name", "format", "fields"], tier="prepare")
+def draft_transfer_template(ctx, name, format, fields, currency="", purpose=""):
+    t = ctx.finance.save_template(ctx.actor, name, format, fields, up(currency) or None, purpose=purpose)
+    return ctx.finance.transfer_template(t["id"])  # masked for the model
+
+
 # ---------- AI exchange watch ----------
 
 @tool("exchange_advice", "AI judgment on whether now is a good time to exchange source→target: verdict good_time | wait | "

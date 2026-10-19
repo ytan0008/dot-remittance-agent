@@ -6,7 +6,7 @@
 
 **A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-151%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-157%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -27,6 +27,7 @@ DOT is a natural-language AI agent that helps you:
 - ⏰ **Exchange at a good moment** — after comparing, set reminders: a target rate, a “favorable level” (top 10–30% of the last 90 days) or an exchange-by date; optional browser notifications
 - 🧾 **Keep spending in order** — import a bank CSV, scan a receipt, or quick-add by text or voice (“lunch 12.50”); suggested categories, duplicate flags, recurring expenses and one-click batch review
 - 🎓 **Plan student money** — “Can I afford this?” checks, a term-based cash-flow planner for tuition, living costs and income, a scholarship & grant tracker with deadlines and document checklists, weekly/monthly insights with concrete suggestions, and email reports
+- 🏦 **Bank transfer templates** — SWIFT wires and domestic formats (SEPA, BSB, FPS, ACH, CNAPS, NEFT), checked as you type, with copy-ready instructions and an MT103 preview
 - 🌱 **Stay motivated, kindly** — milestone badges, a forgiving check-in streak, short opt-in challenges, money-skill levels and celebration moments; no rankings, no pressure, nothing shared
 - 🧾 **Trace everything** — one audit trail answers who authorized what, which checks ran, and what happened next
 
@@ -64,11 +65,17 @@ Step ③ on the Send page starts with the **AI watch**. For every pair you use (
 
 **You can guide it.** Under *Your needs* (or simply by telling the assistant) give the amount you need to receive, the date you need it by and the lowest rate you accept. These are hard limits: a rate below your floor is never called a good time, and a close deadline is never told to wait. Without a model, a transparent rule engine makes the same kind of judgment. Fixed rules — a target rate, a favorable level, an exchange-by date — remain available as an optional extra. Nothing is ever exchanged automatically.
 
-### 5. Spending you can trust
+### 5. Bank transfer templates (SWIFT and domestic)
+
+The **Templates** page stores the bank details you pay often, in seven formats: **SWIFT** international wire, **SEPA** (IBAN), **Australian BSB**, **UK Faster Payments** (sort code), **US ACH** (ABA routing), **China CNAPS** and **India NEFT/IMPS** (IFSC). Every field is checked as you type — BIC structure, IBAN checksum and country length, ABA checksum, BSB / sort code / IFSC / CNAPS formats, the SWIFT character set (Chinese names must use the Latin spelling on the account), a BIC/IBAN country mismatch, and a reminder that CNY wires usually need a purpose code.
+
+A confirmed template opens a **copy-ready instruction sheet** (copy each field, copy all, download .txt) and, for SWIFT, an **MT103-style field preview** (:32A:, :57A:, :59:, :70:, :71A:) for reference — your bank builds the real message; DOT never sends instructions anywhere. Account numbers are masked everywhere except the owner's sheet. Templates drafted by the assistant, and templates whose bank details change, stay **unconfirmed** until you check them against an official source — the classic “our bank details have changed” scam is called out on every sheet. *Compare & plan* jumps to the Send page with the template's currency, amount and purpose.
+
+### 6. Spending you can trust
 
 The **Spending** page is built for students: drop the CSV your bank exports (comma/semicolon, debit/credit columns, day-first dates and GBK files are detected), and every row arrives **pending** with a suggested category and a duplicate flag (same merchant and amount within ±2 days, including re-imported statements). Select, recategorize in bulk and confirm — corrections are learned per merchant. Receipts are read by the vision model and always shown for checking before saving. Quick-add understands `lunch 12.50`, `bus pass 40`, `昨天 打车 23元` and voice input. Recurring expenses (rent, phone, subscriptions) create **expected** entries a week ahead to confirm or adjust. The assistant can log expenses too (`log_expense`), but they wait in the same review queue.
 
-### 6. Student money
+### 7. Student money
 
 The **Student money** page plans a whole term on your own figures:
 
@@ -80,7 +87,7 @@ The **Student money** page plans a whole term on your own figures:
 
 Everything here is an estimate from your plan and confirmed spending, never financial advice, and nothing moves money.
 
-### 7. Progress, the encouraging way
+### 8. Progress, the encouraging way
 
 The **Progress** page adds light game mechanics that build money skills without competition:
 
@@ -92,9 +99,9 @@ The **Progress** page adds light game mechanics that build money skills without 
 
 Everything comes from your own activity, nothing is compared or shared, and both progress features and celebrations can be switched off.
 
-### 8. Tools and memory
+### 9. Tools and memory
 
-**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 37 tools, including `exchange_advice`, `watch_exchange`, `progress_overview`, `start_challenge`, `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
+**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 40 tools, including `check_bank_details`, `draft_transfer_template`, `exchange_advice`, `watch_exchange`, `progress_overview`, `start_challenge`, `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
 
 **Memory** lives in [`finance/memory.py`](finance/memory.py), in three layers:
 
@@ -156,6 +163,7 @@ flowchart LR
 | Comparison, scenarios, goals & budget, decisions & proposals | `finance/planning.py` |
 | Payment habits, deduplicated reminders, exchange alerts (rate / favorable level / date) | `finance/habits.py` |
 | AI exchange watch: signals, model judgment with rule fallback, your needs as hard limits | `finance/watch.py` |
+| Transfer templates: SWIFT/SEPA/BSB/FPS/ACH/CNAPS/NEFT formats, validators, instruction sheet, MT103 preview | `finance/templates.py` |
 | Spending: CSV import, categories, duplicates, review, recurring, quick-add | `finance/expenses.py` |
 | Student money: scholarships, terms, cash flow, afford check, insights, email reports | `finance/student.py`, `finance/student_i18n.py`, `finance/mailer.py` |
 | Progress: badges, forgiving streak, challenges, levels, celebrations | `finance/motivation.py` |
@@ -269,14 +277,14 @@ Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP
 ## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 151 tests: service, guardrails, spending, AI exchange watch, student money, progress, email, reminders, API, rule planner, 6 languages
+.\.venv\Scripts\python -m pytest -q        # 157 tests: service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
 .\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
 docker run --rm --network remittance-agent_default --mount "type=bind,source=$PWD/artifacts,target=/artifacts" remittance-agent-browser-test
 ```
 
-Browser acceptance covers the full payment flow plus a sweep of 15 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
+Browser acceptance covers the full payment flow plus a sweep of 16 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
 
 ---
 

@@ -16,11 +16,12 @@ import {view as audit} from './views/audit.js';
 import {view as memory} from './views/memory.js';
 import {view as spending} from './views/spending.js';
 import {view as study} from './views/study.js';
+import {view as templates} from './views/templates.js';
 import {view as progressView, medal} from './views/progress.js';
 
-const VIEWS = [overview, agent, sendView, spending, payments, markets, plans, study, progressView, habits, wallets, autonomy, memory, routes, audit];
+const VIEWS = [overview, agent, sendView, templates, spending, payments, markets, plans, study, progressView, habits, wallets, autonomy, memory, routes, audit];
 const BY_ID = Object.fromEntries(VIEWS.map(v => [v.id, v]));
-const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'spending', 'payments']], ['nav.g_insight', ['markets', 'plans', 'study', 'progress', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
+const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'templates', 'spending', 'payments']], ['nav.g_insight', ['markets', 'plans', 'study', 'progress', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
 const DOCK = ['overview', 'agent', 'send', 'payments'];
 const ORDER = GROUPS.flatMap(g => g[1]);
 let pendingPaint = false, refreshTimer = 0, events = null, primed = false;

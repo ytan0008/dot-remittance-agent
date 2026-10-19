@@ -311,6 +311,27 @@ class WatchIn(Model):
     active: bool = True
 
 
+class TemplateIn(Model):
+    name: str = Field(max_length=80)
+    format: str
+    fields: dict
+    currency: str | None = None
+    recipient_id: str | None = None
+    amount: str | None = None
+    purpose: str = Field(default="", max_length=200)
+    notes: str = Field(default="", max_length=300)
+
+
+class TemplateCheck(Model):
+    format: str
+    fields: dict
+    currency: str | None = None
+
+
+class SheetIn(Model):
+    amount: str | None = None
+
+
 class Recommendation(Model):
     subject: str
     detail: dict
@@ -805,6 +826,45 @@ def create_app(finance=None, agent=None, background=None):
     def email_send(body: EmailSend, actor=Depends(role)):
         service().owner(actor)
         return service().send_report(actor, body.period)
+
+    # ---------- transfer templates (SWIFT and domestic bank instructions) ----------
+    @app.get("/transfer-formats")
+    def transfer_formats(actor=Depends(role)):
+        return service().transfer_formats()
+
+    @app.get("/transfer-templates")
+    def transfer_templates(actor=Depends(role)):
+        return service().transfer_templates()
+
+    @app.get("/transfer-templates/{tid}")
+    def transfer_template(tid: str, reveal: bool = False, actor=Depends(role)):
+        return service().transfer_template(tid, actor, reveal)
+
+    @app.post("/transfer-templates/validate")
+    def validate_template(body: TemplateCheck, actor=Depends(role)):
+        return service().validate_template(body.format, body.fields, body.currency)
+
+    @app.post("/transfer-templates")
+    def add_template(body: TemplateIn, actor=Depends(role)):
+        return service().save_template(actor, body.name, body.format, body.fields, body.currency, body.recipient_id, body.amount,
+                                       body.purpose, body.notes)
+
+    @app.put("/transfer-templates/{tid}")
+    def update_template(tid: str, body: TemplateIn, actor=Depends(role)):
+        return service().save_template(actor, body.name, body.format, body.fields, body.currency, body.recipient_id, body.amount,
+                                       body.purpose, body.notes, tid=tid)
+
+    @app.post("/transfer-templates/{tid}/confirm")
+    def confirm_template(tid: str, actor=Depends(role)):
+        return service().confirm_template(actor, tid)
+
+    @app.post("/transfer-templates/{tid}/sheet")
+    def template_sheet(tid: str, body: SheetIn, actor=Depends(role)):
+        return service().template_sheet(actor, tid, body.amount)
+
+    @app.delete("/transfer-templates/{tid}")
+    def delete_template(tid: str, actor=Depends(role)):
+        return service().delete_template(actor, tid)
 
     # ---------- AI exchange watch ----------
     @app.get("/exchange-advice")
