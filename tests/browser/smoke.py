@@ -46,51 +46,59 @@ with sync_playwright() as p:
     api = "async (a) => { const r = await fetch('/api' + a[0], {method: a[1], headers: {'Content-Type': 'application/json', 'X-Workspace-Request': '1'}, body: a[2] ? JSON.stringify(a[2]) : undefined}); return r.json(); }"
     original_tier = page.evaluate(api, ['/settings', 'GET', None])['agent_tier']
     page.evaluate(api, ['/settings/tier', 'PUT', {'tier': 3}])
+    try:  # restore the owner's tier even if an assertion fails midway
 
-    page.goto(base + '/#wallets'); page.wait_for_timeout(1200)
-    if not page.locator('.list .row', has_text='ui-acceptance').count():
-        page.get_by_role('button', name='Add recipient').first.click()
-        page.locator('#r-name').fill('UI acceptance payee'); page.locator('#r-id').fill('ui-acceptance')
-        page.locator('#r-country').select_option('CN'); page.locator('#r-account').fill('6222000011112222')
-        page.get_by_role('button', name='Save recipient').click()
-        expect(page.locator('#toast')).to_contain_text('Recipient saved')
+        page.goto(base + '/#wallets'); page.wait_for_timeout(1200)
+        if not page.locator('.list .row', has_text='ui-acceptance').count():
+            page.get_by_role('button', name='Add recipient').first.click()
+            page.locator('#r-name').fill('UI acceptance payee'); page.locator('#r-id').fill('ui-acceptance')
+            page.locator('#r-country').select_option('CN'); page.locator('#r-account').fill('6222000011112222')
+            page.get_by_role('button', name='Save recipient').click()
+            expect(page.locator('#toast')).to_contain_text('Recipient saved')
 
-    # Happy path: compare -> draft -> hold to authorize -> submit -> async settlement -> receipt and trail.
-    prepare_and_authorize(page, '12.50', 'UI acceptance · local test funds')
-    expect(page.locator('#modal .detail-top .chip')).to_contain_text('Completed', timeout=30000)
-    page.screenshot(path=str(out / 'receipt-flow.png'))
-    page.get_by_role('button', name='Receipt').click()
-    expect(page.locator('.receipt')).to_contain_text('LOCAL SIMULATION')
-    page.get_by_role('button', name='Back').click()
-    page.get_by_role('button', name='Audit trail').click()
-    expect(page.locator('.trail-summary')).to_be_visible()
-    page.keyboard.press('Escape')
+        # Happy path: compare -> draft -> hold to authorize -> submit -> async settlement -> receipt and trail.
+        prepare_and_authorize(page, '12.50', 'UI acceptance · local test funds')
+        expect(page.locator('#modal .detail-top .chip')).to_contain_text('Completed', timeout=30000)
+        page.screenshot(path=str(out / 'receipt-flow.png'))
+        page.get_by_role('button', name='Receipt').click()
+        expect(page.locator('.receipt')).to_contain_text('LOCAL SIMULATION')
+        page.get_by_role('button', name='Back').click()
+        page.get_by_role('button', name='Audit trail').click()
+        expect(page.locator('.trail-summary')).to_be_visible()
+        page.keyboard.press('Escape')
 
-    # Recovery case: the provider response is lost (x.57); the outcome stays unknown until a status query finds it.
-    prepare_and_authorize(page, '12.57', 'UI acceptance · timeout recovery')
-    expect(page.locator('#modal .detail-top .chip')).to_contain_text(re.compile('Outcome unknown|Submitted|Completed'), timeout=8000)
-    expect(page.locator('#modal .detail-top .chip')).to_contain_text('Completed', timeout=40000)
-    page.keyboard.press('Escape')
+        # Recovery case: the provider response is lost (x.57); the outcome stays unknown until a status query finds it.
+        prepare_and_authorize(page, '12.57', 'UI acceptance · timeout recovery')
+        expect(page.locator('#modal .detail-top .chip')).to_contain_text(re.compile('Outcome unknown|Submitted|Completed'), timeout=8000)
+        expect(page.locator('#modal .detail-top .chip')).to_contain_text('Completed', timeout=40000)
+        page.keyboard.press('Escape')
 
-    # Agent: understand -> plan -> act, and refusal to execute without authorization.
-    page.goto(base + '/#agent'); page.wait_for_timeout(1000)
-    page.locator('#chat-form textarea').fill('Send 5 AUD to ui-acceptance for books')
-    page.keyboard.press('Enter')
-    expect(page.locator('.msg.bot.done').last).to_contain_text('Draft prepared', timeout=20000)
-    expect(page.locator('.msg.bot.done').last.locator('.stage')).to_have_count(3)
-    page.locator('#chat-form textarea').fill('execute it')
-    page.keyboard.press('Enter')
-    expect(page.locator('.msg.bot.done').last).to_contain_text('approval', timeout=20000)
-    page.screenshot(path=str(out / 'agent.png'))
+        # Agent: understand -> plan -> act, and refusal to execute without authorization.
+        page.goto(base + '/#agent'); page.wait_for_timeout(1000)
+        # Works with the offline planner and with a real model: check behavior, not wording.
+        page.locator('#chat-form textarea').fill('Send 5 AUD to ui-acceptance for books')
+        page.keyboard.press('Enter')
+        page.wait_for_function("() => document.querySelectorAll('.msg.bot.done').length >= 2 && !document.querySelector('.msg.bot.live')", timeout=120000)
+        last = page.locator('.msg.bot').last
+        expect(last.locator('.stage')).to_have_count(3)
+        expect(last.locator('.rcard.draft')).to_be_visible()
+        draft_id = last.locator('.rcard.draft [data-action="detail"]').get_attribute('data-id')
+        page.locator('#chat-form textarea').fill('execute it')
+        page.keyboard.press('Enter')
+        page.wait_for_function("() => document.querySelectorAll('.msg.bot.done').length >= 3 && !document.querySelector('.msg.bot.live')", timeout=120000)
+        status = page.evaluate(api, ['/transfers/' + draft_id, 'GET', None])['status']
+        assert status == 'draft', f'agent must not submit an unauthorized payment (status {status})'
+        page.screenshot(path=str(out / 'agent.png'))
 
-    page.goto(base + '/#audit'); page.wait_for_timeout(1200)
-    expect(page.locator('.audit-group').first).to_be_visible()
-    page.set_viewport_size({'width': 390, 'height': 844})
-    for view in ('overview', 'send', 'payments'):
-        page.goto(base + '/#' + view); page.wait_for_timeout(1500)
-        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'mobile overflow on {view}'
-    page.screenshot(path=str(out / 'mobile.png'))
-    page.evaluate(api, ['/settings/tier', 'PUT', {'tier': original_tier}])
+        page.goto(base + '/#audit'); page.wait_for_timeout(1200)
+        expect(page.locator('.audit-group').first).to_be_visible()
+        page.set_viewport_size({'width': 390, 'height': 844})
+        for view in ('overview', 'send', 'payments'):
+            page.goto(base + '/#' + view); page.wait_for_timeout(1500)
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'mobile overflow on {view}'
+        page.screenshot(path=str(out / 'mobile.png'))
+    finally:
+        page.evaluate(api, ['/settings/tier', 'PUT', {'tier': original_tier}])
     browser.close()
 
 assert not errors, errors

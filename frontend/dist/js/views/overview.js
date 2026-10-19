@@ -122,6 +122,7 @@ export const view = {
       </div>`;
   },
   mount(root) {
+    root.querySelectorAll('#mini-chat-log').forEach(log => { log.scrollTop = log.scrollHeight; });
     root.querySelectorAll('.bar-fill[data-ratio]').forEach(el => el.style.setProperty('--ratio', el.dataset.ratio));
     const svg = root.querySelector('#orbit');
     if (!svg) return;

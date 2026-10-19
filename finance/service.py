@@ -59,10 +59,10 @@ class Finance(PlanningMixin, HabitsMixin):
                     self.evm, self.evm_error = None, "this database is bound to a different wallet or chain; use a separate database"
                 else:
                     c.execute("INSERT OR IGNORE INTO memories VALUES ('_evm_identity',?,?)", (identity, now()))
-            if not c.execute("SELECT 1 FROM routes LIMIT 1").fetchone():
-                for send, receive, payments in SEED_ROUTES:
-                    body = route_body(send, receive)
-                    c.execute("INSERT INTO routes(id,body,payments_enabled) VALUES (?,?,?)", (body["id"], canonical(body), int(payments)))
+            # New seed routes appear on upgrade; routes the owner already configured keep their settings.
+            for send, receive, payments in SEED_ROUTES:
+                body = route_body(send, receive)
+                c.execute("INSERT OR IGNORE INTO routes(id,body,payments_enabled) VALUES (?,?,?)", (body["id"], canonical(body), int(payments)))
             # Recipients from the first release were AUD->CNY sandbox payees or EVM addresses.
             for r in c.execute("SELECT * FROM recipients").fetchall():
                 body = json.loads(r["body"])
@@ -108,6 +108,7 @@ class Finance(PlanningMixin, HabitsMixin):
     def limit_defaults(self):
         return {"AUD": (units(self.config.max_aud, 2), units(self.config.daily_aud, 2)),
                 "USD": (35000, 70000),
+                "CNY": (250000, 500000),
                 "ETH": (units(self.config.max_eth, 18), units(self.config.daily_eth, 18))}
 
     def limits(self, c=None):

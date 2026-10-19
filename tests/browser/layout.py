@@ -25,7 +25,7 @@ with sync_playwright() as p:
                 if page.evaluate('document.documentElement.scrollWidth > innerWidth'):
                     problems.append(f'{lang} {label} {view}: horizontal overflow')
                 text = page.locator('#view').inner_text() + page.locator('#nav').inner_text()
-                if raw_key.search(text):
+                if view != 'audit' and raw_key.search(text):  # audit shows event identifiers on purpose
                     problems.append(f'{lang} {label} {view}: untranslated key {raw_key.search(text).group(0)}')
             page.screenshot(path=str(out / f'{lang}-{label}.png'))
             ctx.close()

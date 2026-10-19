@@ -22,7 +22,7 @@ def test_full_flow_and_duplicate_concurrency(local):
     assert len({r["reference"] for r in results}) == 1
     balances = {b["currency"]: b for b in local.balances()}
     assert balances["AUD"]["total"] == "90000"
-    assert balances["CNY"]["total"] == "0"  # recipient funds are not sender assets
+    assert balances["CNY"]["total"] == "500000"  # unchanged: recipient funds are never added to the sender
     assert len([e for e in local.audit() if e["action"] == "settle"]) == 1
     with local.store.read() as c:
         assert c.execute("SELECT count(*) FROM sandbox_provider").fetchone()[0] == 1
@@ -550,3 +550,11 @@ def test_gpt6_defaults_to_tool_compatible_effort(local, monkeypatch):
     monkeypatch.delenv("OPENAI_REASONING_EFFORT", raising=False)
     assert Agent(local, model="gpt-6-luna").effort == "none"
     assert Agent(local, model="some-other-model").effort is None
+
+
+def test_pay_from_cny_with_receive_amount(local):
+    local.add_recipient("owner", "yx", "Yx", currency="AUD", country="AU")
+    t = local.prepare("agent", None, "CNY", "AUD", "yx", "living costs", "cny-aud", receive_amount="100")
+    assert t["details"]["receive"] >= 10000 and t["details"]["source"] == "CNY"
+    local.approve("owner", t["id"], t["approval_digest"])
+    assert local.execute("agent", t["id"])["status"] == "completed"

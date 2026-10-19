@@ -30,6 +30,7 @@ SEED_ROUTES = [
     ("AU", "CN", True), ("AU", "VN", True), ("US", "PH", True), ("US", "CN", False), ("US", "VN", False),
     ("US", "MX", False), ("AU", "PH", False), ("AU", "NZ", False), ("JP", "VN", False), ("KR", "VN", False),
     ("SG", "MY", False), ("CA", "CN", False), ("HK", "CN", False), ("AU", "TW", False),
+    ("CN", "AU", True), ("CN", "US", False), ("CN", "VN", False),
 ]
 
 

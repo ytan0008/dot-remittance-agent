@@ -1,4 +1,4 @@
-import {state, t, toast, isOwner, canPrepare, invalidate, $, go} from '../core.js';
+import {state, t, toast, isOwner, canPrepare, invalidate, api, bus} from '../core.js';
 import {stream} from '../api.js';
 import {esc, chip, amt, tag, mono, short, icons, panel} from '../ui.js';
 import {lang, money, num, day, pct, has, when} from '../i18n.js';
@@ -6,13 +6,34 @@ import {sparkline} from '../charts.js';
 import {envLabel} from './payments.js';
 
 const TIERS = {view: 1, prepare: 2, submit: 3};
+const NEED_TIER = {view: 1, prepare: 2, submit: 3};
+let keySeq = 0;
 const TOOL_TIER = {remember_note: 'prepare', forget_note: 'prepare', prepare_payment: 'prepare', modify_payment: 'prepare', reconcile_payment: 'prepare', propose_change: 'prepare', execute_payment: 'submit'};
+
+/** Minimal, safe Markdown for model answers: escape everything first, then bold, inline code and bullet lists. */
+function md(text) {
+  const inline = x => esc(x).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code class="mono">$1</code>');
+  const out = []; let list = null;
+  for (const raw of String(text).split(/\r?\n/)) {
+    const item = /^\s*(?:[-*•]|\d+[.)])\s+(.*)$/.exec(raw);
+    if (item) { (list ??= []).push(`<li>${inline(item[1])}</li>`); continue; }
+    if (list) { out.push(`<ul>${list.join('')}</ul>`); list = null; }
+    out.push(raw.trim() ? `<p>${inline(raw)}</p>` : '');
+  }
+  if (list) out.push(`<ul>${list.join('')}</ul>`);
+  return out.join('');
+}
 
 export const suggestions = () => [t('agent.s1'), t('agent.s2'), t('agent.s3'), t('agent.s4')];
 
 function card(step) {
   const r = step.result;
-  if (step.status === 'fail') return `<div class="rcard fail"><b>${t('agent.blocked')}</b><p>${esc(step.code && has('err.' + step.code) ? t('err.' + step.code, step.params) : step.error)}</p></div>`;
+  if (step.status === 'fail') {
+    const need = NEED_TIER[step.params?.need];
+    const fix = step.code === 'tier_denied' && need && isOwner()
+      ? `<button class="button sm primary" data-action="chat-tier" data-tier="${need}">${t('agent.raise_tier', {n: need})} ${icons.arrow}</button>` : '';
+    return `<div class="rcard fail"><b>${t('agent.blocked')}</b><p>${esc(step.code && has('err.' + step.code) ? t('err.' + step.code, step.params) : step.error)}</p>${fix}</div>`;
+  }
   if (step.status !== 'ok' || !r) return '';
   switch (step.tool) {
     case 'get_balances':
@@ -30,7 +51,9 @@ function card(step) {
     case 'prepare_payment': case 'modify_payment': case 'get_payment': case 'execute_payment': case 'reconcile_payment': {
       const b = r.details;
       const cta = r.status === 'draft' ? (isOwner() ? t('agent.review_authorize') : t('agent.view')) : t('agent.view');
-      return `<div class="rcard draft"><div class="kv"><span class="env env-${esc(b.rail)}"><i></i>${esc(envLabel(b))}</span>${chip(r.status)}</div><div class="flow-amt">${amt(b.value, b.source, 'lg')}<span>${icons.arrow}</span>${amt(b.receive, b.target, 'lg')}</div><small class="muted">${esc(b.recipient.name)} · ${esc(b.purpose)} · ${t('detail.fee')} ${esc(money(b.fee, b.source))} ${esc(b.source)}</small><button class="button primary sm" data-action="detail" data-id="${esc(r.id)}">${cta} ${icons.arrow}</button></div>`;
+      const lacking = (r.checks || []).find(c => c.id === 'available_funds' && c.status === 'fail');
+      const fund = lacking && isOwner() && b.rail !== 'evm' ? `<button class="button sm ghost" data-action="fund" data-currency="${esc(b.source)}">${icons.plus}${t('agent.add_funds', {c: b.source})}</button>` : '';
+      return `<div class="rcard draft"><div class="kv"><span class="env env-${esc(b.rail)}"><i></i>${esc(envLabel(b))}</span>${chip(r.status)}</div><div class="flow-amt">${amt(b.value, b.source, 'lg')}<span>${icons.arrow}</span>${amt(b.receive, b.target, 'lg')}</div><small class="muted">${esc(b.recipient.name)} · ${esc(b.purpose)} · ${t('detail.fee')} ${esc(money(b.fee, b.source))} ${esc(b.source)}</small><div class="row-actions"><button class="button primary sm" data-action="detail" data-id="${esc(r.id)}">${cta} ${icons.arrow}</button>${fund}</div></div>`;
     }
     case 'remember_note':
       return `<div class="rcard"><span class="eyebrow">${t('memory.saved')}</span><p>“${esc(r.text)}”</p><small class="muted">${esc(t('memory.kind.' + r.kind))}</small><button class="link" data-action="go" data-view="memory">${t('nav.memory')} ${icons.arrow}</button></div>`;
@@ -38,8 +61,13 @@ function card(step) {
       return `<div class="rcard"><span class="eyebrow">${t('memory.forgotten')}</span><button class="link" data-action="go" data-view="memory">${t('nav.memory')} ${icons.arrow}</button></div>`;
     case 'recall_memory':
       return `<div class="rcard"><span class="eyebrow">${t('memory.recall_card')}</span>${r.notes.length || r.episodes.length ? r.notes.map(n => `<p>· ${esc(n.text)}</p>`).join('') + r.episodes.slice(0, 3).map(e => `<small class="muted">${when(e.time)} — “${esc(e.request.slice(0, 80))}”</small>`).join('') : `<p>${t('memory.empty')}</p>`}</div>`;
-    case 'propose_change':
-      return `<div class="rcard"><span class="eyebrow">${t('agent.proposal')}</span><p>${esc(t('proposal.kind.' + r.kind))} · ${chip(r.status, 'proposal.status')}</p><button class="link" data-action="go" data-view="autonomy">${t('agent.review_proposal')} ${icons.arrow}</button></div>`;
+    case 'propose_change': {
+      const rows = Object.entries(r.payload || {}).map(([k, v]) => `<div><dt>${esc(has('field.' + k) ? t('field.' + k) : k)}</dt><dd>${esc(v)}</dd></div>`).join('');
+      const act = r.status === 'pending' && isOwner()
+        ? `<div class="row-actions"><button class="button sm primary" data-action="chat-decide" data-id="${esc(r.id)}" data-accept="1">${icons.check}${t('agent.confirm')}</button><button class="button sm ghost" data-action="chat-decide" data-id="${esc(r.id)}" data-accept="0">${t('agent.reject')}</button></div>`
+        : r.status === 'pending' ? `<button class="link" data-action="go" data-view="autonomy">${t('agent.review_proposal')} ${icons.arrow}</button>` : '';
+      return `<div class="rcard proposal-card p-${esc(r.status)}"><div class="kv"><span class="eyebrow">${t('agent.proposal')} · ${esc(t('proposal.kind.' + r.kind))}</span>${chip(r.status, 'proposal.status')}</div><dl class="facts compact">${rows}</dl>${act}</div>`;
+    }
     case 'wallet_info':
       return r.available ? `<div class="rcard"><span class="eyebrow">${t('kind.onchain')}</span><div class="kv"><span class="mono">${esc(r.address.slice(0, 8))}…${esc(r.address.slice(-6))}</span>${r.connected ? amt(r.balance, 'ETH') : t('wallets.rpc_down')}</div><small class="muted">${t('wallets.mandates_active', {n: r.mandates.length})}</small></div>` : `<div class="rcard"><small>${t('wallets.unavailable')}</small></div>`;
     case 'reminders':
@@ -59,26 +87,27 @@ function stepRow(s) {
 }
 
 export function message(m) {
-  if (m.role === 'user') return `<div class="msg user"><div class="bubble">${esc(m.text)}</div></div>`;
+  m.key ??= ++keySeq;
+  if (m.role === 'user') return `<div class="msg user" data-key="${m.key}"><div class="bubble">${esc(m.text)}</div></div>`;
   if (m.role === 'note') return `<div class="msg note"><p>${esc(m.text)}</p></div>`;
   const steps = m.steps.filter(s => s.tool !== 'record_plan');
   const plan = m.plan;
   const entities = plan ? Object.entries(plan.entities || {}).filter(([, v]) => v && typeof v !== 'object') : [];
-  return `<div class="msg bot ${m.done ? 'done' : 'live'}">
+  return `<div class="msg bot ${m.done ? 'done' : 'live'}" data-key="${m.key}">
     <div class="who"><span class="agent-orb sm"><i></i></span>DOT <span class="mode-badge m-${esc(m.mode || 'model')}">${t('agent.mode.' + (m.mode || 'model'))}</span></div>
     ${m.note ? `<p class="mode-note">${esc(t('agent.offline_note'))}</p>` : ''}
     <div class="stages">
-      <section class="stage ${plan ? 'on' : 'wait'}"><span class="stage-n">01</span><div><b>${t('agent.understand')}</b>${plan ? `<p>${esc(t('intent.' + plan.intent) !== 'intent.' + plan.intent ? t('intent.' + plan.intent) : plan.intent)}</p><div class="entity-row">${entities.map(([k, v]) => `<span class="entity"><small>${esc(t('entity.' + k))}</small>${esc(v)}</span>`).join('')}</div>${plan.missing?.length ? `<p class="missing">${t('agent.missing')}: ${plan.missing.map(esc).join(', ')}</p>` : ''}` : `<p class="muted">${t('agent.thinking')}</p>`}</div></section>
+      <section class="stage ${plan ? 'on' : 'wait'}"><span class="stage-n">01</span><div><b>${t('agent.understand')}</b>${plan ? `<p>${esc(t('intent.' + plan.intent) !== 'intent.' + plan.intent ? t('intent.' + plan.intent) : plan.intent)}</p><div class="entity-row">${entities.map(([k, v]) => `<span class="entity"><small>${esc(t('entity.' + k))}</small>${esc(v)}</span>`).join('')}</div>${plan.missing?.length ? `<p class="missing">${t('agent.missing')}: ${plan.missing.map(esc).join(', ')}</p>` : ''}` : `<div class="thinking"><span class="think-orb"><i></i></span><span class="think-text">${t('agent.thinking')}</span></div>`}</div></section>
       <section class="stage ${steps.length ? 'on' : plan ? 'on' : 'wait'}"><span class="stage-n">02</span><div><b>${t('agent.plan')}</b>${steps.length ? `<ol class="steps">${steps.map(stepRow).join('')}</ol>` : plan ? `<p class="muted">${t(plan.missing?.length ? 'agent.plan_wait' : 'agent.plan_none')}</p>` : ''}</div></section>
       <section class="stage ${steps.some(s => s.status !== 'planned') ? 'on' : 'wait'}"><span class="stage-n">03</span><div><b>${t('agent.act')}</b><div class="rcards">${steps.map(card).join('')}</div></div></section>
     </div>
-    ${m.text ? `<div class="answer">${esc(m.text)}</div>` : m.done ? '' : '<div class="typing"><i></i><i></i><i></i></div>'}
+    ${m.text ? `<div class="answer md">${md(m.text)}</div>` : m.done ? '' : `<div class="typing"><i></i><i></i><i></i><span>${t('agent.writing')}</span></div>`}
   </div>`;
 }
 
 export function chatLog(limit) {
   const list = limit ? state.chat.messages.slice(-limit) : state.chat.messages;
-  const welcome = `<div class="msg bot welcome done"><div class="who"><span class="agent-orb sm"><i></i></span>DOT</div><div class="answer">${t('agent.welcome')}</div>${!state.model ? `<p class="mode-note">${t('agent.offline_hint')}</p>` : ''}<div class="suggestions">${suggestions().map(s => `<button class="pill" data-action="prompt" data-prompt="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
+  const welcome = `<div class="msg bot welcome done" data-key="welcome-${state.model ? 1 : 0}"><div class="who"><span class="agent-orb sm"><i></i></span>DOT</div><div class="answer">${t('agent.welcome')}</div>${!state.model ? `<p class="mode-note">${t('agent.offline_hint')}</p>` : ''}<div class="suggestions">${suggestions().map(s => `<button class="pill" data-action="prompt" data-prompt="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
   return welcome + list.map(message).join('');
 }
 
@@ -107,6 +136,24 @@ export function pipeline() {
 export const view = {
   id: 'agent',
   needs: ['settings', 'mandates', 'recipients'],
+  mount(root) { root.querySelectorAll('#chat-log').forEach(log => { log.scrollTop = log.scrollHeight; }); },
+  actions: {
+    /* One-click owner decisions inside the chat; the agent then continues on its own. */
+    async 'chat-decide'(el) {
+      const accept = el.dataset.accept === '1';
+      const result = await api(`/proposals/${encodeURIComponent(el.dataset.id)}/decide`, 'POST', {accept});
+      for (const m of state.chat.messages) for (const st of m.steps || []) if (st.result?.id === result.id) st.result = result;
+      invalidate(); paint();
+      toast(t(accept ? 'autonomy.confirmed' : 'autonomy.rejected'), accept ? 'good' : '');
+      if (accept) send(t('agent.after_confirm'));
+    },
+    async 'chat-tier'(el) {
+      const n = Number(el.dataset.tier);
+      await api('/settings/tier', 'PUT', {tier: n});
+      invalidate(['settings']); toast(t('autonomy.tier_set', {n}), 'good');
+      send(t('agent.after_tier', {n}));
+    },
+  },
   render() {
     const tier = state.data.settings?.agent_tier ?? 3;
     return `<div class="agent-layout">
@@ -153,23 +200,41 @@ export async function send(text) {
     m.steps.forEach(s => { if (s.status === 'running' || s.status === 'planned') s.status = s.status === 'running' ? 'fail' : 'skipped'; });
     state.chat.streaming = false;
     paint();
+    bus.flush?.();  // page refreshes held back while streaming
     document.querySelector('[data-chat] textarea')?.focus();
   }
 }
 
-/** Repaints only the conversation and pipeline so typing elsewhere is never interrupted. */
+/** Patch old DOM to match new DOM, keeping unchanged nodes so nothing replays its entrance animation. */
+function morph(old, next) {
+  if (old.nodeType !== next.nodeType || old.nodeName !== next.nodeName ||
+      (old.nodeType === 1 && old.dataset.key !== next.dataset.key)) { old.replaceWith(next); return; }
+  if (old.nodeType === 3) { if (old.textContent !== next.textContent) old.textContent = next.textContent; return; }
+  if (old.nodeType !== 1 || old.isEqualNode(next)) return;
+  for (const at of [...old.attributes]) if (!next.hasAttribute(at.name)) old.removeAttribute(at.name);
+  for (const at of [...next.attributes]) if (old.getAttribute(at.name) !== at.value) old.setAttribute(at.name, at.value);
+  const fresh = [...next.childNodes], kids = [...old.childNodes];
+  fresh.forEach((n, i) => { if (kids[i]) morph(kids[i], n); else old.appendChild(n); });
+  for (let i = fresh.length; i < kids.length; i++) kids[i].remove();
+}
+
+/** Repaints only the conversation and pipeline, in place, so streaming never flickers. */
 export function paint() {
   for (const log of document.querySelectorAll('#chat-log, #mini-chat-log')) {
     const limit = log.id === 'mini-chat-log' ? 2 : 0;
-    const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-    log.innerHTML = chatLog(limit);
-    if (stick || state.chat.streaming) log.scrollTop = log.scrollHeight;
+    const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 120;
+    const next = log.cloneNode(false);
+    next.innerHTML = chatLog(limit);
+    morph(log, next);
+    if (stick) log.scrollTo({top: log.scrollHeight, behavior: 'smooth'});
   }
   for (const form of document.querySelectorAll('[data-chat]')) {
     const ta = form.querySelector('textarea'), btn = form.querySelector('button');
     ta.disabled = btn.disabled = state.chat.streaming;
-    btn.innerHTML = state.chat.streaming ? '<span class="spinner"></span>' : '↑';
+    const icon = state.chat.streaming ? 'busy' : 'idle';
+    if (btn.dataset.icon !== icon) { btn.dataset.icon = icon; btn.innerHTML = state.chat.streaming ? '<span class="spinner"></span>' : '↑'; }
+    form.classList.toggle('busy', state.chat.streaming);
   }
   const p = document.getElementById('pipeline');
-  if (p) p.innerHTML = pipeline();
+  if (p) { const next = p.cloneNode(false); next.innerHTML = pipeline(); morph(p, next); }
 }

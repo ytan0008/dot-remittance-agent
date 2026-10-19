@@ -76,12 +76,14 @@ function paint(quiet = false) {
 const editing = () => document.activeElement?.closest?.('#view') && document.activeElement.matches('input:not([type=checkbox]):not([type=range]),textarea,select');
 
 function render() {
-  if (editing()) { pendingPaint = true; return; }
+  // Never rebuild the page under a streaming answer or while the user types; catch up afterwards.
+  if (editing() || (state.chat.streaming && ['agent', 'overview'].includes(state.view))) { pendingPaint = true; return; }
   const y = scrollY;
   paint(true);
   scrollTo(0, y);
 }
 bus.render = render;
+bus.flush = () => { if (pendingPaint) render(); };
 
 async function show(id, mode = 'forward') {
   const v = BY_ID[id] ? id : 'overview';

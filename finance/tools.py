@@ -55,6 +55,7 @@ def key(ctx, prefix, args):
 
 
 up = str.upper
+UNIT = 'Amounts are decimal strings in normal currency units, exactly as the user says them (100 AUD -> "100", 0.001 ETH -> "0.001"), never cents or wei.'
 
 # ---------- stage 1: understand and plan ----------
 
@@ -145,13 +146,13 @@ def forecast_rate(ctx, source, target):
     return ctx.finance.rates.forecast(up(source), up(target))
 
 
-@tool("compare_options", "Compare reference calculation, simulated options and the sandbox quote. Give amount OR receive_amount.",
+@tool("compare_options", "Compare reference calculation, simulated options and the sandbox quote. Give amount OR receive_amount. " + UNIT,
       {**PAIR, "amount": S, "receive_amount": S, "rank": {"type": "string", "enum": ["receive", "speed"]}}, ["source", "target", "rank"])
 def compare_options(ctx, source, target, rank, amount="", receive_amount=""):
     return ctx.finance.compare(ctx.actor, up(source), up(target), amount or None, receive_amount or None, rank)
 
 
-@tool("scenario", "Hypothetical: effect of the rate moving by rate_change_pct (negative = less favorable).",
+@tool("scenario", "Hypothetical: effect of the rate moving by rate_change_pct (negative = less favorable). " + UNIT,
       {**PAIR, "amount": S, "rate_change_pct": S})
 def scenario(ctx, source, target, amount, rate_change_pct):
     return ctx.finance.scenario(ctx.actor, up(source), up(target), amount, rate_change_pct)
@@ -190,7 +191,8 @@ def list_mandates(ctx):
 
 # ---------- prepare and modify (T2) ----------
 
-@tool("prepare_payment", "Create an immutable quote/draft. Does not authorize or spend. Give amount OR receive_amount. "
+@tool("prepare_payment", "Create an immutable quote/draft. Does not authorize or spend. Give amount (what is sent) OR receive_amount "
+      "(what the recipient must get). " + UNIT + " "
       "Use source=target=ETH for the agent wallet.",
       {"amount": S, "receive_amount": S, **PAIR, "recipient_id": S, "purpose": S, "arrival_by": S, "goal_id": S},
       ["source", "target", "recipient_id", "purpose"], tier="prepare")
@@ -201,7 +203,7 @@ def prepare_payment(ctx, source, target, recipient_id, purpose, amount="", recei
                                receive_amount or None, arrival_by or None, goal_id or None)
 
 
-@tool("modify_payment", "Change a draft: creates a new draft, voids any approval on the old one.",
+@tool("modify_payment", "Change a draft: creates a new draft, voids any approval on the old one. " + UNIT,
       {"transfer_id": S, "amount": S, "receive_amount": S, "purpose": S, "recipient_id": S}, ["transfer_id"], tier="prepare")
 def modify_payment(ctx, transfer_id, amount="", receive_amount="", purpose="", recipient_id=""):
     args = dict(transfer_id=transfer_id, amount=amount, receive_amount=receive_amount, purpose=purpose, recipient_id=recipient_id)

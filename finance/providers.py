@@ -5,9 +5,9 @@ from .domain import Denied, now, units, decimals, from_minor, floor_minor, to_mi
 
 # Pairs the local simulated provider accepts. A route must also be enabled by the owner.
 SANDBOX_PAIRS = {("AUD", "CNY"), ("AUD", "VND"), ("AUD", "PHP"), ("USD", "CNY"), ("USD", "VND"), ("USD", "PHP"),
-                 ("USD", "MXN")}
+                 ("USD", "MXN"), ("CNY", "AUD"), ("CNY", "USD"), ("CNY", "VND")}
 # Used only when reference data is unreachable; always labeled synthetic.
-FIXTURE_RATES = {("AUD", "CNY"): "4.70", ("AUD", "VND"): "17000", ("AUD", "PHP"): "38", ("USD", "CNY"): "7.10",
+FIXTURE_RATES = {("CNY", "AUD"): "0.215", ("CNY", "USD"): "0.14", ("CNY", "VND"): "3600", ("AUD", "CNY"): "4.70", ("AUD", "VND"): "17000", ("AUD", "PHP"): "38", ("USD", "CNY"): "7.10",
                  ("USD", "VND"): "26000", ("USD", "PHP"): "57", ("USD", "MXN"): "18"}
 SPREAD = Decimal("0.005")
 FIXED_FEE = Decimal("1")
