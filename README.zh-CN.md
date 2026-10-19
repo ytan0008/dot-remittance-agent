@@ -132,6 +132,26 @@ flowchart LR
 
 ---
 
+## 👥 组员：从 GitHub 下载后如何运行
+
+**需要：** 本私有仓库的访问权限（请仓库所有者把你加为 Collaborator）、[Git](https://git-scm.com/)、[Python 3.10+](https://www.python.org/downloads/)、[Docker Desktop](https://www.docker.com/products/docker-desktop/)（保持运行）。
+
+```bash
+git clone https://github.com/ytan0008/dot-remittance-agent.git
+cd dot-remittance-agent
+python scripts/configure.py          # 生成你自己的 .env（令牌、钱包密码），不会显示任何密钥
+docker compose up --build -d --wait  # 第一次构建需要几分钟
+```
+
+打开 **http://localhost:8787** —— 会自动以本机 Owner 身份进入。
+
+- **接入 AI 模型（可选）：** 在 `.env` 中填写*你自己的* Key：`OPENAI_API_KEY=sk-...`（已预设 `gpt-6-luna`），保存后执行 `docker compose up -d --force-recreate backend`。不填 Key 时 Agent 以标注清楚的离线规则模式运行。不要提交 `.env`，也不要在聊天里分享 Key。
+- **数据互不影响：** 每个人的副本都有独立的数据库、测试资金和独立的 Agent 钱包地址。
+- **端口被占用？** 在 `.env` 加一行 `FRONTEND_PORT=8799`，改用这个端口打开。
+- **更新到最新代码：** `git pull`，然后 `docker compose up --build -d --wait`。
+- **停止 / 启动：** `docker compose stop` / `docker compose up -d`。清空本地全部数据：`docker compose down -v`（Agent 钱包也会被删除）。
+- **不用 Docker 跑测试：** `python -m venv .venv`，再 `.venv\Scripts\pip install -r requirements.lock.txt`（macOS/Linux 用 `.venv/bin/pip`），然后 `python -m pytest -q`。
+
 ## 🚀 快速开始
 
 ### Docker（推荐）

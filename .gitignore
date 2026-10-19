@@ -7,3 +7,6 @@ data/
 *.key
 *.keystore.json
 artifacts/
+
+# Office temp/lock files
+~$*

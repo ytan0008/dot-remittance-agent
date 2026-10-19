@@ -132,6 +132,26 @@ flowchart LR
 
 ---
 
+## 👥 For teammates: run it after cloning
+
+**You need:** access to this private repository (ask the owner to add you as a collaborator), [Git](https://git-scm.com/), [Python 3.10+](https://www.python.org/downloads/) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running).
+
+```bash
+git clone https://github.com/ytan0008/dot-remittance-agent.git
+cd dot-remittance-agent
+python scripts/configure.py          # creates your own .env (tokens, wallet password); prints no secrets
+docker compose up --build -d --wait  # first build takes a few minutes
+```
+
+Open **http://localhost:8787** — you are signed in automatically as the local owner.
+
+- **AI model (optional):** put *your own* key in `.env` → `OPENAI_API_KEY=sk-...` (model `gpt-6-luna` is preset), save, then `docker compose up -d --force-recreate backend`. Without a key the agent runs in the labeled offline rule mode. Never commit `.env` or share keys in chat.
+- **Your data is yours:** each clone gets its own database, test funds and its own agent wallet address; nothing is shared with other teammates.
+- **Port busy?** add `FRONTEND_PORT=8799` to `.env` and open that port instead.
+- **Update to the latest code:** `git pull` then `docker compose up --build -d --wait`.
+- **Stop / start:** `docker compose stop` / `docker compose up -d`. Reset all local data: `docker compose down -v` (also deletes the agent wallet).
+- **Run tests without Docker:** `python -m venv .venv`, then `.venv\Scripts\pip install -r requirements.lock.txt` (macOS/Linux: `.venv/bin/pip`), then `python -m pytest -q`.
+
 ## 🚀 Getting started
 
 ### Docker (recommended)
