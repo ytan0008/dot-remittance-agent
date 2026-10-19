@@ -2,7 +2,24 @@ import {state, t, api, toast, isOwner, invalidate, rerender, refreshView, value}
 import {esc, amt, tag, panel, field, options, segmented, icons, empty, dl, chip} from '../ui.js';
 import {num, day, pct, when, currencyName, phrase} from '../i18n.js';
 import {alertText} from './send.js';
+import {bankPanel, loadBanks} from './banks.js';
 import {lineChart, forecastChart, gauge, animateGauges} from '../charts.js';
+
+/** The target-rate reminder: pick what to watch, then one input and one button. */
+function alertsBody(l) {
+  const m = state.markets, cond = m.alertCond || 'above';
+  const alerts = (state.data.alerts || []).filter(a => a.source === m.source && a.target === m.target);
+  const input = cond === 'date'
+    ? `<input id="al-due" name="due" type="date" required aria-label="${t('rem.date')}">`
+    : `<span class="al-input"><input id="al-th" name="threshold" inputmode="decimal" ${cond === 'percentile' ? 'value="80"' : `placeholder="${esc(l?.rate ? num(l.rate, 4) : '')}"`} aria-label="${t('markets.threshold')}" required>
+        <small>${cond === 'percentile' ? t('markets.al_pct_unit') : `${esc(m.target)} / 1 ${esc(m.source)}`}</small></span>`;
+  return `${segmented('al-cond', [['above', t('markets.above')], ['below', t('markets.below')], ['percentile', t('rem.favorable')], ['date', t('rem.date')]], cond, 'alert-cond')}
+    <form id="alert-form" class="alert-form"><input type="hidden" name="condition" value="${cond}">
+      <div class="al-row">${input}<button class="button primary" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('markets.add_alert')}</button></div>
+      <small class="fine">${t('markets.al_hint.' + cond, {s: m.source, t: m.target})}</small><div class="form-error"></div></form>
+    ${alerts.length ? `<ul class="list al-list">${alerts.map(a => `<li class="row"><div><b>${esc(alertText(a))}</b><small>${a.last_rate ? t('markets.last_checked', {r: num(a.last_rate, 6), at: when(a.last_checked)}) : t('markets.not_checked')}${a.triggered_at ? ' · ' + t('markets.triggered', {at: when(a.triggered_at)}) : ''}</small></div><button class="pill ${a.active ? 'on' : ''}" data-action="toggle-alert" data-id="${esc(a.id)}" data-active="${a.active ? 0 : 1}" ${isOwner() ? '' : 'disabled'}>${a.active ? t('markets.armed') : t('markets.rearm')}</button></li>`).join('')}</ul>` : `<p class="fine">${t('markets.no_alerts')}</p>`}
+    <p class="fine">${t('markets.alert_note')}</p>`;
+}
 
 const CURRENCIES = ['AUD', 'USD', 'CNY', 'VND', 'PHP', 'MXN', 'JPY', 'KRW', 'HKD', 'TWD', 'SGD', 'NZD', 'CAD', 'MYR', 'THB', 'IDR', 'CLP', 'PEN', 'EUR', 'GBP'];
 let chart = null, scenarioTimer = 0;
@@ -12,6 +29,7 @@ export const view = {
   needs: ['alerts', 'balances'],
   async load() {
     const m = state.markets, key = `${m.source}-${m.target}-${m.days}`;
+    await loadBanks(m.source, m.target);
     if (state.data.marketKey === key && state.data.history) return;
     state.data.marketKey = key;
     const results = await Promise.allSettled([
@@ -64,7 +82,6 @@ export const view = {
         <p class="interpret ${f.beats_baseline ? '' : 'warn'}">${f.beats_baseline ? t('forecast.beats') : t('forecast.not_beats')} · ${t('markets.coverage_eval', {p: num(f.holdout_interval_coverage, 1), n: f.backtest_origins})}</p>
         <p class="fine">${t('markets.forecast_caveat')}</p></div>`
       : `<div class="forecast unavailable">${tag('forecast')}<p>${t('markets.forecast_unavailable')}</p><small class="muted">${esc(f.reason)}</small></div>`;
-    const alerts = (state.data.alerts || []).filter(a => a.source === m.source && a.target === m.target);
     return `${picker}
       <div class="markets-layout">
         ${panel(`${esc(m.source)} <span class="muted">→</span> ${esc(m.target)}`, `<div class="chart-host no-swipe" id="rate-chart"></div>
@@ -80,12 +97,9 @@ export const view = {
         ${panel(t('markets.scenario'), `<form id="scenario-form" class="scenario"><div class="grid-2">${field('sc-amount', t('send.amount') + ' (' + esc(m.source) + ')', `<input id="sc-amount" name="amount" inputmode="decimal" value="${esc(m.scenarioAmount)}">`)}
             <div class="field"><label for="sc-change">${t('markets.rate_change')} <b id="sc-out">${pct(m.scenario, 1)}</b></label><input id="sc-change" name="change" type="range" min="-10" max="10" step="0.5" value="${esc(m.scenario)}"></div></div></form>
           <div id="scenario-out">${scenarioHtml()}</div>`)}
-        ${panel(t('markets.alerts'), `${alerts.length ? `<ul class="list">${alerts.map(a => `<li class="row"><div><b>${esc(alertText(a))}</b><small>${a.last_rate ? t('markets.last_checked', {r: num(a.last_rate, 6), at: when(a.last_checked)}) : t('markets.not_checked')}${a.triggered_at ? ' · ' + t('markets.triggered', {at: when(a.triggered_at)}) : ''}</small></div><button class="pill ${a.active ? 'on' : ''}" data-action="toggle-alert" data-id="${esc(a.id)}" data-active="${a.active ? 0 : 1}" ${isOwner() ? '' : 'disabled'}>${a.active ? t('markets.armed') : t('markets.rearm')}</button></li>`).join('')}</ul>` : `<p class="fine">${t('markets.no_alerts')}</p>`}
-          <form id="alert-form" class="inline-form"><div class="grid-2">${field('al-cond', t('markets.condition'), `<select id="al-cond" name="condition">${options([['above', t('markets.above')], ['below', t('markets.below')], ['percentile', t('rem.favorable')], ['date', t('rem.date')]], 'above')}</select>`)}
-          ${field('al-th', t('markets.threshold'), `<input id="al-th" name="threshold" inputmode="decimal" placeholder="${esc(l?.rate || '')}">`, t('rem.threshold_hint'))}</div>
-          ${field('al-due', t('rem.date'), `<input id="al-due" name="due" type="date">`)}
-          <div class="form-error"></div><button class="button" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('markets.add_alert')}</button><p class="fine">${t('markets.alert_note')}</p></form>`)}
-      </div>`;
+        ${panel(t('markets.alerts'), `<div id="alerts-body">${alertsBody(l)}</div>`, {cls: 'mk-alerts'})}
+      </div>
+      ${bankPanel(m.source, m.target)}`;
   },
   mount(root) {
     const h = state.data.history;
@@ -119,6 +133,12 @@ export const view = {
     'swap-pair'() { const m = state.markets; [m.source, m.target] = [m.target, m.source]; reload(); },
     'market-days'(el) { state.markets.days = el.dataset.value; reload(); },
     'market-direction'(el) { state.markets.direction = el.dataset.value; rerender(); },
+    'alert-cond'(el) {  // only the reminder form changes; the charts stay as they are
+      state.markets.alertCond = el.dataset.value;
+      const box = document.getElementById('alerts-body');
+      if (box) box.innerHTML = alertsBody(state.data.latest);
+      box?.querySelector('input:not([type=hidden])')?.focus();
+    },
     async 'toggle-alert'(el) { await api('/rate-alerts/' + encodeURIComponent(el.dataset.id), 'PATCH', {active: el.dataset.active === '1'}); invalidate(['alerts']); rerender(); },
   },
   submit: {
@@ -158,6 +178,9 @@ function runScenario(delay = 300) {
     try { state.data.scenario = await api('/scenario', 'POST', {source: m.source, target: m.target, amount: m.scenarioAmount, rate_change_pct: String(m.scenario)}); }
     catch (e) { state.data.scenario = {error: e.message}; }
     const out = document.getElementById('scenario-out');
-    if (out) out.innerHTML = scenarioHtml();
+    if (!out) return;
+    const had = out.querySelector('.scenario-result');
+    out.innerHTML = scenarioHtml();
+    if (had) out.querySelector('.scenario-result')?.classList.add('live');  // values change; the boxes stay put
   }, delay);
 }

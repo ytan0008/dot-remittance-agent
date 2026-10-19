@@ -10,7 +10,7 @@ export const state = {
   view: 'overview', role: null, model: false, modelName: null, health: null, connected: false,
   data: {}, errors: {}, stale: new Set(), version: 0,
   chat: {messages: [], streaming: false, session: 'web-' + newId().slice(0, 8)},
-  send: {route: 'AU-CN', mode: 'send', amount: '', receive: '', rank: 'receive', recipient: '', purpose: '', arrival: '', goal: '', key: newId()},
+  send: {route: 'AU-CN', mode: 'send', amount: '', receive: '', rank: 'receive', recipient: '', purpose: '', arrival: '', goal: '', key: newId(), tab: 'compare'},
   markets: {source: 'AUD', target: 'CNY', days: '90', direction: 'send', scenario: '-3', scenarioAmount: '1000'},
   filters: {status: 'all', rail: 'all'},
   audit: {q: '', outcome: '', actor: ''},

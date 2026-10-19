@@ -1,4 +1,4 @@
-import {state, t, api, toast, isOwner, rerender, modal, closeModal} from '../core.js';
+import {state, t, api, toast, isOwner, rerender, modal, closeModal, refreshView} from '../core.js';
 import {esc, panel, field, options, icons, empty} from '../ui.js';
 import {money, region} from '../i18n.js';
 
@@ -138,7 +138,8 @@ export const view = {
       if (route) state.send.route = route.id;
       if (el.dataset.amount && route?.target === el.dataset.currency) Object.assign(state.send, {mode: 'receive', receive: money(Number(el.dataset.amount), el.dataset.currency).replace(/,/g, ''), result: null});
       if (el.dataset.purpose) state.send.purpose = el.dataset.purpose;
-      location.hash = 'send';
+      state.send.tab = 'compare';  // templates live in a tab of the Send page
+      if (state.view === 'send') { refreshView(); scrollTo({top: 0, behavior: 'smooth'}); } else location.hash = 'send';
     },
   },
   submit: {
@@ -194,6 +195,6 @@ async function validate() {
 
 async function reload() {
   await view.load();
-  if (state.view === 'templates') rerender();
+  if (state.view === 'send' && state.send.tab === 'templates') rerender();
 }
 

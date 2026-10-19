@@ -7,9 +7,9 @@ from playwright.sync_api import sync_playwright
 base = os.getenv('BASE_URL', 'http://frontend')
 out = Path(os.getenv('ARTIFACTS', '/artifacts'))
 out.mkdir(exist_ok=True)
-views = ['overview', 'agent', 'send', 'templates', 'spending', 'payments', 'markets', 'plans', 'study', 'progress', 'habits', 'wallets', 'autonomy', 'memory', 'routes', 'audit']
+views = ['agent', 'overview', 'sandbox', 'markets', 'send', 'wallets', 'templates', 'payments', 'spending', 'study', 'progress', 'memory', 'audit']
 langs = ['en', 'zh-CN', 'zh-TW', 'vi', 'ja', 'ko']
-raw_key = re.compile(r'\b(?:nav|page|status|check|err|send|detail|markets|wallets|autonomy|agent|plans|habits|routes|audit|memory|spend|rem|cat|study|afford|insight|email|sch|doc|prog|badge|level|cel|group|watch|tf)\.[a-z_]+\b')
+raw_key = re.compile(r'\b(?:nav|page|status|check|err|send|detail|markets|wallets|autonomy|agent|plans|habits|routes|audit|memory|spend|rem|cat|study|afford|insight|email|sch|doc|prog|badge|level|cel|group|watch|tf|af|ov|tool)\.[a-z_]+\b')
 problems = []
 with sync_playwright() as p:
     browser = p.chromium.launch()

@@ -17,10 +17,12 @@ from .student import StudentMixin
 from .motivation import MotivationMixin
 from .watch import WatchMixin
 from .templates import TemplatesMixin
+from .money import MoneyMixin
+from .plans import PlansMixin, TimelineMixin
+from .banks import BanksMixin
 
 ACTIVE = ("pending", "unknown")
 FINAL = ("completed", "failed", "cancelled", "superseded")
-TIER_LEVEL = {"view": 1, "prepare": 2, "submit": 3}
 LANGUAGES = ("en", "zh-CN", "zh-TW", "vi", "ja", "ko")
 PREFERENCES = ("language", "display_currency", "payment_goal", "deadline", "home_region", "receive_region", "time_zone")
 
@@ -39,12 +41,18 @@ def audited(method):
     return wrapped
 
 
-class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, MotivationMixin, WatchMixin, TemplatesMixin):
+TEST_RECIPIENTS = {"ui-acceptance"}
+
+
+class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, MotivationMixin, WatchMixin, TemplatesMixin, MoneyMixin, PlansMixin, TimelineMixin, BanksMixin):
     """Single-tenant service. Authorization is derived by the server, never taken from model input."""
 
     def __init__(self, config=None, provider=None, rates=None):
         self.config = config or Config.env()
         self.store = Store(self.config.db)
+        self._money_schema()
+        self._plans_schema()
+        self._banks_schema()
         self._expenses_schema()
         self._student_schema()
         self._motivation_schema()
@@ -82,29 +90,23 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
                         body.setdefault("currency", "CNY")
                     c.execute("UPDATE recipients SET body=? WHERE id=?", (canonical(body), r["id"]))
 
-    # ---------- roles and tiers ----------
+    # ---------- roles ----------
     @staticmethod
     def owner(actor):
         if actor != "owner":
             raise Denied("owner authorization required", "owner_required")
 
-    def agent_tier(self, c=None):
-        if c is None:
-            with self.store.read() as c:
-                return int(self.store.setting(c, "agent_tier", "3"))
-        return int(self.store.setting(c, "agent_tier", "3"))
-
     def require(self, actor, need):
-        """Tier 1 view, tier 2 prepare/modify, tier 3 submit an authorized payment. Admin is the owner only."""
+        """The assistant may look things up and prepare drafts; only a person ever submits a payment."""
         if actor in ("owner", "system"):
             return
         if actor == "viewer" and need == "view":
             return
         if actor == "agent":
-            tier = self.agent_tier()
-            if tier >= TIER_LEVEL[need]:
-                return
-            raise Denied(f"agent permission tier {tier} does not allow {need}", "tier_denied", tier=tier, need=need)
+            if need == "submit":
+                raise Denied("the assistant never submits payments; you submit them yourself in the payment screen",
+                             "agent_cannot_submit")
+            return
         raise Denied(f"{need} permission required", "permission_denied", need=need)
 
     def prepare_role(self, actor):
@@ -135,18 +137,7 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
             return build(c)
 
     def settings(self):
-        return dict(agent_tier=self.agent_tier(), limits=self.limits(),
-                    tiers={1: "view and analyze", 2: "prepare and modify drafts", 3: "submit explicitly authorized payments"})
-
-    @audited
-    def set_agent_tier(self, actor, tier):
-        self.owner(actor)
-        if tier not in (1, 2, 3):
-            raise Denied("tier must be 1, 2 or 3", "tier_invalid")
-        with self.store.tx() as c:
-            c.execute("INSERT INTO settings VALUES ('agent_tier',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(tier),))
-            self.store.event(c, actor, "settings.agent_tier", "ok", None, tier=tier)
-        return self.settings()
+        return dict(limits=self.limits(), assistant="looks up, explains and prepares; never submits payments")
 
     @audited
     def set_limit(self, actor, currency, per_payment, daily):
@@ -280,6 +271,12 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
             raise Denied("transfer not found", "transfer_unknown")
         return dict(row)
 
+    @staticmethod
+    def is_test(body):
+        """Payments made by the automated acceptance tests: kept for the audit trail, hidden from the history."""
+        purpose = str(body.get("purpose") or "").lower()
+        return (body.get("recipient") or {}).get("id") in TEST_RECIPIENTS or purpose.startswith(("ui acceptance", "ui test"))
+
     def public(self, row):
         body = json.loads(row["body"])
         explorer = None
@@ -291,7 +288,7 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
                     reference=row["reference"], actual_cost=row["actual_cost"], created=row["created"],
                     submitted=row["submitted"], approved_at=row.get("approved_at"), completed_at=row.get("completed_at"),
                     supersedes=row.get("supersedes"), goal_id=row.get("goal_id"),
-                    checks=json.loads(row["checks"]) if row.get("checks") else None, explorer=explorer)
+                    checks=json.loads(row["checks"]) if row.get("checks") else None, explorer=explorer, test=self.is_test(body))
 
     def get(self, transfer_id):
         with self.store.read() as c:

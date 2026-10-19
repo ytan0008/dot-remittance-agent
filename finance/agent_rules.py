@@ -7,12 +7,88 @@ import re
 from decimal import Decimal
 from .domain import canonical
 from .student import money
+from .quickparse import parse_text
+
+BANK_PATTERNS = dict(
+    iban=r"\b([A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){2,7}(?:\s?[A-Z0-9]{1,4})?)\b",
+    bic=r"\b([A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\b",
+    bsb=r"(?i)\bbsb\D{0,6}(\d{3}-?\d{3})\b",
+    sort_code=r"\b(\d{2}-\d{2}-\d{2})\b",
+    routing_number=r"(?i)(?:routing|aba)\D{0,14}(\d{9})\b",
+    ifsc=r"\b([A-Z]{4}0[A-Z0-9]{6})\b",
+    cnaps=r"(?:联行号|聯行號|cnaps)\D{0,6}(\d{12})",
+    account=r"(?i)(?:account(?: number| no\.?)?|acct|账号|帳號|账户|帳戶|卡号|số tài khoản|口座番号|계좌(?:번호)?)\s*[:：#]?\s*([0-9][0-9 -]{3,32}[0-9])",
+    name=r"(?i)(?:beneficiary(?: name)?|account name|收款人|户名|戶名|người nhận|受取人|수취인|name)\s*[:：]\s*([^\n,，;；]{2,70})",
+    bank_name=r"(?i)(?:bank(?: name)?|银行|銀行|ngân hàng|은행)\s*[:：]\s*([^\n,，;；]{2,70})",
+    reference=r"(?i)(?:reference|ref|附言|备注|備註|nội dung|参照|메모)\s*[:：]\s*([^\n,，;；]{1,60})",
+)
+
+
+def bank_details(message):
+    """Read bank details out of a chat message and pick the transfer format they belong to."""
+    found = {}
+    for key, pattern in BANK_PATTERNS.items():
+        m = re.search(pattern, message)
+        if m:
+            found[key] = m.group(1).strip()
+    if found.get("bic") and found.get("iban") and found["bic"] == found["iban"].replace(" ", "")[:len(found["bic"])]:
+        found.pop("bic")
+    if found.get("ifsc") and found.get("bic") == found["ifsc"]:
+        found.pop("bic")
+    text = message.lower()
+    euro = any(w in text for w in ("eur", "euro", "欧元", "歐元", "sepa"))
+    if found.get("iban") and euro and not found.get("bic"):
+        fmt = "sepa"
+    elif found.get("bsb"):
+        fmt = "au_bsb"
+    elif found.get("sort_code"):
+        fmt = "uk_fps"
+    elif found.get("routing_number"):
+        fmt = "us_ach"
+    elif found.get("ifsc"):
+        fmt = "in_neft"
+    elif found.get("cnaps") or (not found.get("bic") and not found.get("iban") and any(w in message for w in ("银行", "銀行"))):
+        fmt = "cn_cnaps"
+    else:
+        fmt = "swift"
+    name = re.sub(r"\s+(?:AUD|USD|EUR|GBP|CNY|JPY|CAD|NZD|SGD|HKD|INR|KRW|VND|CHF)$", "", found.pop("name", ""))  # "name: J Smith AUD"
+    fields = {}
+    if fmt in ("swift", "sepa", "us_ach", "cn_cnaps", "in_neft"):
+        fields["beneficiary_name"] = name
+    else:
+        fields["account_name"] = name
+    if fmt == "swift":
+        fields["account"] = found.get("iban") or found.get("account", "")
+    elif fmt == "sepa":
+        fields["iban"] = found.get("iban", "")
+    else:
+        fields["account_number"] = found.get("account", "")
+    for key in ("bic", "bank_name", "bsb", "sort_code", "routing_number", "ifsc", "cnaps", "reference"):
+        if found.get(key) and (key != "bic" or fmt in ("swift", "sepa")) and (key != "bank_name" or fmt in ("swift", "us_ach", "cn_cnaps", "in_neft")):
+            fields[key] = found[key]
+    codes = re.findall(r"\b([A-Z]{3})\b", message.upper())
+    known = ("AUD", "USD", "EUR", "GBP", "CNY", "JPY", "CAD", "NZD", "SGD", "HKD", "INR", "KRW", "VND", "CHF")
+    currency = next((c for c in codes if c in known), "")
+    return dict(format=fmt, fields={k: v for k, v in fields.items() if v}, currency=currency)
 
 KEYWORDS = {
     "forget": ["forget", "忘记", "忘記", "忘掉", "quên", "忘れて", "잊어"],
     "recall": ["what do you remember", "do you remember", "你记得", "你記得", "记得什么", "記得什麼", "bạn nhớ", "覚えてる",
                "覚えている", "기억나", "기억하고"],
     "remember": ["remember", "记住", "記住", "ghi nhớ", "覚えて", "기억해"],
+    "subscription": ["subscription", "subscribe", "订阅", "訂閱", "thuê bao", "サブスク", "구독"],
+    "bills": ["my bills", "bills", "账单", "帳單", "hóa đơn", "請求", "청구서"],
+    "setcash": ["set my balance", "my balance is", "i now have", "余额改为", "余额设为", "余额是", "我现在有", "餘額改為", "餘額是", "我現在有",
+                "số dư là", "残高は", "잔액은"],
+    "emailset": ["email digest", "daily email", "weekly email", "monthly email", "邮件摘要", "每日摘要", "每周摘要", "每月摘要", "郵件摘要",
+                 "email tổng kết", "メールのまとめ", "이메일 요약"],
+    "template": ["template", "swift", "bic", "iban", "bsb", "sort code", "routing number", "ifsc", "bank details", "模板", "范本", "範本",
+                 "转账信息", "汇款信息", "银行信息", "银行资料", "銀行資料", "mẫu chuyển khoản", "thông tin ngân hàng", "テンプレート", "振込先",
+                 "템플릿", "계좌 정보"],
+    "simulate": ["simulate", "sandbox", "left after", "what would i have", "gap", "模拟", "模擬", "沙盒", "还剩多少", "還剩多少", "缺口",
+                 "mô phỏng", "còn lại bao nhiêu", "thiếu hụt", "シミュレーション", "残りはいくら", "不足", "시뮬레이션", "얼마 남", "부족"],
+    "plan": ["exchange plan", "plan to exchange", "i plan to exchange", "换钱计划", "换汇计划", "換錢計畫", "換匯計畫", "打算换", "打算換",
+             "kế hoạch đổi", "định đổi", "両替計画", "両替する予定", "환전 계획", "환전할 계획"],
     "timing": ["good time to exchange", "when should i exchange", "when to exchange", "should i exchange", "exchange now",
                "什么时候换汇", "现在换汇", "该不该换汇", "适合换汇", "什麼時候換匯", "現在換匯", "適合換匯", "khi nào nên đổi",
                "có nên đổi", "đổi tiền lúc nào", "両替のタイミング", "今両替", "いつ両替", "환전 타이밍", "지금 환전", "언제 환전"],
@@ -64,7 +140,7 @@ DOWN = ["less favorable", "worse", "drop", "fall", "down", "lower", "下跌", "�
         "하락", "떨어"]
 
 TEXT = {
-    "en": dict(adv_good_time='AI watch: {pair} looks like a good time to exchange — {rate}, better than {p}% of the last 90 days.', adv_wait='AI watch: {pair} is low for the last 90 days (better than only {p}%); if you can wait, waiting looks reasonable.', adv_deadline='AI watch: your deadline is close — exchange {pair} soon rather than wait (now {rate}).', adv_below_floor='AI watch: {pair} is {rate}, below the rate you said is acceptable; I will remind you if it improves.', adv_neutral='AI watch: {pair} is near its usual level ({p}th percentile of 90 days) — no strong signal either way.', progress='Level {level} of {max} · {streak} check-in day(s) in your current streak · {active} active challenge(s) · {badges} badge(s) earned.', afford_yes='Yes — after spending {amount}, your lowest projected balance stays at {lowest} ({date}).', afford_careful="Possible but tight: your lowest projected balance would be {lowest} ({date}), below your buffer or this month's budget.{wait}", afford_no='Not right now: you would run short around {date} (lowest {lowest}).{wait}', wait=' Safer from {date}.', scholarships='You are tracking {n} application(s). Next deadline: {name} on {date}.', scholarships_none='No scholarships tracked yet — add one on the Student money page, or tell me its name and deadline.', cashflow='Lowest projected balance: {amount} on {date}.', cashflow_short='Shortfall expected: your balance drops below zero around {date} (lowest {amount}).', offline="Offline rule planner — not an AI model. Configure a model for open-ended conversation.",
+    "en": dict(action_card='I prepared that — check the card below and press Confirm to run it.', records='Here is what I found:', simulated='After your exchange plans (numbers only, nothing is exchanged): {rows}. {gaps}', gap_line='{cur} is still {amount} short by {due}', no_gap='No currency gap in the next 60 days.', planned='Saved the exchange plan {pair}: {amount}. The AI watch now judges the timing against it; see the overview for what is left.', plan_form='I opened an exchange-plan form beside the chat — fill in how much you want to exchange and save.', owner_submits='I can’t submit payments — only you can. Open the draft card, check it, authorize and submit it yourself.', template_form='I put the bank details I could read into the template form beside the chat. Check them against your invoice and save.', afford_form='Tell me the price in the form beside the chat and I’ll check it against your plan.', adv_good_time='AI watch: {pair} looks like a good time to exchange — {rate}, better than {p}% of the last 90 days.', adv_wait='AI watch: {pair} is low for the last 90 days (better than only {p}%); if you can wait, waiting looks reasonable.', adv_deadline='AI watch: your deadline is close — exchange {pair} soon rather than wait (now {rate}).', adv_below_floor='AI watch: {pair} is {rate}, below the rate you said is acceptable; I will remind you if it improves.', adv_neutral='AI watch: {pair} is near its usual level ({p}th percentile of 90 days) — no strong signal either way.', progress='Level {level} of {max} · {streak} check-in day(s) in your current streak · {active} active challenge(s) · {badges} badge(s) earned.', afford_yes='Yes — after spending {amount}, your lowest projected balance stays at {lowest} ({date}).', afford_careful="Possible but tight: your lowest projected balance would be {lowest} ({date}), below your buffer or this month's budget.{wait}", afford_no='Not right now: you would run short around {date} (lowest {lowest}).{wait}', wait=' Safer from {date}.', scholarships='You are tracking {n} application(s). Next deadline: {name} on {date}.', scholarships_none='No scholarships tracked yet — add one on the Student money page, or tell me its name and deadline.', cashflow='Lowest projected balance: {amount} on {date}.', cashflow_short='Shortfall expected: your balance drops below zero around {date} (lowest {amount}).', offline="Offline rule planner — not an AI model. Configure a model for open-ended conversation.",
                missing="I need a few more details before preparing anything: {fields}.",
                prepared="Draft prepared from a sandbox quote. Review it and authorize it yourself — I cannot approve payments.",
                executed="Submitted. Current status: {status}. Submitted is not the same as completed; I will keep tracking it.",
@@ -75,7 +151,7 @@ TEXT = {
                help="I can check balances and rates, compare options, prepare and track payments, and plan goals. "
                     "Try: “Send 100 AUD to family for living costs”.",
                fields=dict(amount="amount", recipient="recipient", purpose="purpose", pair="currency pair", percent="percentage")),
-    "zh-CN": dict(adv_good_time='AI 盯盘：{pair} 现在是换汇的好时机——{rate}，优于近 90 天 {p}% 的时候。', adv_wait='AI 盯盘：{pair} 处于近 90 天偏低位置（只优于 {p}% 的时候）；如果不急，可以再等等。', adv_deadline='AI 盯盘：你的截止日期快到了——建议尽快换 {pair}，不要再等（现在 {rate}）。', adv_below_floor='AI 盯盘：{pair} 现在是 {rate}，低于你能接受的汇率；回升时我会提醒你。', adv_neutral='AI 盯盘：{pair} 处于平常水平（近 90 天第 {p} 百分位）——暂无明显信号。', progress='等级 {level}/{max} · 当前连续 {streak} 天打理财务 · {active} 个进行中的挑战 · 已获得 {badges} 枚徽章。', afford_yes='可以——花掉 {amount} 后，预计最低余额仍有 {lowest}（{date}）。', afford_careful='可以但偏紧：预计最低余额会是 {lowest}（{date}），低于你的安全垫或本月预算。{wait}', afford_no='现在不建议：大约 {date} 会出现缺口（最低 {lowest}）。{wait}', wait='从 {date} 起会更稳妥。', scholarships='你正在跟踪 {n} 个申请。最近的截止：{name}，{date}。', scholarships_none='还没有跟踪任何奖学金——可在“学生理财”页添加，或告诉我名称和截止日期。', cashflow='预计最低余额：{date} 时 {amount}。', cashflow_short='预计会出现缺口：大约 {date} 余额跌破零（最低 {amount}）。', offline="离线规则规划器 —— 不是 AI 大模型。配置模型后可进行开放式对话。",
+    "zh-CN": dict(action_card='我已经准备好这个操作——请核对下方卡片，点“确认执行”后才会生效。', records='我查到的内容如下：', simulated='按你的换钱计划模拟（只算数字，不会真的换）：{rows}。{gaps}', gap_line='{cur} 到 {due} 还差 {amount}', no_gap='未来 60 天没有货币缺口。', planned='已保存换钱计划 {pair}：{amount}。AI 盯汇率会按它判断时机；换完还剩多少可在总览查看。', plan_form='我在聊天旁打开了换钱计划表单——填上你打算换多少，然后保存。', owner_submits='我不能提交汇款——只有你本人可以。打开草稿卡片，核对后由你亲自授权并提交。', template_form='我把能识别出的银行信息填进了聊天旁的模板表单，请对照账单核对后保存。', afford_form='请在聊天旁的表单里填上价格，我会对照你的计划来判断。', adv_good_time='AI 盯盘：{pair} 现在是换汇的好时机——{rate}，优于近 90 天 {p}% 的时候。', adv_wait='AI 盯盘：{pair} 处于近 90 天偏低位置（只优于 {p}% 的时候）；如果不急，可以再等等。', adv_deadline='AI 盯盘：你的截止日期快到了——建议尽快换 {pair}，不要再等（现在 {rate}）。', adv_below_floor='AI 盯盘：{pair} 现在是 {rate}，低于你能接受的汇率；回升时我会提醒你。', adv_neutral='AI 盯盘：{pair} 处于平常水平（近 90 天第 {p} 百分位）——暂无明显信号。', progress='等级 {level}/{max} · 当前连续 {streak} 天打理财务 · {active} 个进行中的挑战 · 已获得 {badges} 枚徽章。', afford_yes='可以——花掉 {amount} 后，预计最低余额仍有 {lowest}（{date}）。', afford_careful='可以但偏紧：预计最低余额会是 {lowest}（{date}），低于你的安全垫或本月预算。{wait}', afford_no='现在不建议：大约 {date} 会出现缺口（最低 {lowest}）。{wait}', wait='从 {date} 起会更稳妥。', scholarships='你正在跟踪 {n} 个申请。最近的截止：{name}，{date}。', scholarships_none='还没有跟踪任何奖学金——可在“学生理财”页添加，或告诉我名称和截止日期。', cashflow='预计最低余额：{date} 时 {amount}。', cashflow_short='预计会出现缺口：大约 {date} 余额跌破零（最低 {amount}）。', offline="离线规则规划器 —— 不是 AI 大模型。配置模型后可进行开放式对话。",
                   missing="在准备任何操作前，我还需要：{fields}。",
                   prepared="已根据沙盒报价创建草稿。请你亲自核对并授权——我无法批准支付。",
                   executed="已提交。当前状态：{status}。已提交不等于已完成，我会继续跟踪。",
@@ -85,7 +161,7 @@ TEXT = {
                   form="请在聊天右侧的面板里填写收款人信息，保存后我会立刻继续。", logged="已记为待确认，请在“记账”页确认。", remembered="已记住。你可以在“记忆”页查看或删除。", recalled="记忆中有 {n} 条笔记和 {m} 段过往对话与此相关。", recalled_none="关于这个我没有任何记忆。", forgot="已忘记。", forgot_none="没有找到匹配的记忆笔记。", sensitive="我绝不会把密码、密钥或完整账号存进记忆。",
                   help="我可以查询余额和汇率、比较方案、准备并跟踪支付、规划目标。试试：“给 family 汇 100 澳元用于生活费”。",
                   fields=dict(amount="金额", recipient="收款人", purpose="用途", pair="币种", percent="百分比")),
-    "zh-TW": dict(adv_good_time='AI 盯盤：{pair} 現在是換匯的好時機——{rate}，優於近 90 天 {p}% 的時候。', adv_wait='AI 盯盤：{pair} 處於近 90 天偏低位置（只優於 {p}% 的時候）；如果不急，可以再等等。', adv_deadline='AI 盯盤：你的截止日期快到了——建議盡快換 {pair}，不要再等（現在 {rate}）。', adv_below_floor='AI 盯盤：{pair} 現在是 {rate}，低於你能接受的匯率；回升時我會提醒你。', adv_neutral='AI 盯盤：{pair} 處於平常水準（近 90 天第 {p} 百分位）——暫無明顯訊號。', progress='等級 {level}/{max} · 目前連續 {streak} 天打理財務 · {active} 個進行中的挑戰 · 已獲得 {badges} 枚徽章。', afford_yes='可以——花掉 {amount} 後，預計最低餘額仍有 {lowest}（{date}）。', afford_careful='可以但偏緊：預計最低餘額會是 {lowest}（{date}），低於你的安全墊或本月預算。{wait}', afford_no='現在不建議：大約 {date} 會出現缺口（最低 {lowest}）。{wait}', wait='從 {date} 起會更穩妥。', scholarships='你正在追蹤 {n} 個申請。最近的截止：{name}，{date}。', scholarships_none='還沒有追蹤任何獎學金——可在「學生理財」頁新增，或告訴我名稱和截止日期。', cashflow='預計最低餘額：{date} 時 {amount}。', cashflow_short='預計會出現缺口：大約 {date} 餘額跌破零（最低 {amount}）。', offline="離線規則規劃器 —— 不是 AI 大模型。設定模型後可進行開放式對話。",
+    "zh-TW": dict(action_card='我已經準備好這個操作——請核對下方卡片，點「確認執行」後才會生效。', records='我查到的內容如下：', simulated='按你的換錢計畫模擬（只算數字，不會真的換）：{rows}。{gaps}', gap_line='{cur} 到 {due} 還差 {amount}', no_gap='未來 60 天沒有貨幣缺口。', planned='已儲存換錢計畫 {pair}：{amount}。AI 盯匯率會按它判斷時機；換完還剩多少可在總覽查看。', plan_form='我在聊天旁打開了換錢計畫表單——填上你打算換多少，然後儲存。', owner_submits='我不能提交匯款——只有你本人可以。打開草稿卡片，核對後由你親自授權並提交。', template_form='我把能辨識出的銀行資料填進了聊天旁的範本表單，請對照帳單核對後儲存。', afford_form='請在聊天旁的表單裡填上價格，我會對照你的計畫來判斷。', adv_good_time='AI 盯盤：{pair} 現在是換匯的好時機——{rate}，優於近 90 天 {p}% 的時候。', adv_wait='AI 盯盤：{pair} 處於近 90 天偏低位置（只優於 {p}% 的時候）；如果不急，可以再等等。', adv_deadline='AI 盯盤：你的截止日期快到了——建議盡快換 {pair}，不要再等（現在 {rate}）。', adv_below_floor='AI 盯盤：{pair} 現在是 {rate}，低於你能接受的匯率；回升時我會提醒你。', adv_neutral='AI 盯盤：{pair} 處於平常水準（近 90 天第 {p} 百分位）——暫無明顯訊號。', progress='等級 {level}/{max} · 目前連續 {streak} 天打理財務 · {active} 個進行中的挑戰 · 已獲得 {badges} 枚徽章。', afford_yes='可以——花掉 {amount} 後，預計最低餘額仍有 {lowest}（{date}）。', afford_careful='可以但偏緊：預計最低餘額會是 {lowest}（{date}），低於你的安全墊或本月預算。{wait}', afford_no='現在不建議：大約 {date} 會出現缺口（最低 {lowest}）。{wait}', wait='從 {date} 起會更穩妥。', scholarships='你正在追蹤 {n} 個申請。最近的截止：{name}，{date}。', scholarships_none='還沒有追蹤任何獎學金——可在「學生理財」頁新增，或告訴我名稱和截止日期。', cashflow='預計最低餘額：{date} 時 {amount}。', cashflow_short='預計會出現缺口：大約 {date} 餘額跌破零（最低 {amount}）。', offline="離線規則規劃器 —— 不是 AI 大模型。設定模型後可進行開放式對話。",
                   missing="在準備任何操作前，我還需要：{fields}。",
                   prepared="已根據沙盒報價建立草稿。請你親自核對並授權——我無法批准付款。",
                   executed="已提交。目前狀態：{status}。已提交不等於已完成，我會持續追蹤。",
@@ -95,7 +171,7 @@ TEXT = {
                   form="請在聊天右側的面板裡填寫收款人資料，儲存後我會立刻繼續。", logged="已記為待確認，請在「記帳」頁確認。", remembered="已記住。你可以在「記憶」頁查看或刪除。", recalled="記憶中有 {n} 則筆記和 {m} 段過往對話與此相關。", recalled_none="關於這個我沒有任何記憶。", forgot="已忘記。", forgot_none="沒有找到符合的記憶筆記。", sensitive="我絕不會把密碼、金鑰或完整帳號存進記憶。",
                   help="我可以查詢餘額和匯率、比較方案、準備並追蹤付款、規劃目標。試試：「給 family 匯 100 澳幣用於生活費」。",
                   fields=dict(amount="金額", recipient="收款人", purpose="用途", pair="幣別", percent="百分比")),
-    "vi": dict(adv_good_time='AI theo dõi: {pair} đang là lúc tốt để đổi — {rate}, tốt hơn {p}% số ngày trong 90 ngày qua.', adv_wait='AI theo dõi: {pair} đang thấp so với 90 ngày qua (chỉ tốt hơn {p}%); nếu chưa gấp, có thể chờ thêm.', adv_deadline='AI theo dõi: sắp đến hạn — nên đổi {pair} sớm thay vì chờ (hiện {rate}).', adv_below_floor='AI theo dõi: {pair} đang là {rate}, thấp hơn mức bạn chấp nhận; tôi sẽ nhắc khi tỷ giá tốt lên.', adv_neutral='AI theo dõi: {pair} ở mức bình thường (bách phân vị {p} trong 90 ngày) — chưa có tín hiệu rõ.', progress='Cấp {level}/{max} · chuỗi hiện tại {streak} ngày chăm sóc tài chính · {active} thử thách đang chạy · {badges} huy hiệu đã nhận.', afford_yes='Được — sau khi chi {amount}, số dư dự kiến thấp nhất vẫn là {lowest} ({date}).', afford_careful='Được nhưng hơi sát: số dư thấp nhất sẽ là {lowest} ({date}), dưới mức dự phòng hoặc ngân sách tháng này.{wait}', afford_no='Chưa nên lúc này: bạn sẽ thiếu tiền vào khoảng {date} (thấp nhất {lowest}).{wait}', wait=' An toàn hơn từ {date}.', scholarships='Bạn đang theo dõi {n} hồ sơ. Hạn gần nhất: {name} ngày {date}.', scholarships_none='Chưa theo dõi học bổng nào — thêm ở trang Tài chính sinh viên, hoặc cho tôi biết tên và hạn nộp.', cashflow='Số dư dự kiến thấp nhất: {amount} vào {date}.', cashflow_short='Dự kiến thiếu hụt: số dư xuống dưới 0 vào khoảng {date} (thấp nhất {amount}).', offline="Bộ lập kế hoạch theo quy tắc ngoại tuyến — không phải mô hình AI. Hãy cấu hình mô hình để trò chuyện tự do.",
+    "vi": dict(action_card='Tôi đã chuẩn bị xong — hãy kiểm tra thẻ bên dưới và bấm Xác nhận để thực hiện.', records='Đây là những gì tôi tìm thấy:', simulated='Mô phỏng theo kế hoạch đổi tiền (chỉ là con số, không đổi thật): {rows}. {gaps}', gap_line='{cur} còn thiếu {amount} trước {due}', no_gap='Không có thiếu hụt tiền tệ nào trong 60 ngày tới.', planned='Đã lưu kế hoạch đổi {pair}: {amount}. Trợ lý tỷ giá sẽ đánh giá thời điểm theo kế hoạch này; xem phần còn lại ở trang tổng quan.', plan_form='Tôi đã mở biểu mẫu kế hoạch đổi tiền bên cạnh khung chat — hãy điền số tiền muốn đổi rồi lưu.', owner_submits='Tôi không thể gửi thanh toán — chỉ bạn mới có thể. Hãy mở thẻ bản nháp, kiểm tra rồi tự ủy quyền và gửi.', template_form='Tôi đã điền những thông tin ngân hàng đọc được vào biểu mẫu bên cạnh khung chat. Hãy đối chiếu với hóa đơn rồi lưu.', afford_form='Hãy nhập giá vào biểu mẫu bên cạnh khung chat, tôi sẽ kiểm tra theo kế hoạch của bạn.', adv_good_time='AI theo dõi: {pair} đang là lúc tốt để đổi — {rate}, tốt hơn {p}% số ngày trong 90 ngày qua.', adv_wait='AI theo dõi: {pair} đang thấp so với 90 ngày qua (chỉ tốt hơn {p}%); nếu chưa gấp, có thể chờ thêm.', adv_deadline='AI theo dõi: sắp đến hạn — nên đổi {pair} sớm thay vì chờ (hiện {rate}).', adv_below_floor='AI theo dõi: {pair} đang là {rate}, thấp hơn mức bạn chấp nhận; tôi sẽ nhắc khi tỷ giá tốt lên.', adv_neutral='AI theo dõi: {pair} ở mức bình thường (bách phân vị {p} trong 90 ngày) — chưa có tín hiệu rõ.', progress='Cấp {level}/{max} · chuỗi hiện tại {streak} ngày chăm sóc tài chính · {active} thử thách đang chạy · {badges} huy hiệu đã nhận.', afford_yes='Được — sau khi chi {amount}, số dư dự kiến thấp nhất vẫn là {lowest} ({date}).', afford_careful='Được nhưng hơi sát: số dư thấp nhất sẽ là {lowest} ({date}), dưới mức dự phòng hoặc ngân sách tháng này.{wait}', afford_no='Chưa nên lúc này: bạn sẽ thiếu tiền vào khoảng {date} (thấp nhất {lowest}).{wait}', wait=' An toàn hơn từ {date}.', scholarships='Bạn đang theo dõi {n} hồ sơ. Hạn gần nhất: {name} ngày {date}.', scholarships_none='Chưa theo dõi học bổng nào — thêm ở trang Tài chính sinh viên, hoặc cho tôi biết tên và hạn nộp.', cashflow='Số dư dự kiến thấp nhất: {amount} vào {date}.', cashflow_short='Dự kiến thiếu hụt: số dư xuống dưới 0 vào khoảng {date} (thấp nhất {amount}).', offline="Bộ lập kế hoạch theo quy tắc ngoại tuyến — không phải mô hình AI. Hãy cấu hình mô hình để trò chuyện tự do.",
                missing="Tôi cần thêm vài thông tin trước khi chuẩn bị: {fields}.",
                prepared="Đã tạo bản nháp từ báo giá sandbox. Hãy tự kiểm tra và ủy quyền — tôi không thể phê duyệt thanh toán.",
                executed="Đã gửi. Trạng thái hiện tại: {status}. Đã gửi không có nghĩa là đã hoàn tất; tôi sẽ tiếp tục theo dõi.",
@@ -106,7 +182,7 @@ TEXT = {
                help="Tôi có thể xem số dư và tỷ giá, so sánh phương án, chuẩn bị và theo dõi thanh toán. "
                     "Thử: “Gửi 100 AUD cho family để chi tiêu sinh hoạt”.",
                fields=dict(amount="số tiền", recipient="người nhận", purpose="mục đích", pair="cặp tiền tệ", percent="phần trăm")),
-    "ja": dict(adv_good_time='AI ウォッチ：{pair} は今が両替のよいタイミングです——{rate}、直近 90 日の {p}% より有利。', adv_wait='AI ウォッチ：{pair} は直近 90 日で低め（{p}% より有利なだけ）。急がなければ待つのも妥当です。', adv_deadline='AI ウォッチ：期限が近いので、待たずに早めに {pair} を両替しましょう（現在 {rate}）。', adv_below_floor='AI ウォッチ：{pair} は {rate} で、許容できるレートを下回っています。改善したらお知らせします。', adv_neutral='AI ウォッチ：{pair} はいつもの水準（90 日の {p} パーセンタイル）——はっきりしたシグナルはありません。', progress='レベル {level}/{max} · 現在の連続記録 {streak} 日 · 進行中のチャレンジ {active} 件 · 獲得バッジ {badges} 個。', afford_yes='大丈夫です——{amount} 使っても、予測残高の最低値は {lowest}（{date}）です。', afford_careful='可能ですがぎりぎりです：予測残高の最低値は {lowest}（{date}）で、安全資金か今月の予算を下回ります。{wait}', afford_no='今はおすすめしません：{date} ごろに不足します（最低 {lowest}）。{wait}', wait='{date} 以降なら安全です。', scholarships='{n} 件の応募を管理しています。次の締切：{name}（{date}）。', scholarships_none='まだ奨学金は登録されていません。「学生のお金」ページで追加するか、名前と締切を教えてください。', cashflow='予測残高の最低値：{date} に {amount}。', cashflow_short='不足が見込まれます：{date} ごろ残高がマイナスになります（最低 {amount}）。', offline="オフラインのルールプランナーです（AI モデルではありません）。自由な会話にはモデルを設定してください。",
+    "ja": dict(action_card='準備しました——下のカードを確認し、「確定して実行」を押すと反映されます。', records='見つかった内容です：', simulated='両替計画どおりに試算しました（数字だけで、実際には両替しません）：{rows}。{gaps}', gap_line='{cur} は {due} までに {amount} 不足', no_gap='今後 60 日に通貨の不足はありません。', planned='両替計画 {pair}：{amount} を保存しました。AI がこれに沿ってタイミングを判断します。残高の見通しは概要で確認できます。', plan_form='チャット横に両替計画フォームを開きました。両替したい金額を入れて保存してください。', owner_submits='私は送金を実行できません——実行できるのはあなただけです。下書きカードを開いて確認し、ご自身で承認・送信してください。', template_form='読み取れた銀行情報をチャット横のテンプレートフォームに入れました。請求書と照合して保存してください。', afford_form='チャット横のフォームに金額を入れてください。プランと照らして確認します。', adv_good_time='AI ウォッチ：{pair} は今が両替のよいタイミングです——{rate}、直近 90 日の {p}% より有利。', adv_wait='AI ウォッチ：{pair} は直近 90 日で低め（{p}% より有利なだけ）。急がなければ待つのも妥当です。', adv_deadline='AI ウォッチ：期限が近いので、待たずに早めに {pair} を両替しましょう（現在 {rate}）。', adv_below_floor='AI ウォッチ：{pair} は {rate} で、許容できるレートを下回っています。改善したらお知らせします。', adv_neutral='AI ウォッチ：{pair} はいつもの水準（90 日の {p} パーセンタイル）——はっきりしたシグナルはありません。', progress='レベル {level}/{max} · 現在の連続記録 {streak} 日 · 進行中のチャレンジ {active} 件 · 獲得バッジ {badges} 個。', afford_yes='大丈夫です——{amount} 使っても、予測残高の最低値は {lowest}（{date}）です。', afford_careful='可能ですがぎりぎりです：予測残高の最低値は {lowest}（{date}）で、安全資金か今月の予算を下回ります。{wait}', afford_no='今はおすすめしません：{date} ごろに不足します（最低 {lowest}）。{wait}', wait='{date} 以降なら安全です。', scholarships='{n} 件の応募を管理しています。次の締切：{name}（{date}）。', scholarships_none='まだ奨学金は登録されていません。「学生のお金」ページで追加するか、名前と締切を教えてください。', cashflow='予測残高の最低値：{date} に {amount}。', cashflow_short='不足が見込まれます：{date} ごろ残高がマイナスになります（最低 {amount}）。', offline="オフラインのルールプランナーです（AI モデルではありません）。自由な会話にはモデルを設定してください。",
                missing="準備の前に、次の情報が必要です：{fields}。",
                prepared="サンドボックス見積もりから下書きを作成しました。ご自身で確認して承認してください。私は支払いを承認できません。",
                executed="送信しました。現在の状態：{status}。送信済みは完了ではありません。引き続き追跡します。",
@@ -116,7 +192,7 @@ TEXT = {
                form="チャット横のパネルで受取人を入力してください。保存されたらすぐに続けます。", logged="保留中として記録しました。「家計簿」ページで確定してください。", remembered="覚えました。「メモリー」ページで確認・削除できます。", recalled="メモリーに一致するメモが {n} 件、過去の会話が {m} 件あります。", recalled_none="それについて覚えていることはありません。", forgot="忘れました。", forgot_none="一致するメモは見つかりませんでした。", sensitive="パスワード、鍵、完全な口座番号をメモリーに保存することはありません。",
                help="残高や為替の確認、比較、支払いの準備と追跡、目標の計画ができます。例：「family に生活費として 100 AUD 送金」。",
                fields=dict(amount="金額", recipient="受取人", purpose="目的", pair="通貨ペア", percent="割合")),
-    "ko": dict(adv_good_time='AI 감시: {pair} 지금이 환전하기 좋은 때예요 — {rate}, 최근 90일 중 {p}%보다 유리해요.', adv_wait='AI 감시: {pair}가 최근 90일 기준 낮은 편이에요({p}%보다만 유리). 급하지 않다면 기다려도 좋아요.', adv_deadline='AI 감시: 마감이 가까워요 — 기다리지 말고 {pair}를 곧 환전하세요(현재 {rate}).', adv_below_floor='AI 감시: {pair}가 {rate}로 받아들일 수 있는 환율보다 낮아요. 나아지면 알려 드릴게요.', adv_neutral='AI 감시: {pair}가 평소 수준이에요(90일 기준 {p} 백분위) — 뚜렷한 신호는 없어요.', progress='레벨 {level}/{max} · 현재 연속 {streak}일 · 진행 중인 챌린지 {active}개 · 획득한 배지 {badges}개.', afford_yes='괜찮아요 — {amount}를 써도 예상 최저 잔액은 {lowest}({date})입니다.', afford_careful='가능하지만 빠듯해요: 예상 최저 잔액이 {lowest}({date})로 비상금이나 이번 달 예산보다 낮아요.{wait}', afford_no='지금은 어려워요: {date}쯤 잔액이 부족해집니다(최저 {lowest}).{wait}', wait=' {date}부터는 더 안전해요.', scholarships='지원서 {n}개를 관리 중입니다. 가장 가까운 마감: {name}, {date}.', scholarships_none='아직 관리 중인 장학금이 없습니다. ‘학생 재정’ 페이지에서 추가하거나 이름과 마감일을 알려 주세요.', cashflow='예상 최저 잔액: {date}에 {amount}.', cashflow_short='부족이 예상됩니다: {date}쯤 잔액이 0 아래로 떨어집니다(최저 {amount}).', offline="오프라인 규칙 플래너입니다(AI 모델이 아님). 자유로운 대화를 하려면 모델을 설정하세요.",
+    "ko": dict(action_card='준비했어요 — 아래 카드를 확인하고 ‘확인하고 실행’을 누르면 적용돼요.', records='찾은 내용이에요:', simulated='환전 계획대로 시뮬레이션했어요 (숫자만 계산, 실제 환전 없음): {rows}. {gaps}', gap_line='{cur}는 {due}까지 {amount} 부족', no_gap='앞으로 60일 동안 통화 부족은 없어요.', planned='환전 계획 {pair}: {amount}을 저장했어요. AI가 이 계획에 맞춰 타이밍을 판단해요. 남는 금액은 개요에서 확인하세요.', plan_form='채팅 옆에 환전 계획 양식을 열었어요. 환전할 금액을 입력하고 저장하세요.', owner_submits='저는 송금을 제출할 수 없어요 — 본인만 할 수 있어요. 초안 카드를 열어 확인한 뒤 직접 승인하고 제출하세요.', template_form='읽어 낸 은행 정보를 채팅 옆 템플릿 양식에 채웠어요. 청구서와 대조한 뒤 저장하세요.', afford_form='채팅 옆 양식에 가격을 입력하면 계획과 비교해 볼게요.', adv_good_time='AI 감시: {pair} 지금이 환전하기 좋은 때예요 — {rate}, 최근 90일 중 {p}%보다 유리해요.', adv_wait='AI 감시: {pair}가 최근 90일 기준 낮은 편이에요({p}%보다만 유리). 급하지 않다면 기다려도 좋아요.', adv_deadline='AI 감시: 마감이 가까워요 — 기다리지 말고 {pair}를 곧 환전하세요(현재 {rate}).', adv_below_floor='AI 감시: {pair}가 {rate}로 받아들일 수 있는 환율보다 낮아요. 나아지면 알려 드릴게요.', adv_neutral='AI 감시: {pair}가 평소 수준이에요(90일 기준 {p} 백분위) — 뚜렷한 신호는 없어요.', progress='레벨 {level}/{max} · 현재 연속 {streak}일 · 진행 중인 챌린지 {active}개 · 획득한 배지 {badges}개.', afford_yes='괜찮아요 — {amount}를 써도 예상 최저 잔액은 {lowest}({date})입니다.', afford_careful='가능하지만 빠듯해요: 예상 최저 잔액이 {lowest}({date})로 비상금이나 이번 달 예산보다 낮아요.{wait}', afford_no='지금은 어려워요: {date}쯤 잔액이 부족해집니다(최저 {lowest}).{wait}', wait=' {date}부터는 더 안전해요.', scholarships='지원서 {n}개를 관리 중입니다. 가장 가까운 마감: {name}, {date}.', scholarships_none='아직 관리 중인 장학금이 없습니다. ‘학생 재정’ 페이지에서 추가하거나 이름과 마감일을 알려 주세요.', cashflow='예상 최저 잔액: {date}에 {amount}.', cashflow_short='부족이 예상됩니다: {date}쯤 잔액이 0 아래로 떨어집니다(최저 {amount}).', offline="오프라인 규칙 플래너입니다(AI 모델이 아님). 자유로운 대화를 하려면 모델을 설정하세요.",
                missing="준비하기 전에 다음 정보가 필요합니다: {fields}.",
                prepared="샌드박스 견적으로 초안을 만들었습니다. 직접 확인하고 승인해 주세요. 저는 결제를 승인할 수 없습니다.",
                executed="제출했습니다. 현재 상태: {status}. 제출은 완료와 다릅니다. 계속 추적하겠습니다.",
@@ -211,7 +287,7 @@ class RulePlanner:
         tid = re.search(r"\b([0-9a-f]{8})(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\b", text)
         if tid:
             entities["transfer"] = tid.group(0)
-        intent = next((i for i in ("forget", "recall", "remember", "timing", "progress", "afford", "scholarship", "cashflow", "insights", "execute", "track", "forecast", "scenario", "compare", "prepare", "rates",
+        intent = next((i for i in ("forget", "recall", "remember", "emailset", "setcash", "subscription", "bills", "template", "plan", "simulate", "timing", "progress", "afford", "scholarship", "cashflow", "insights", "execute", "track", "forecast", "scenario", "compare", "prepare", "rates",
                                    "balance", "reminders", "goals", "credit", "expense") if has(text, i)), None)
         if intent in ("forget", "recall", "remember"):
             entities = {"note": self.after_keyword(message, intent)}
@@ -269,7 +345,46 @@ class RulePlanner:
             if e.get("amount"):
                 steps = [("afford_check", dict(amount=e["amount"], currency=src or "", date="", label=message[:80]))]
             else:
-                missing = ["amount"]
+                steps = [("request_details", dict(kind="afford", prefill=dict(currency=src or "", label=message[:80]), reason="price missing"))]
+        elif intent == "subscription":
+            found = parse_text(message, None, src or self.agent.finance._currency_default())
+            if found:
+                it = found[0]
+                name = re.sub(r"(?i)帮我|加一个|添加|新增|记一个|记录|訂閱|订阅|subscriptions?|subscribe( to)?|add( a)?|thêm|thuê bao|サブスク|追加|구독|추가", " ", it["description"])
+                name = " ".join(name.split()) or it["description"]
+                steps = [("do_action", dict(action="add_recurring", params=dict(description=name, amount=str(it["amount"]),
+                                                                              currency=it["currency"], cadence="weekly" if any(w in message.lower() for w in WEEK) else "monthly",
+                                                                              category="subscriptions"), summary=message[:120]))]
+            else:
+                steps = [("read_records", dict(kind="recurring", source="", target=""))]
+        elif intent == "bills":
+            steps = [("read_records", dict(kind="bills", source="", target=""))]
+        elif intent == "setcash":
+            found = parse_text(message, None, src or self.agent.finance._currency_default())
+            if found:
+                steps = [("do_action", dict(action="set_cash", params=dict(currency=found[0]["currency"], amount=str(found[0]["amount"])), summary=message[:120]))]
+            else:  # "我的余额是多少" is a question, not a new balance
+                steps = [("read_records", dict(kind="cash", source="", target=""))]
+        elif intent == "emailset":
+            low = message.lower()
+            digest = ("daily" if any(w in low for w in ("daily", "每日", "每天", "hằng ngày", "毎日", "매일")) else
+                      "weekly" if any(w in low for w in ("weekly", "每周", "每週", "hằng tuần", "毎週", "매주")) else
+                      "monthly" if any(w in low for w in ("monthly", "每月", "hằng tháng", "毎月", "매월")) else
+                      "off" if any(w in low for w in ("stop", "off", "关闭", "不要", "關閉", "tắt", "停止", "끄")) else None)
+            addr = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", message)
+            params = dict(digest=digest, **({"address": addr.group(0)} if addr else {}))
+            steps = [("do_action", dict(action="set_email", params=params, summary=message[:120]))] if digest else [("read_records", dict(kind="email", source="", target=""))]
+        elif intent == "simulate":
+            steps = [("simulate_exchange", dict(extra=[], rate_shift="0"))]
+        elif intent == "plan":
+            if pair and e.get("amount"):
+                side = "receive" if e.get("receive") else "spend"
+                steps = [("plan_exchange", dict(pair, amount=e["amount"], side=side, due=e.get("date", ""), purpose=e.get("purpose", ""), min_rate=""))]
+            else:
+                steps = [("request_details", dict(kind="plan", prefill=dict(source=src or "", target=dst or "", amount=e.get("amount", "")),
+                                                  reason="exchange plan"))]
+        elif intent == "template":
+            steps = [("request_details", dict(kind="template", prefill=bank_details(message), reason="bank transfer template"))]
         elif intent == "timing":
             if not pair:
                 watched = [w for w in self.agent.finance.watches() if w["active"]]
@@ -322,19 +437,20 @@ class RulePlanner:
                 steps = [("get_balances", {}), ("prepare_payment", dict(money, source=src, target=dst,
                                                                        recipient_id=e["recipient"], purpose=e["purpose"]))]
             elif "recipient" in missing:
-                steps = [("request_recipient_details", dict(name=e.get("new_name", ""), currency=dst or "", country="", reason="recipient not registered"))]
+                steps = [("request_details", dict(kind="recipient", prefill=dict(name=e.get("new_name", ""), currency=dst or ""),
+                                                  reason="recipient not registered"))]
         elif intent in ("execute", "track"):
             target = self.find_transfer(e.get("transfer"), intent)
             if target:
                 steps = [("get_payment", dict(transfer_id=target["id"]))]
                 if intent == "execute":
-                    steps.append(("execute_payment", dict(transfer_id=target["id"])))
+                    pass  # only the person submits; the card links to the payment screen
                 else:
                     steps.append(("reconcile_payment", dict(transfer_id=target["id"])))
         elif intent == "reminders":
             steps = [("reminders", {})]
         elif intent == "goals":
-            steps = [("goals_overview", {})]
+            steps = [("read_records", dict(kind="plans", source="", target=""))]
         elif intent == "credit":
             steps = [("habits_overview", {})]
         elif intent == "remember":
@@ -374,8 +490,10 @@ class RulePlanner:
 
     @staticmethod
     def reply(t, intent, missing, results):
-        if results and results[-1]["ok"] and results[-1]["tool"] == "request_recipient_details":
-            return t["form"]  # the form beside the chat collects what is missing
+        if results and results[-1]["ok"] and results[-1]["tool"] == "request_details":
+            kind = results[-1]["result"]["form"]
+            return (t["template_form"] if kind == "template" else t["afford_form"] if kind == "afford"
+                    else t["plan_form"] if kind in ("plan", "watch") else t["form"])
         if missing:
             return t["missing"].format(fields=", ".join(t["fields"].get(m, m) for m in missing))
         if not results:
@@ -387,8 +505,23 @@ class RulePlanner:
             if last.get("code") == "memory_sensitive":
                 return t["sensitive"]
             return last["error"]
-        if last["tool"] == "request_recipient_details":
-            return t["form"]
+
+        if last["tool"] == "do_action":
+            return t["action_card"]
+        if last["tool"] == "read_records":
+            r = last["result"]
+            rows = r if isinstance(r, list) else []
+            names = [str(x.get("title") or x.get("description") or x.get("name") or x.get("purpose") or "") for x in rows[:8] if isinstance(x, dict)]
+            return t["records"] + ("\n" + "\n".join("· " + n for n in names if n) if names else " —")
+        if last["tool"] == "simulate_exchange":
+            r = last["result"]
+            rows = ", ".join(f'{x["currency"]} {money(x["before"], x["currency"])} → {money(x["after"], x["currency"])}' for x in r["rows"] if x["before"] or x["after"])
+            gaps = "; ".join(t["gap_line"].format(cur=x["currency"], amount=money(x["gap_after"], x["currency"]), due=x["due"] or "—")
+                             for x in r["rows"] if x["gap_after"] and x["known"])
+            return t["simulated"].format(rows=rows or "—", gaps=gaps + "." if gaps else t["no_gap"])
+        if last["tool"] == "plan_exchange":
+            r = last["result"]
+            return t["planned"].format(pair=f'{r["source"]}→{r["target"]}', amount=f'{money(r["amount"], r["amount_currency"])} {r["amount_currency"]}')
         if last["tool"] == "log_expense":
             return t["logged"]
         if last["tool"] == "exchange_advice":
@@ -427,7 +560,9 @@ class RulePlanner:
             return t["recalled"].format(n=len(r["notes"]), m=len(r["episodes"])) if r["notes"] or r["episodes"] else t["recalled_none"]
         if last["tool"] == "prepare_payment":
             return t["prepared"]
-        if last["tool"] in ("execute_payment", "reconcile_payment"):
+        if intent == "execute" and last["tool"] == "get_payment":
+            return t["owner_submits"]
+        if last["tool"] == "reconcile_payment":
             r = last["result"]
             return t["executed"].format(status=r["status"])
         return t["info"]

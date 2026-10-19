@@ -1,6 +1,6 @@
 import {state, need, api, t, modal, closeModal, toast, formError, isOwner, canPrepare, invalidate, rerender, newId, value} from '../core.js';
 import {esc, chip, amt, empty, panel, dl, mono, short, icons, segmented, tag} from '../ui.js';
-import {when, day, num, region, relative, has, phrase, eta} from '../i18n.js';
+import {when, day, num, money, region, relative, has, phrase, eta} from '../i18n.js';
 import {hold} from '../motion.js';
 
 const STATUSES = ['all', 'draft', 'approved', 'pending', 'unknown', 'completed', 'failed', 'cancelled', 'superseded'];
@@ -16,19 +16,38 @@ export function table(list, {limit = 100, compact = false} = {}) {
   }).join('')}</tbody></table></div>`;
 }
 
+const PREPARING = ['draft', 'approved'];
+
+/** What is about to be sent: drafts waiting for you, and your exchange plans. */
+function preparing(list) {
+  const plans = state.data.payPlans || [];
+  if (!list.length && !plans.length) return '';
+  return panel(`${t('payments.preparing')} <span class="muted">/ ${list.length + plans.length}</span>`, `${list.length ? table(list) : ''}
+    ${plans.length ? `<ul class="list pay-plans">${plans.map(p => `<li class="row"><span class="state-dot"></span><div><b>${esc(p.source)} → ${esc(p.target)} · ${esc(money(p.amount, p.amount_currency))} ${esc(p.amount_currency)}</b>
+      <small>${t('payments.plan_row')}${p.purpose ? ' · ' + esc(p.purpose) : ''}${p.due ? ' · ' + day(p.due) : ''}</small></div>
+      <button class="link sm" data-action="go" data-view="overview">${t('ov.p.title')} ${icons.arrow}</button></li>`).join('')}</ul>` : ''}`, {sub: t('payments.preparing_sub'), cls: 'pay-preparing'});
+}
+
 export const view = {
   id: 'payments',
   needs: ['transfers', 'balances'],
+  async load() {
+    try { state.data.payPlans = await api('/exchange-plans'); } catch { state.data.payPlans = []; }
+  },
   render() {
-    const all = state.data.transfers || [];
+    // Only your own transfers: what the automated tests created stays in the audit trail but not here.
+    const all = (state.data.transfers || []).filter(p => !p.test && p.status !== 'superseded');
     const f = state.filters;
-    const list = all.filter(p => (f.status === 'all' || p.status === f.status));
-    const count = s => all.filter(p => p.status === s).length;
-    const stats = [['draft', count('draft') + count('approved')], ['pending', count('pending') + count('unknown')], ['completed', count('completed')], ['failed', count('failed')]];
-    return `<div class="stat-strip reveal">${stats.map(([s, n]) => `<button class="stat" data-action="filter" data-name="status" data-value="${s}"><span class="stat-n" data-count="${n}" data-digits="0">${n}</span><span>${chip(s)}</span></button>`).join('')}</div>
+    const ready = all.filter(p => PREPARING.includes(p.status));
+    const done = all.filter(p => !PREPARING.includes(p.status));
+    const list = done.filter(p => (f.status === 'all' || p.status === f.status));
+    const count = s => done.filter(p => p.status === s).length;
+    const stats = [['pending', count('pending') + count('unknown')], ['completed', count('completed')], ['failed', count('failed')]];
+    return `${preparing(ready)}
+      <div class="stat-strip reveal">${stats.map(([s, n]) => `<button class="stat" data-action="filter" data-name="status" data-value="${s}"><span class="stat-n" data-count="${n}" data-digits="0">${n}</span><span>${chip(s)}</span></button>`).join('')}</div>
       ${panel(`${t('payments.title')} <span class="muted">/ ${list.length}</span>`, `
-        <div class="toolbar"><div class="chips-scroll hscroll">${STATUSES.map(s => `<button class="pill ${f.status === s ? 'on' : ''}" data-action="filter" data-name="status" data-value="${s}">${s === 'all' ? t('common.all') : t('status.' + s)}</button>`).join('')}</div></div>
-        ${table(list)}`, {actions: `<button class="button" data-action="go" data-view="send">${icons.plus}${t('action.new_transfer')}</button>`})}`;
+        <div class="toolbar"><div class="chips-scroll hscroll">${STATUSES.filter(s => !PREPARING.includes(s)).map(s => `<button class="pill ${f.status === s ? 'on' : ''}" data-action="filter" data-name="status" data-value="${s}">${s === 'all' ? t('common.all') : t('status.' + s)}</button>`).join('')}</div></div>
+        ${list.length ? table(list) : empty(t('payments.none'))}`, {actions: `<button class="button" data-action="go" data-view="send">${icons.plus}${t('action.new_transfer')}</button>`})}`;
   },
   actions: {
     filter(el) { state.filters[el.dataset.name] = el.dataset.value; rerender(); },

@@ -5,22 +5,28 @@ import {gauge, animateGauges} from '../charts.js';
 
 const LESSONS = ['history', 'on_time', 'utilization', 'reports', 'remittance', 'scams'];
 
-export const view = {
-  id: 'habits',
-  needs: ['habits', 'obligations', 'transfers'],
-  render() {
-    const h = state.data.habits, list = state.data.obligations || [];
-    const owner = isOwner();
-    const indicator = h ? `<div class="habit-hero">
-        ${gauge(Number(h.on_time_pct ?? 0), {size: 150, label: h.on_time_pct ? num(h.on_time_pct, 0) + '%' : '—', sub: t('habits.on_time')})}
-        <div><span class="label-strong">${t('habits.not_score')}</span>
-          <div class="habit-stats"><div><b data-count="${h.streak}" data-digits="0">${h.streak}</b><small>${t('habits.streak')}</small></div><div><b>${h.on_time}</b><small>${t('habits.on_time_n')}</small></div><div><b>${h.late}</b><small>${t('habits.late')}</small></div><div><b>${h.overdue}</b><small>${t('habits.overdue')}</small></div></div>
-          <ul class="disclaimers">${['habits.d1', 'habits.d2', 'habits.d3'].map(k => `<li>${t(k)}</li>`).join('')}</ul></div></div>` : '';
-    const rows = list.length ? `<ul class="list">${list.map(o => `<li class="row ob-${esc(o.state)}"><span class="state-dot"></span><div><b>${esc(o.title)}</b><small>${esc(t('category.' + o.category))} · ${t('habits.due')} ${day(o.due_date)}${o.recurring === 'monthly' ? ' · ' + t('habits.monthly') : ''}${o.transfer_id ? ' · ' + t('habits.sandbox_evidence') : ''}</small></div>${amt(o.amount, o.currency)}<span class="chip s-${esc(o.state)}"><i></i>${t('ob.' + o.state)}</span>
-        ${!o.paid_at && owner ? `<button class="button sm" data-action="mark-paid" data-id="${esc(o.id)}">${t('habits.mark_paid')}</button>` : ''}
-        ${owner ? `<button class="x" data-action="ob-delete" data-id="${esc(o.id)}" aria-label="${t('common.archive')}">×</button>` : ''}</li>`).join('')}</ul>` : empty(t('habits.empty'));
-    return `<div class="split">
-      ${panel(t('habits.indicator'), indicator, {cls: 'tilt'})}
+/** The payment-habits indicator (on-time share, streak) — shown on the Student money page. */
+export function indicatorPanel() {
+  const h = state.data.habits;
+  if (!h) return '';
+  const stat = (v, k, cls = '') => `<div class="hb-stat ${cls}"><b data-count="${v}" data-digits="0">${v}</b><small>${t(k)}</small></div>`;
+  return panel(t('habits.indicator'), `<div class="habit-hero">
+      <div class="hb-gauge">${gauge(Number(h.on_time_pct ?? 0), {size: 132, label: h.on_time_pct ? num(h.on_time_pct, 0) + '%' : '—', sub: t('habits.on_time')})}</div>
+      <div class="hb-stats">${stat(h.streak, 'habits.streak', 'lead')}${stat(h.on_time, 'habits.on_time_n')}${stat(h.late, 'habits.late')}${stat(h.overdue, 'habits.overdue', h.overdue ? 'warn' : '')}</div>
+      <div class="hb-note"><span class="label-strong">${t('habits.not_score')}</span>
+        <ul class="disclaimers">${['habits.d1', 'habits.d2', 'habits.d3'].map(k => `<li>${t(k)}</li>`).join('')}</ul>
+        <button class="link sm" data-action="go" data-view="plans">${t('plans.bills')} ${icons.arrow}</button></div></div>`, {cls: 'habit-panel', sub: t('habits.sub')});
+}
+
+/** Bills: add one, the list with mark-paid, and the short lessons — shown on the Goals, budget & bills page. */
+export function billsPanels() {
+  const list = state.data.obligations || [];
+  const owner = isOwner();
+  const rows = list.length ? `<ul class="list">${list.map(o => `<li class="row ob-${esc(o.state)}"><span class="state-dot"></span><div><b>${esc(o.title)}</b><small>${esc(t('category.' + o.category))} · ${t('habits.due')} ${day(o.due_date)}${o.recurring === 'monthly' ? ' · ' + t('habits.monthly') : ''}${o.transfer_id ? ' · ' + t('habits.sandbox_evidence') : ''}</small></div>${amt(o.amount, o.currency)}<span class="chip s-${esc(o.state)}"><i></i>${t('ob.' + o.state)}</span>
+      ${!o.paid_at && owner ? `<button class="button sm" data-action="mark-paid" data-id="${esc(o.id)}">${t('habits.mark_paid')}</button>` : ''}
+      ${owner ? `<button class="x" data-action="ob-delete" data-id="${esc(o.id)}" aria-label="${t('common.archive')}">×</button>` : ''}</li>`).join('')}</ul>` : empty(t('habits.empty'));
+  return `<div class="split">
+      ${panel(t('habits.obligations'), rows)}
       ${panel(t('habits.add'), `<form id="ob-form" class="form-block">
         ${field('o-title', t('habits.title_field'), `<input id="o-title" name="title" required maxlength="100" placeholder="${t('habits.title_ph')}">`)}
         <div class="grid-3">${field('o-cat', t('plans.category'), `<select id="o-cat" name="category">${options(['rent', 'tuition', 'utility', 'loan', 'family', 'subscription', 'other'].map(c => [c, t('category.' + c)]), 'rent')}</select>`)}
@@ -29,10 +35,14 @@ export const view = {
         <div class="grid-2">${field('o-due', t('habits.due'), `<input id="o-due" name="due_date" type="date" required>`)}
         ${field('o-rec', t('habits.recurring'), `<select id="o-rec" name="recurring">${options([['none', t('habits.once')], ['monthly', t('habits.monthly')]], 'none')}</select>`)}</div>
         <div class="form-error"></div><button class="button primary" ${owner ? '' : 'disabled'}>${icons.plus}${t('habits.add_btn')}</button></form>`)}
-      </div>
-      ${panel(t('habits.obligations'), rows)}
-      <section class="lessons">${LESSONS.map((k, i) => `<details class="lesson reveal tilt"><summary><span class="lesson-n">${String(i + 1).padStart(2, '0')}</span><b>${t('lesson.' + k)}</b><i></i></summary><p>${t('lesson.' + k + '_d')}</p></details>`).join('')}</section>`;
-  },
+    </div>
+    <section class="lessons">${LESSONS.map((k, i) => `<details class="lesson reveal tilt"><summary><span class="lesson-n">${String(i + 1).padStart(2, '0')}</span><b>${t('lesson.' + k)}</b><i></i></summary><p>${t('lesson.' + k + '_d')}</p></details>`).join('')}</section>`;
+}
+
+export const view = {
+  id: 'habits',
+  needs: ['habits', 'obligations', 'transfers'],
+  render() { return indicatorPanel() + billsPanels(); },
   mount(root) { animateGauges(root); },
   actions: {
     'mark-paid'(el) {

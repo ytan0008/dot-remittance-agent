@@ -15,7 +15,7 @@ from conftest import FakeRates, draft, approved
 def test_full_flow_and_duplicate_concurrency(local):
     t = approved(local)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(lambda _: local.execute("agent", t["id"]), range(8)))
+        results = list(pool.map(lambda _: local.execute("owner", t["id"]), range(8)))
     # A racing retry may observe the durable pending state before reconciliation.
     assert {r["status"] for r in results} <= {"pending", "completed"}
     assert local.get(t["id"])["status"] == "completed"
@@ -33,7 +33,7 @@ def test_no_self_approval(local):
     with pytest.raises(Denied):
         local.approve("agent", t["id"], t["approval_digest"])
     with pytest.raises(Denied):
-        local.execute("agent", t["id"])
+        local.execute("owner", t["id"])
     with pytest.raises(Denied):
         local.approve("owner", t["id"], "okay")
     with pytest.raises(Denied):
@@ -57,14 +57,14 @@ def test_expired_quote(local, monkeypatch):
     t = approved(local)
     monkeypatch.setattr("finance.service.now", lambda: t["details"]["expires"] + 1)
     with pytest.raises(Denied, match="expired"):
-        local.execute("agent", t["id"])
+        local.execute("owner", t["id"])
 
 
 def test_changed_recipient(local):
     t = approved(local)
     local.add_recipient("owner", "family", "Different", currency="CNY")
     with pytest.raises(Denied, match="changed"):
-        local.execute("agent", t["id"])
+        local.execute("owner", t["id"])
 
 
 def test_tampered_approved_details(local):
@@ -74,7 +74,7 @@ def test_tampered_approved_details(local):
         b["purpose"] = "changed"
         c.execute("UPDATE transfers SET body=? WHERE id=?", (json.dumps(b), t["id"]))
     with pytest.raises(Denied, match="approval"):
-        local.execute("agent", t["id"])
+        local.execute("owner", t["id"])
 
 
 def test_limits_and_balance(local):
@@ -83,7 +83,7 @@ def test_limits_and_balance(local):
         local.approve("owner", t["id"], t["approval_digest"])
     for key in ("a", "b"):
         t = approved(local, "500", key)
-        local.execute("agent", t["id"])
+        local.execute("owner", t["id"])
     t = draft(local, "10", "c")
     with pytest.raises(Denied, match="budget"):
         local.approve("owner", t["id"], t["approval_digest"])
@@ -132,7 +132,7 @@ def test_async_settlement_reserves_then_settles_once(tmp_path, monkeypatch):
     f = Finance(Config(db=str(tmp_path / "async.db"), sandbox_settle_seconds=30), rates=FakeRates())
     f.add_recipient("owner", "family", "Family", currency="CNY")
     t = approved(f)
-    submitted = f.execute("agent", t["id"])
+    submitted = f.execute("owner", t["id"])
     assert submitted["status"] == "pending"  # accepted is never shown as completed
     aud = next(b for b in f.balances() if b["currency"] == "AUD")
     assert (aud["total"], aud["reserved"], aud["available"]) == ("100000", "10000", "90000")
@@ -148,7 +148,7 @@ def test_async_settlement_reserves_then_settles_once(tmp_path, monkeypatch):
 
 def test_lost_response_recovers_existing_payment(local):
     t = approved(local, "12.57")
-    result = local.execute("agent", t["id"])
+    result = local.execute("owner", t["id"])
     assert result["status"] == "unknown" and result["reference"] is None
     aud = next(b for b in local.balances() if b["currency"] == "AUD")
     assert aud["reserved"] == "1257"  # unknown keeps the reservation
@@ -161,7 +161,7 @@ def test_lost_response_recovers_existing_payment(local):
 
 def test_provider_rejection_releases_funds(local):
     t = approved(local, "12.13")
-    assert local.execute("agent", t["id"])["status"] == "failed"
+    assert local.execute("owner", t["id"])["status"] == "failed"
     aud = next(b for b in local.balances() if b["currency"] == "AUD")
     assert (aud["total"], aud["reserved"]) == ("100000", "0")
     assert any(e["action"] == "release" for e in local.audit())
@@ -179,9 +179,9 @@ def test_modification_voids_approval(local):
     new = local.modify("agent", t["id"], "mod-1", amount="120")
     assert new["supersedes"] == t["id"] and new["status"] == "draft"
     assert local.get(t["id"])["status"] == "superseded"
-    assert local.execute("agent", t["id"])["status"] == "superseded"  # old approval cannot spend
+    assert local.execute("owner", t["id"])["status"] == "superseded"  # old approval cannot spend
     with pytest.raises(Denied, match="approval"):
-        local.execute("agent", new["id"])
+        local.execute("owner", new["id"])
     assert next(b for b in local.balances() if b["currency"] == "AUD")["total"] == "100000"
 
 
@@ -203,17 +203,14 @@ def test_recipient_currency_must_match_route(local):
         local.prepare("agent", "10", "AUD", "CNY", "ph", "support", "cur")
 
 
-def test_permission_tiers(local):
+def test_assistant_prepares_but_never_submits(local):
     t = approved(local)
-    local.set_agent_tier("owner", 2)
-    with pytest.raises(Denied, match="tier 2"):
+    with pytest.raises(Denied) as err:
         local.execute("agent", t["id"])
+    assert err.value.code == "agent_cannot_submit"
     assert local.execute("owner", t["id"])["status"] == "completed"
-    local.set_agent_tier("owner", 1)
-    with pytest.raises(Denied, match="tier 1"):
-        draft(local, key="t1")
-    with pytest.raises(Denied):
-        local.set_agent_tier("agent", 3)
+    assert draft(local, key="t1")["status"] == "draft"  # drafting stays available to the assistant
+    assert "agent_tier" not in local.settings()
 
 
 def test_proposals_need_owner_confirmation(local):
@@ -257,7 +254,7 @@ def test_goal_progress_separates_completed_and_planned(local):
     t = local.prepare("agent", "100", "AUD", "CNY", "family", "tuition", "g1", goal_id=g["id"])
     assert local.goal(g["id"])["planned"] == t["details"]["receive"] and local.goal(g["id"])["completed"] == 0
     local.approve("owner", t["id"], t["approval_digest"])
-    local.execute("agent", t["id"])
+    local.execute("owner", t["id"])
     goal = local.goal(g["id"])
     assert goal["completed"] == t["details"]["receive"] and goal["planned"] == 0
     local.add_budget("owner", "income", "salary", "AUD", "2000", "2098-12-01")
@@ -308,7 +305,7 @@ def test_reference_equivalents_are_labeled(local):
 
 def test_audit_trail_answers_who_what_which_checks(local):
     t = approved(local)
-    local.execute("agent", t["id"])
+    local.execute("owner", t["id"])
     trail = local.trail("owner", t["id"])
     actions = [e["action"] for e in trail["events"]]
     for expected in ("draft.create", "quote.issue", "guardrails.approve", "approve", "guardrails.submit", "reserve", "submit",
@@ -327,28 +324,28 @@ def test_real_evm_signing_receipt_and_duplicate(evm):
     w3 = evm.evm.w3
     before = w3.eth.get_balance(w3.eth.accounts[1])
     t = approved(evm, "0.001")
-    result = evm.execute("agent", t["id"])
+    result = evm.execute("owner", t["id"])
     assert result["status"] == "completed"
     assert w3.eth.get_balance(w3.eth.accounts[1]) - before == 10**15
-    assert evm.execute("agent", t["id"]) == result
+    assert evm.execute("owner", t["id"]) == result
     assert "raw_tx" not in json.dumps(result)
 
 
 def test_scoped_autonomy_and_revocation(evm):
     mandate = evm.grant_mandate("owner", "family", "0.002", "0.003", now() + 300)
     t = draft(evm, "0.001")
-    assert evm.execute("agent", t["id"], mandate["id"])["status"] == "completed"
+    assert evm.execute("owner", t["id"], mandate["id"])["status"] == "completed"
     evm.revoke("owner", mandate["id"])
     t2 = draft(evm, "0.001", "two")
     with pytest.raises(Denied, match="mandate"):
-        evm.execute("agent", t2["id"], mandate["id"])
+        evm.execute("owner", t2["id"], mandate["id"])
 
 
 def test_mandate_total_budget(evm):
     m = evm.grant_mandate("owner", "family", "0.002", "0.002", now() + 300)
-    evm.execute("agent", draft(evm, "0.001")["id"], m["id"])
+    evm.execute("owner", draft(evm, "0.001")["id"], m["id"])
     with pytest.raises(Denied, match="budget"):
-        evm.execute("agent", draft(evm, "0.001", "two")["id"], m["id"])
+        evm.execute("owner", draft(evm, "0.001", "two")["id"], m["id"])
 
 
 def test_broadcast_timeout_after_acceptance(evm, monkeypatch):
@@ -359,7 +356,7 @@ def test_broadcast_timeout_after_acceptance(evm, monkeypatch):
         raise TimeoutError("response lost")
     monkeypatch.setattr(evm.evm, "broadcast", uncertain)
     t = approved(evm, "0.001")
-    result = evm.execute("agent", t["id"])
+    result = evm.execute("owner", t["id"])
     assert result["status"] == "unknown"
     assert int(next(b for b in evm.balances() if b["currency"] == "ETH")["reserved"]) > 0
     nonce = evm.evm.w3.eth.get_transaction_count(evm.evm.account.address)
@@ -374,7 +371,7 @@ def test_timeout_before_broadcast_blocks_new_nonce(evm, monkeypatch):
     original = evm.evm.broadcast
     monkeypatch.setattr(evm.evm, "broadcast", lambda raw: (_ for _ in ()).throw(TimeoutError()))
     t = approved(evm, "0.001")
-    assert evm.execute("agent", t["id"])["status"] == "unknown"
+    assert evm.execute("owner", t["id"])["status"] == "unknown"
     t2 = draft(evm, "0.001", "two")
     with pytest.raises(Denied, match="outstanding"):
         evm.approve("owner", t2["id"], t2["approval_digest"])
@@ -385,7 +382,7 @@ def test_timeout_before_broadcast_blocks_new_nonce(evm, monkeypatch):
 def test_confirmation_depth(evm):
     evm.evm.config = replace(evm.config, confirmations=3)
     t = approved(evm, "0.001")
-    assert evm.execute("agent", t["id"])["status"] == "pending"
+    assert evm.execute("owner", t["id"])["status"] == "pending"
     evm.evm.w3.provider.ethereum_tester.mine_blocks(2)
     assert evm.reconcile("agent", t["id"])["status"] == "completed"
 
@@ -394,11 +391,11 @@ def test_confirmed_failure_releases_reservation_but_charges_gas(evm, monkeypatch
     # Fault injection: a confirmed reverted receipt consumes gas, not transfer value.
     monkeypatch.setattr(evm.evm, "status", lambda reference: ("failed", 21000))
     t = approved(evm, "0.001")
-    result = evm.execute("agent", t["id"])
+    result = evm.execute("owner", t["id"])
     assert result["status"] == "failed"
     assert result["actual_cost"] == "21000"
     assert next(b for b in evm.balances() if b["currency"] == "ETH")["reserved"] == "0"
-    assert evm.execute("agent", t["id"]) == result
+    assert evm.execute("owner", t["id"]) == result
 
 
 def test_chain_change_fails_closed(evm):
@@ -446,7 +443,8 @@ def test_api_roles_and_flow(local, monkeypatch):
         approval = {"approval_digest": t["approval_digest"]}
         assert client.post(f"/transfers/{t['id']}/approve", headers=agent, json=approval).status_code == 409
         assert client.post(f"/transfers/{t['id']}/approve", headers=owner, json=approval).status_code == 200
-        assert client.post(f"/transfers/{t['id']}/execute", headers=agent, json={}).json()["status"] == "completed"
+        assert client.post(f"/transfers/{t['id']}/execute", headers=agent, json={}).json()["code"] == "agent_cannot_submit"
+        assert client.post(f"/transfers/{t['id']}/execute", headers=owner, json={}).json()["status"] == "completed"
         assert client.get("/audit", headers=agent).status_code == 409
         assert client.get(f"/transfers/{t['id']}/trail", headers=owner).status_code == 200
         assert client.get("/routes", headers=agent).json()[0]["id"]
@@ -511,9 +509,9 @@ def test_model_denials_become_data(local):
     t = draft(local)
     client, seen = fake_client([[("record_plan", plan)], [("execute_payment", {"transfer_id": t["id"]})], "Needs approval."])
     result = Agent(local, client=client, model="test").chat("pay it now", "test", "en")
-    assert result["trace"][1]["result"]["error"]
+    assert result["trace"][1]["result"]["error"]  # there is no submit tool to call
     assert local.get(t["id"])["status"] == "draft"
-    assert "approval" in seen[2]["messages"][-1]["content"]
+    assert "tool_invalid" in seen[2]["messages"][-1]["content"]
 
 
 def test_secrets_rejected_in_chat(local):
@@ -544,10 +542,10 @@ def test_pay_from_cny_with_receive_amount(local):
     t = local.prepare("agent", None, "CNY", "AUD", "yx", "living costs", "cny-aud", receive_amount="100")
     assert t["details"]["receive"] >= 10000 and t["details"]["source"] == "CNY"
     local.approve("owner", t["id"], t["approval_digest"])
-    assert local.execute("agent", t["id"])["status"] == "completed"
+    assert local.execute("owner", t["id"])["status"] == "completed"
 
 
 def test_on_chain_tools_are_not_offered_to_the_agent(local):
     from finance.tools import REGISTRY
     assert not {"wallet_info", "list_mandates"} & set(REGISTRY)
-    assert set(REGISTRY["execute_payment"].parameters["properties"]) == {"transfer_id"}
+    assert "execute_payment" not in REGISTRY  # the assistant cannot submit payments at all

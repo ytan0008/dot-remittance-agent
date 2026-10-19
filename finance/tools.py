@@ -1,7 +1,7 @@
-"""Agent tool registry. Each tool is declared once: schema, permission tier and implementation together.
+"""Agent tool registry. Each tool is declared once: schema, kind of action and implementation together.
 
-Tiers: view (T1), prepare (T2), submit (T3). The service enforces them again server-side; a tool can never
-approve payments, grant mandates, raise limits or change recipients directly.
+Each tool declares whether it only looks things up (view) or prepares something (prepare). The assistant can never
+submit or approve payments, raise limits or change recipients directly; the service enforces that again.
 To add a tool: write a function below and decorate it with @tool(...).
 """
 from dataclasses import dataclass
@@ -27,6 +27,7 @@ class Context:
     memory: object
     session: str
     actor: str = "agent"
+    message: str = ""  # the user's message this turn, so forms can be prefilled even when the model leaves fields out
 
 
 REGISTRY: dict = {}
@@ -94,28 +95,66 @@ def forget_note(ctx, note_id):
     return ctx.memory.forget("agent", note_id)
 
 
-# ---------- ask the owner for details through a form ----------
+# ---------- ask the person through a form ----------
 
-@tool("request_recipient_details", "When a payment needs a recipient who is not registered, call this instead of asking in text. "
-      "The app slides out a recipient form next to the chat, prefilled with what you know; the owner fills it in and the "
-      "conversation continues. Pass empty strings for unknown fields. Changes nothing by itself.",
-      {"name": S, "currency": {"type": "string", "description": "ISO code the recipient receives, e.g. AUD"},
-       "country": {"type": "string", "description": "ISO economy code, e.g. AU"}, "reason": S})
-def request_recipient_details(ctx, name, currency, country, reason):
-    existing = [r["id"] for r in ctx.finance.recipients()]
-    return dict(form="recipient", prefill=dict(name=name.strip()[:100], currency=up(currency.strip())[:3], country=up(country.strip())[:2]),
-                reason=reason[:200], existing=existing,
-                note="Form shown to the owner. Do not ask for these details again in text; wait for their next message.")
+FORM_KINDS = ["recipient", "template", "cash", "term", "scholarship", "plan", "watch", "expense", "afford"]
+
+
+def _clean(value, depth=0):
+    if isinstance(value, dict) and depth < 2:
+        return {str(k)[:40]: _clean(v, depth + 1) for k, v in list(value.items())[:24]}
+    if isinstance(value, (int, float)):
+        return value
+    return str(value or "")[:300]
+
+
+def _template_prefill(prefill, message):
+    """Accept fields nested or flat, and fill whatever the model left out from the bank details in the message itself."""
+    from .agent_rules import bank_details
+    from .templates import FORMATS
+    read = bank_details(message) if message else dict(format="swift", fields={}, currency="")
+    fmt = prefill.get("format") if prefill.get("format") in FORMATS else read["format"]
+    known = set(FORMATS[fmt]["fields"])
+    nested = prefill.get("fields") if isinstance(prefill.get("fields"), dict) else {}
+    flat = {k: v for k, v in prefill.items() if k in known}
+    ours = read["fields"] if read["format"] == fmt else {k: v for k, v in read["fields"].items() if k in known}
+    fields = {k: v for k, v in {**ours, **flat, **nested}.items() if k in known and v}
+    out = dict(format=fmt, fields=fields, currency=prefill.get("currency") or read["currency"])
+    if prefill.get("name"):
+        out["name"] = prefill["name"]
+    return out
+
+
+@tool("request_details", "When you need details only the user can give, call this instead of asking in text. The app pops up a "
+      "form beside the chat, prefilled with what you already know; the user completes it and the conversation continues. "
+      "kind: recipient (name, currency, country) | template (bank details: format swift|sepa|au_bsb|uk_fps|us_ach|cn_cnaps|in_neft, "
+      "name, fields such as beneficiary_name, beneficiary_address, account, bic, bank_name, bsb, account_number, sort_code, "
+      "routing_number, ifsc, cnaps, reference, purpose_code; currency) | cash (currency, amount) | term (name, currency, start, "
+      "end, tuition, tuition_due, living, income) | scholarship (name, provider, amount, currency, deadline, documents) | "
+      "plan (an exchange plan: source, target, amount, side receive|spend, due, purpose, min_rate; watch is an alias) | "
+      "expense (text) | afford (amount, currency, label). "
+      "Fill prefill with everything you can read from the conversation; leave unknown fields out. Changes nothing by itself.",
+      {"kind": {"type": "string", "enum": FORM_KINDS}, "prefill": {"type": "object"}, "reason": S})
+def request_details(ctx, kind, prefill, reason):
+    if kind not in FORM_KINDS:
+        raise ValueError("unknown form")
+    extra = dict(existing=[r["id"] for r in ctx.finance.recipients()]) if kind == "recipient" else {}
+    prefill = prefill if isinstance(prefill, dict) else {}
+    if kind == "template":
+        prefill = _template_prefill(prefill, ctx.message)
+    return dict(form=kind, prefill=_clean(prefill), reason=str(reason or "")[:200], **extra,
+                note="Form shown to the user. Do not ask for these details again in text; wait for their next message.")
 
 
 # ---------- spending ----------
 
-@tool("log_expense", "Log a spending entry from short text such as 'lunch 12.50' or 'bus pass 40'. It is saved as pending; "
+@tool("log_expense", "Log spending from short text such as 'lunch 12.50', '午饭40澳刀' or '午饭10澳元 打车25' (several at once). Saved as pending; "
       "the student confirms it on the Spending page.", {"text": S}, tier="prepare")
 def log_expense(ctx, text):
     entry = ctx.finance.parse_quick(text)
-    return ctx.finance.add_expense(ctx.actor, entry["date"], entry["amount"], entry["currency"], entry["description"],
-                                   entry["category"], source="agent")
+    saved = [ctx.finance.add_expense(ctx.actor, e["date"], e["amount"], e["currency"], e["description"], e["category"], source="agent")
+             for e in entry["items"]]
+    return dict(saved[0], logged=len(saved)) if len(saved) == 1 else dict(saved[0], logged=len(saved), entries=saved)
 
 
 @tool("spending_summary", "Confirmed spending by category for a month (YYYY-MM, empty for this month), versus last month.",
@@ -173,6 +212,15 @@ def email_report(ctx, period):
     return ctx.finance.send_report(ctx.actor, period)
 
 
+# ---------- cash position ----------
+
+@tool("money_overview", "How much money the student has (latest balance per currency, entered or from a bank CSV, with the "
+      "total in the display currency) and what needs exchanging: upcoming tuition, living costs, bills, goals and AI-watch "
+      "needs against cash in each currency, with today's rate, the estimated cost and the AI watch verdict.")
+def money_overview(ctx):
+    return ctx.finance.money_overview()
+
+
 # ---------- transfer templates ----------
 
 @tool("list_transfer_templates", "Saved bank transfer templates (SWIFT, SEPA, AU BSB, UK FPS, US ACH, CN CNAPS, IN NEFT) with "
@@ -209,12 +257,36 @@ def exchange_advice(ctx, source, target):
     return ctx.finance.exchange_advice(up(source), up(target), _lang(ctx))
 
 
-@tool("watch_exchange", "Record the student's own exchange needs so the AI watch respects them and reminds at the right "
-      "time: amount they need to receive (normal units), deadline YYYY-MM-DD, the lowest acceptable rate, a note. "
-      "Empty strings for unknown fields.", {**PAIR, "amount": S, "deadline": S, "min_rate": S, "note": S}, ["source", "target"],
-      tier="prepare")
-def watch_exchange(ctx, source, target, amount="", deadline="", min_rate="", note=""):
-    return ctx.finance.set_watch(ctx.actor, up(source), up(target), amount or None, deadline or None, min_rate or None, note)
+@tool("plan_exchange", "Save one of the student's exchange plans (their intent only; nothing is exchanged): exchange source→target, "
+      "amount in normal units, side receive (amount is what they get in target) or spend (amount is what they pay in source), "
+      "due YYYY-MM-DD, purpose, lowest acceptable rate. The AI watch then judges the timing against it, the overview shows "
+      "what is left after it and any currency gap. Empty strings for unknown fields; prefer request_details kind plan when "
+      "the amount or pair is unclear.", {**PAIR, "amount": S, "side": {"type": "string", "enum": ["receive", "spend"]},
+      "due": S, "purpose": S, "min_rate": S}, tier="prepare")
+def plan_exchange(ctx, source, target, amount, side="receive", due="", purpose="", min_rate=""):
+    return ctx.finance.save_plan(ctx.actor, up(source), up(target), amount, side or "receive", due or None, purpose, "custom", None, min_rate or None)
+
+
+@tool("bank_scenarios", "Exchange scenarios through real banks: for an amount source→target, combine a sending bank and a receiving "
+      "bank (ids from the bank list, empty for any with known pricing), convert at either side, pay at once or in two parts; "
+      "counts each bank's published rate and wire fees and names the unknown ones. mode send|receive. Public information, not a quote.",
+      {**PAIR, "amount": S, "mode": {"type": "string", "enum": ["send", "receive"]}, "send_bank": S, "receive_bank": S})
+def bank_scenarios(ctx, source, target, amount, mode="send", send_bank="", receive_bank=""):
+    r = ctx.finance.exchange_scenarios(up(source), up(target), amount, mode, send_bank or None, receive_bank or None)
+    return dict(r, scenarios=r["scenarios"][:4])
+
+
+@tool("simulate_exchange", "The sandbox: apply the student's exchange plans to their balances in numbers only and show what each "
+      "currency would hold afterwards, the gaps against upcoming needs and the safety buffer, and optionally pretend money "
+      "(extra: list of {currency, amount}, negative to take away) or a rate shift in percent (negative = worse). Nothing is "
+      "exchanged or saved.", {"extra": {"type": "array", "items": {"type": "object", "properties": {"currency": S, "amount": S},
+                                                                    "required": ["currency", "amount"], "additionalProperties": False}},
+                              "rate_shift": S})
+def simulate_exchange(ctx, extra=None, rate_shift="0"):
+    clean = [dict(currency=str(x.get("currency", "")), amount=str(x.get("amount", ""))) for x in (extra or []) if isinstance(x, dict)]
+    r = ctx.finance.simulate(None, clean, rate_shift or "0")
+    return dict(r, gaps=[dict(currency=x["currency"], before=x["before"], after=x["after"], need=x["need"], buffer=x["buffer"],
+                              gap_after=x["gap_after"], due=x["due"]) for x in r["rows"]])
 
 
 # ---------- motivation ----------
@@ -348,15 +420,82 @@ def reconcile_payment(ctx, transfer_id):
     return ctx.finance.reconcile(ctx.actor, transfer_id)
 
 
-@tool("propose_change", "Propose a change the owner must confirm. kind: recipient|preference|goal|obligation|rate_alert.",
-      {"kind": {"type": "string", "enum": ["recipient", "preference", "goal", "obligation", "rate_alert"]},
+@tool("propose_change", "Propose a change the owner must confirm. kind: recipient|preference|obligation|rate_alert.",
+      {"kind": {"type": "string", "enum": ["recipient", "preference", "obligation", "rate_alert"]},
        "payload": {"type": "object"}, "reason": S}, tier="prepare")
 def propose_change(ctx, kind, payload, reason):
     return ctx.finance.propose(ctx.actor, kind, payload, reason)
 
 
-# ---------- submit (T3) ----------
+def _action_help():
+    from .actions import catalog
+    return "; ".join(f"{k}({', '.join(v['required'])}{' | ' + ', '.join(v['optional']) if v['optional'] else ''})" for k, v in catalog().items())
 
-@tool("execute_payment", "Submit a payment the owner has explicitly approved in the app.", {"transfer_id": S}, tier="submit")
-def execute_payment(ctx, transfer_id):
-    return ctx.finance.execute(ctx.actor, transfer_id)
+
+@tool("do_action", "Get something done in the app for the user: it shows as an action card in the chat and runs only when the "
+      "owner presses Confirm. Use it for every change to their records instead of telling them where to click. "
+      "Actions (required | optional params): " + _action_help() + ". Ids come from read_records. Amounts are decimal strings in normal "
+      "units; dates YYYY-MM-DD; cadence weekly|monthly; bill recurring none|monthly; budget kind income|expense|buffer; plan status "
+      "done|cancelled; digest off|daily|weekly|monthly; expense_ids a comma-separated string. Payments are not actions: prepare a draft "
+      "and the user authorizes and submits it in the payment screen.",
+      {"action": {"type": "string", "enum": sorted(__import__("finance.actions", fromlist=["ACTIONS"]).ACTIONS)},
+       "params": {"type": "object"}, "summary": S}, tier="prepare")
+def do_action(ctx, action, params, summary):
+    p = ctx.finance.propose(ctx.actor, "action", dict(action=action, params=params if isinstance(params, dict) else {}), summary)
+    return dict(p, for_assistant="Shown to the user with a Confirm button; it runs only when they confirm. Do not claim it is done yet.")
+
+
+RECORDS = ["bills", "recurring", "budget", "terms", "plans", "scholarships", "pending_expenses", "recent_expenses", "cash",
+           "templates", "recipients", "reminders", "limits", "routes", "email", "banks"]
+
+
+@tool("read_records", "Read the user's records with their ids, to answer questions or to refer to them in do_action. "
+      "kind: " + "|".join(RECORDS) + ". For banks also give source and target currency (else empty).",
+      {"kind": {"type": "string", "enum": RECORDS}, "source": S, "target": S})
+def read_records(ctx, kind, source="", target=""):
+    f = ctx.finance
+    if kind == "bills":
+        return [dict(id=o["id"], title=o["title"], amount=o["amount"], currency=o["currency"], due_date=o["due_date"], state=o["state"],
+                     recurring=o.get("recurring")) for o in f.obligations()]
+    if kind == "recurring":
+        return f.recurring_list()
+    if kind == "budget":
+        return f.budget()
+    if kind == "terms":
+        return f.terms()
+    if kind == "plans":
+        return [{k: p[k] for k in ("id", "source", "target", "amount", "amount_currency", "due", "purpose", "status", "receive", "spend", "sent")
+                 if k in p} for p in f.exchange_plans()]
+    if kind == "scholarships":
+        return [{k: s[k] for k in ("id", "name", "status", "deadline", "amount", "currency") if k in s} for s in f.scholarships()]
+    if kind in ("pending_expenses", "recent_expenses"):
+        rows = f.expenses(status="pending" if kind == "pending_expenses" else "confirmed", limit=40)
+        return [{k: e[k] for k in ("id", "date", "amount", "currency", "description", "category") if k in e} for e in rows]
+    if kind == "cash":
+        return f.cash_position()
+    if kind == "templates":
+        return f.transfer_templates()
+    if kind == "recipients":
+        return f.recipients()
+    if kind == "reminders":
+        return [dict(id=r["id"], kind=r["kind"], data=r["data"], severity=r["severity"]) for r in f.reminders()[:30]]
+    if kind == "limits":
+        return f.limits()
+    if kind == "routes":
+        return [dict(id=r["id"], send=r["send"], receive=r["receive"], enabled=r["enabled"]) for r in f.routes()]
+    if kind == "email":
+        s = f.email_settings()
+        return {k: s[k] for k in ("configured", "digest", "weekday", "reminders", "skip_quiet") if k in s}
+    if kind == "banks":
+        return f.banks(up(source) or None, up(target) or None)
+    raise ValueError("unknown kind")
+
+
+@tool("sandbox_timeline", "The dated sandbox: balances today, then day by day what plans, goals, bills, subscriptions, term costs "
+      "would do over the next days (30-180). off: comma-separated source keys to leave out (from a previous result). Numbers only.",
+      {"days": S, "off": S})
+def sandbox_timeline(ctx, days="90", off=""):
+    r = ctx.finance.timeline(None, [x for x in str(off or "").split(",") if x], None, int(days or 90))
+    return dict(r, events=r["events"][:40])
+
+

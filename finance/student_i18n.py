@@ -310,42 +310,42 @@ TIPS = {
 EMAIL = {
     "en": dict(subject_week="Your weekly money check — {date}", subject_month="Your monthly money check — {date}",
                subject_reminders="{n} reminder(s) from DOT", title="DOT · Money check",
-               period_week="Last 7 days ({start} – {end})", period_month="Last 30 days ({start} – {end})",
+               period_week="This week ({start} – {end})", period_month="Last 30 days ({start} – {end})",
                spent="Spent: {total}", change="{sign}{pct}% vs the previous period", no_previous="no previous period to compare",
                categories="By category", tips="Suggestions", upcoming="Coming up", reminders="Reminders",
                reminders_intro="These need your attention:", cashflow_low="Lowest projected balance: {amount} on {date}.",
                footer="Sent by DOT because you turned on email reports. Change or stop them on the Student money page."),
     "zh-CN": dict(subject_week="每周财务小结 — {date}", subject_month="每月财务小结 — {date}",
                   subject_reminders="DOT 有 {n} 条提醒", title="DOT · 财务小结",
-                  period_week="最近 7 天（{start} – {end}）", period_month="最近 30 天（{start} – {end}）",
+                  period_week="本周（{start} – {end}）", period_month="最近 30 天（{start} – {end}）",
                   spent="支出：{total}", change="比上一期 {sign}{pct}%", no_previous="暂无上一期可比较",
                   categories="按分类", tips="建议", upcoming="即将到来", reminders="提醒",
                   reminders_intro="以下事项需要你关注：", cashflow_low="预计最低余额：{date} 时 {amount}。",
                   footer="你开启了邮件报告，所以 DOT 发送了这封邮件。可在“学生理财”页修改或停止。"),
     "zh-TW": dict(subject_week="每週財務小結 — {date}", subject_month="每月財務小結 — {date}",
                   subject_reminders="DOT 有 {n} 則提醒", title="DOT · 財務小結",
-                  period_week="最近 7 天（{start} – {end}）", period_month="最近 30 天（{start} – {end}）",
+                  period_week="本週（{start} – {end}）", period_month="最近 30 天（{start} – {end}）",
                   spent="支出：{total}", change="比上一期 {sign}{pct}%", no_previous="暫無上一期可比較",
                   categories="按分類", tips="建議", upcoming="即將到來", reminders="提醒",
                   reminders_intro="以下事項需要你留意：", cashflow_low="預計最低餘額：{date} 時 {amount}。",
                   footer="你開啟了郵件報告，所以 DOT 寄出了這封信。可在「學生理財」頁修改或停止。"),
     "vi": dict(subject_week="Tổng kết tài chính hằng tuần — {date}", subject_month="Tổng kết tài chính hằng tháng — {date}",
                subject_reminders="{n} nhắc nhở từ DOT", title="DOT · Tổng kết tài chính",
-               period_week="7 ngày qua ({start} – {end})", period_month="30 ngày qua ({start} – {end})",
+               period_week="Tuần này ({start} – {end})", period_month="30 ngày qua ({start} – {end})",
                spent="Đã chi: {total}", change="{sign}{pct}% so với kỳ trước", no_previous="chưa có kỳ trước để so sánh",
                categories="Theo danh mục", tips="Gợi ý", upcoming="Sắp tới", reminders="Nhắc nhở",
                reminders_intro="Những việc cần bạn chú ý:", cashflow_low="Số dư dự kiến thấp nhất: {amount} vào {date}.",
                footer="DOT gửi email này vì bạn đã bật báo cáo qua email. Thay đổi hoặc tắt ở trang Tài chính sinh viên."),
     "ja": dict(subject_week="週間マネーチェック — {date}", subject_month="月間マネーチェック — {date}",
                subject_reminders="DOT からのリマインダー {n} 件", title="DOT · マネーチェック",
-               period_week="直近 7 日（{start} – {end}）", period_month="直近 30 日（{start} – {end}）",
+               period_week="今週（{start} – {end}）", period_month="直近 30 日（{start} – {end}）",
                spent="支出：{total}", change="前期間比 {sign}{pct}%", no_previous="比較できる前期間がありません",
                categories="カテゴリー別", tips="ヒント", upcoming="今後の予定", reminders="リマインダー",
                reminders_intro="確認が必要な項目：", cashflow_low="予測残高の最低値：{date} に {amount}。",
                footer="メールレポートがオンになっているため DOT が送信しました。「学生のお金」ページで変更・停止できます。"),
     "ko": dict(subject_week="주간 머니 체크 — {date}", subject_month="월간 머니 체크 — {date}",
                subject_reminders="DOT 알림 {n}개", title="DOT · 머니 체크",
-               period_week="최근 7일 ({start} – {end})", period_month="최근 30일 ({start} – {end})",
+               period_week="이번 주 ({start} – {end})", period_month="최근 30일 ({start} – {end})",
                spent="지출: {total}", change="이전 기간 대비 {sign}{pct}%", no_previous="비교할 이전 기간이 없습니다",
                categories="분류별", tips="조언", upcoming="다가오는 일정", reminders="알림",
                reminders_intro="확인이 필요한 항목:", cashflow_low="예상 최저 잔액: {date}에 {amount}.",
@@ -359,3 +359,14 @@ for _lang, _extra in REMINDERS_EXTRA.items():
 
 def lang_of(language):
     return language if language in TIPS else "en"
+
+
+# Exchange plans and currency gaps (plans.py): reminder texts and the money section of every digest.
+PLAN_REMINDERS = {'en': {'currency_gap': '{currency} is {amount} short by {due_date} — even after your exchange plans.', 'plan_due': 'Exchange plan {source}→{target} ({purpose}) is due {due_date} ({days_left} days).', 'plan_short': 'Your exchange plans take out more {currency} than you hold — {amount} {currency} short.', 'plan_below_rate': '{source}→{target} is at {rate}, below the {min_rate} you accept for “{purpose}”.'}, 'zh-CN': {'currency_gap': '{currency} 还差 {amount}（{due_date} 前）——即使按换钱计划换完也不够。', 'plan_due': '换钱计划 {source}→{target}（{purpose}）将于 {due_date} 到期（还有 {days_left} 天）。', 'plan_short': '你的换钱计划要换出的 {currency} 比你持有的多——还差 {amount} {currency}。', 'plan_below_rate': '{source}→{target} 现为 {rate}，低于你为“{purpose}”设定的最低汇率 {min_rate}。'}, 'zh-TW': {'currency_gap': '{currency} 還差 {amount}（{due_date} 前）——即使按換錢計畫換完也不夠。', 'plan_due': '換錢計畫 {source}→{target}（{purpose}）將於 {due_date} 到期（還有 {days_left} 天）。', 'plan_short': '你的換錢計畫要換出的 {currency} 比你持有的多——還差 {amount} {currency}。', 'plan_below_rate': '{source}→{target} 現為 {rate}，低於你為「{purpose}」設定的最低匯率 {min_rate}。'}, 'vi': {'currency_gap': '{currency} còn thiếu {amount} trước {due_date} — kể cả sau khi đổi theo kế hoạch.', 'plan_due': 'Kế hoạch đổi {source}→{target} ({purpose}) đến hạn {due_date} (còn {days_left} ngày).', 'plan_short': 'Kế hoạch đổi tiền cần nhiều {currency} hơn bạn đang có — thiếu {amount} {currency}.', 'plan_below_rate': '{source}→{target} đang ở {rate}, thấp hơn mức {min_rate} bạn chấp nhận cho “{purpose}”.'}, 'ja': {'currency_gap': '{currency} が {amount} 不足しています（{due_date} まで）（両替計画を実行しても足りません）。', 'plan_due': '両替計画 {source}→{target}（{purpose}）の期限は {due_date}（あと {days_left} 日）です。', 'plan_short': '両替計画で出ていく {currency} が保有額を超えています——{amount} {currency} 不足。', 'plan_below_rate': '{source}→{target} は {rate} で、「{purpose}」に設定した最低レート {min_rate} を下回っています。'}, 'ko': {'currency_gap': '{currency}가 {amount} 부족해요 ({due_date}까지) — 환전 계획대로 해도 모자라요.', 'plan_due': '환전 계획 {source}→{target}({purpose})의 기한은 {due_date}이에요 ({days_left}일 남음).', 'plan_short': '환전 계획에 필요한 {currency}가 보유액보다 많아요 — {amount} {currency} 부족.', 'plan_below_rate': '{source}→{target}가 {rate}로, “{purpose}”에 정한 최저 환율 {min_rate}보다 낮아요.'}}
+for _lang, _extra in PLAN_REMINDERS.items():
+    REMINDERS[_lang].update(_extra)
+for _lang, _extra in {'en': {'subject_day': 'Your daily money check — {date}', 'period_day': 'Today, {date} (spending: last 7 days)', 'money': 'Your money', 'assets': 'Balances', 'gaps': 'Currency gaps', 'plans': 'Exchange plans', 'timing': 'Exchange timing', 'plan_item': '{pair}: {amount} · due {due}', 'gap_item': '{cur}: short {amount}{due} · if rates were 3% worse: {stressed}', 'no_gaps': 'No currency gap in the next 60 days.', 'no_plans': 'No exchange plans yet — add one on the overview.', 'quiet': 'Nothing new since the last report.'}, 'zh-CN': {'subject_day': '每日财务小结 — {date}', 'period_day': '今天 {date}（支出：最近 7 天）', 'money': '你的资金', 'assets': '各币种余额', 'gaps': '货币缺口', 'plans': '换钱计划', 'timing': '换汇时机', 'plan_item': '{pair}：{amount} · {due} 到期', 'gap_item': '{cur}：还差 {amount}{due} · 汇率差 3% 时差 {stressed}', 'no_gaps': '未来 60 天没有货币缺口。', 'no_plans': '还没有换钱计划——可在总览中添加。', 'quiet': '自上次报告以来没有新变化。'}, 'zh-TW': {'subject_day': '每日財務小結 — {date}', 'period_day': '今天 {date}（支出：最近 7 天）', 'money': '你的資金', 'assets': '各幣別餘額', 'gaps': '貨幣缺口', 'plans': '換錢計畫', 'timing': '換匯時機', 'plan_item': '{pair}：{amount} · {due} 到期', 'gap_item': '{cur}：還差 {amount}{due} · 匯率差 3% 時差 {stressed}', 'no_gaps': '未來 60 天沒有貨幣缺口。', 'no_plans': '還沒有換錢計畫——可在總覽中新增。', 'quiet': '自上次報告以來沒有新變化。'}, 'vi': {'subject_day': 'Tổng kết tài chính hằng ngày — {date}', 'period_day': 'Hôm nay, {date} (chi tiêu: 7 ngày qua)', 'money': 'Tiền của bạn', 'assets': 'Số dư', 'gaps': 'Thiếu hụt tiền tệ', 'plans': 'Kế hoạch đổi tiền', 'timing': 'Thời điểm đổi tiền', 'plan_item': '{pair}: {amount} · hạn {due}', 'gap_item': '{cur}: thiếu {amount}{due} · nếu tỷ giá kém 3%: {stressed}', 'no_gaps': 'Không có thiếu hụt trong 60 ngày tới.', 'no_plans': 'Chưa có kế hoạch đổi tiền — thêm ở trang tổng quan.', 'quiet': 'Không có gì mới kể từ báo cáo trước.'}, 'ja': {'subject_day': 'デイリーマネーチェック — {date}', 'period_day': '本日 {date}（支出：直近 7 日）', 'money': 'あなたのお金', 'assets': '通貨別残高', 'gaps': '通貨の不足', 'plans': '両替計画', 'timing': '両替のタイミング', 'plan_item': '{pair}：{amount} · 期限 {due}', 'gap_item': '{cur}：{amount} 不足{due} · レートが 3% 悪化すると {stressed}', 'no_gaps': '今後 60 日に通貨の不足はありません。', 'no_plans': '両替計画はまだありません——概要から追加できます。', 'quiet': '前回のレポート以降、新しい変化はありません。'}, 'ko': {'subject_day': '일간 머니 체크 — {date}', 'period_day': '오늘 {date} (지출: 최근 7일)', 'money': '내 돈', 'assets': '통화별 잔액', 'gaps': '통화 부족', 'plans': '환전 계획', 'timing': '환전 타이밍', 'plan_item': '{pair}: {amount} · 기한 {due}', 'gap_item': '{cur}: {amount} 부족{due} · 환율이 3% 나빠지면 {stressed}', 'no_gaps': '앞으로 60일 동안 통화 부족은 없어요.', 'no_plans': '아직 환전 계획이 없어요 — 개요에서 추가하세요.', 'quiet': '지난 보고서 이후 새로운 변화가 없어요.'}}.items():
+    EMAIL[_lang].update(_extra)
+VERDICT_NAMES = {'en': {'good_time': 'looks like a good time', 'wait': 'consider waiting', 'deadline': 'exchange soon (deadline)', 'below_floor': 'below your acceptable rate', 'neutral': 'no strong signal'}, 'zh-CN': {'good_time': '看起来是好时机', 'wait': '可以再等等', 'deadline': '临近截止，尽快换', 'below_floor': '低于你可接受的汇率', 'neutral': '暂无明显信号'}, 'zh-TW': {'good_time': '看起來是好時機', 'wait': '可以再等等', 'deadline': '臨近截止，盡快換', 'below_floor': '低於你可接受的匯率', 'neutral': '暫無明顯訊號'}, 'vi': {'good_time': 'có vẻ là thời điểm tốt', 'wait': 'có thể chờ thêm', 'deadline': 'sắp đến hạn, nên đổi sớm', 'below_floor': 'thấp hơn mức bạn chấp nhận', 'neutral': 'chưa có tín hiệu rõ'}, 'ja': {'good_time': '良いタイミングのようです', 'wait': '少し待つのも手です', 'deadline': '期限が近いので早めに', 'below_floor': '許容レートを下回っています', 'neutral': 'はっきりしたシグナルなし'}, 'ko': {'good_time': '좋은 타이밍으로 보여요', 'wait': '조금 기다려도 좋아요', 'deadline': '기한이 가까워 빨리 환전', 'below_floor': '허용 환율보다 낮아요', 'neutral': '뚜렷한 신호 없음'}}
+for _lang, _names in VERDICT_NAMES.items():
+    EMAIL[_lang].update({'v_' + k: v for k, v in _names.items()})

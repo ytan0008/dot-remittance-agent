@@ -49,17 +49,16 @@ def test_viewer_cannot_write_memory(memory):
 def test_registry_declares_every_tool_once():
     names = [s["function"]["name"] for s in specs()]
     assert len(names) == len(set(names)) == len(REGISTRY)
-    assert {"remember_note", "recall_memory", "forget_note", "prepare_payment", "execute_payment"} <= set(names)
+    assert {"remember_note", "recall_memory", "forget_note", "prepare_payment", "request_details"} <= set(names)
+    assert "execute_payment" not in names
     assert not {"approve", "grant_mandate", "set_limit", "add_recipient"} & set(names)
-    assert REGISTRY["execute_payment"].tier == "submit" and REGISTRY["remember_note"].tier == "prepare"
+    assert REGISTRY["remember_note"].tier == "prepare" and {t.tier for t in REGISTRY.values()} <= {"view", "prepare"}
 
 
-def test_memory_tools_respect_tiers(local):
+def test_memory_tools_for_the_assistant(local):
     agent = Agent(local)
-    local.set_agent_tier("owner", 1)
-    with pytest.raises(Denied, match="tier 1"):
-        agent.tool("remember_note", {"text": "Mom receives in VND", "kind": "person"})
-    assert agent.tool("recall_memory", {"query": "mom"})["notes"] == []
+    assert agent.tool("remember_note", {"text": "Mom receives in VND", "kind": "person"})["kind"] == "person"
+    assert agent.tool("recall_memory", {"query": "mom"})["notes"]
 
 
 def test_rules_remember_recall_forget_in_chinese(local):
@@ -113,8 +112,8 @@ def test_memory_api_is_owner_controlled(local, monkeypatch):
 def test_unknown_recipient_opens_form(local):
     from finance.agent import Agent
     agent = Agent(local)
-    form = agent.tool("request_recipient_details", {"name": "Yx", "currency": "aud", "country": "", "reason": "new payee"})
-    assert form["form"] == "recipient" and form["prefill"] == {"name": "Yx", "currency": "AUD", "country": ""}
+    form = agent.tool("request_details", {"kind": "recipient", "prefill": {"name": "Yx", "currency": "AUD"}, "reason": "new payee"})
+    assert form["form"] == "recipient" and form["prefill"] == {"name": "Yx", "currency": "AUD"}
     assert local.recipients()[0]["id"] in form["existing"] and len(local.recipients()) == 1  # nothing was created
     reply = agent.chat("Send 100 AUD for rent", "rf", "en")
-    assert reply["trace"][-1]["tool"] == "request_recipient_details"
+    assert reply["trace"][-1]["tool"] == "request_details"

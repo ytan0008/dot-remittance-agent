@@ -1,4 +1,6 @@
 import pytest
+
+from finance.domain import Denied
 from finance.agent import Agent
 
 
@@ -45,8 +47,9 @@ def suggestions():
     out = []
     for path in sorted(Path(__file__).resolve().parents[1].glob("frontend/dist/js/locales/*.js")):
         text = path.read_text(encoding="utf-8")
-        for n, intent in (("s1", "prepare"), ("s2", "compare"), ("s3", "scenario"), ("s4", "balance")):
-            prompt = re.search(rf"'agent\.{n}': '([^']+)'", text).group(1)
+        for n, intent in (("s1", "prepare"), ("s2", "compare"), ("s3", "template"), ("s4", "balance")):
+            prompt = re.search(rf"""'agent\.{n}': (?:'([^']+)'|"([^"]+)")""", text)
+            prompt = prompt.group(1) or prompt.group(2)
             out.append((path.stem, prompt, intent))
     return out
 
@@ -74,5 +77,72 @@ def test_every_localized_suggestion_is_understood(planner, lang, prompt, intent)
 def test_unregistered_name_prefills_the_form(local, message, name):
     reply = Agent(local).chat(message, "nm", "zh-CN")
     step = reply["trace"][-1]
-    assert step["tool"] == "request_recipient_details" and step["result"]["prefill"]["name"] == name
+    assert step["tool"] == "request_details" and step["result"]["form"] == "recipient" and step["result"]["prefill"]["name"] == name
     assert "面板" in reply["message"]
+
+
+def test_bank_details_in_chat_prefill_a_template_form(local):
+    from finance.agent import Agent
+    agent = Agent(local)
+    reply = agent.chat("帮我做个SWIFT模板：收款人: UNSW Sydney, account GB82 WEST 1234 5698 7654 32, BIC NWBKGB2L, 银行: NatWest", "tpl", "zh-CN")
+    step = reply["trace"][-1]
+    assert step["tool"] == "request_details" and step["result"]["form"] == "template"
+    pre = step["result"]["prefill"]
+    assert pre["format"] == "swift" and pre["fields"]["bic"] == "NWBKGB2L" and pre["fields"]["beneficiary_name"] == "UNSW Sydney"
+    assert "模板表单" in reply["message"] and local.transfer_templates() == []  # nothing is saved until the person checks it
+    bsb = agent.chat("rent template: BSB 062-000, account number 12345678, name: J Smith", "tpl2", "en")["trace"][-1]["result"]["prefill"]
+    assert bsb["format"] == "au_bsb" and bsb["fields"] == {"account_name": "J Smith", "account_number": "12345678", "bsb": "062-000"}
+
+
+def test_execute_in_chat_points_to_the_person(local):
+    from finance.agent import Agent
+    from conftest import approved
+    t = approved(local)
+    reply = Agent(local).chat("execute it", "ex", "en")
+    assert local.get(t["id"])["status"] == "approved" and "only you" in reply["message"]
+
+
+def test_template_form_fills_what_the_model_left_out(local):
+    from finance.agent import Agent
+    from finance.tools import Context, REGISTRY
+    agent = Agent(local)
+    message = "SWIFT template please: name: UNSW Sydney, account GB82 WEST 1234 5698 7654 32, BIC NWBKGB2L"
+    flat = REGISTRY["request_details"].run(Context(local, agent.memory, "s", message=message), kind="template",
+                                           prefill={"bank_name": "NatWest"}, reason="")
+    pre = flat["prefill"]
+    assert pre["format"] == "swift" and pre["fields"]["bank_name"] == "NatWest" and pre["fields"]["bic"] == "NWBKGB2L"
+    assert pre["fields"]["beneficiary_name"] == "UNSW Sydney" and "account" in pre["fields"]
+
+
+def test_chat_can_get_things_done_with_confirmation(local):
+    from finance.agent import Agent
+    a = Agent(local)
+    r = a.chat("加一个订阅 Spotify 12.99澳元", "act1", "zh-CN")
+    step = r["trace"][-1]
+    assert step["tool"] == "do_action" and step["result"]["kind"] == "action" and step["result"]["status"] == "pending"
+    assert step["result"]["payload"]["action"] == "add_recurring" and "确认" in r["message"]
+    assert local.recurring_list() == []  # nothing happens before the owner confirms
+    local.decide("owner", step["result"]["id"], True)
+    assert local.recurring_list()[0]["description"] == "Spotify" and local.recurring_list()[0]["amount"] == 1299
+    r = a.chat("我现在有 3000 澳元", "act2", "zh-CN")
+    pid = r["trace"][-1]["result"]["id"]
+    local.decide("owner", pid, True)
+    assert local.cash_balances()["AUD"]["amount"] == 300000
+    r = a.chat("email digest weekly please", "act3", "en")
+    assert r["trace"][-1]["result"]["payload"]["params"] == {"digest": "weekly"}
+    with pytest.raises(Denied) as e:  # nowhere to send it yet: say so rather than quietly staying off
+        local.decide("owner", r["trace"][-1]["result"]["id"], True)
+    assert e.value.code == "email_address_needed"
+    r = a.chat("send a weekly email digest to me@example.com", "act4", "en")
+    local.decide("owner", r["trace"][-1]["result"]["id"], True)
+    assert local.email_settings()["digest"] == "weekly" and local.email_settings()["address"] == "me@example.com"
+
+
+def test_actions_are_checked_before_you_see_them(local):
+    from finance.domain import Denied
+    with pytest.raises(Denied):
+        local.propose("agent", "action", {"action": "send_money", "params": {}})
+    with pytest.raises(Denied):
+        local.propose("agent", "action", {"action": "add_bill", "params": {"title": "Rent"}})  # missing amount and date
+    with pytest.raises(Denied):
+        local.decide("agent", local.propose("agent", "action", {"action": "clear_cash", "params": {"currency": "AUD"}})["id"], True)

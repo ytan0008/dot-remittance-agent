@@ -6,7 +6,7 @@
 
 **A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-157%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-196%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -20,13 +20,16 @@ Sending money across borders means weighing exchange rates, fees, available fund
 
 DOT is a natural-language AI agent that helps you:
 
+- 💬 **Do it all by chat** — anything in the app (bills, subscriptions, balances, terms, scholarships, email digest, routes, limits…) can be asked of the assistant; it prepares a confirm card and runs only when you press *Confirm*. Paying stays in your hands
 - 🔍 **Read rates honestly** — real ECB daily reference rates with source and timestamp, and historical position interpreted for *your* transfer direction
 - ⚖️ **Compare options** — reference calculations, simulated options and the sandbox quote are kept strictly apart, ranked by amount received or speed
 - 📝 **Prepare payments** — fix the amount you send, or the amount the recipient must receive (reverse-quoted)
-- 🛡️ **Execute safely** — 13 guardrail checks plus your explicit authorization; the agent can never approve its own payment
+- 🛡️ **Execute safely** — 13 guardrail checks plus your explicit authorization; the assistant prepares and explains, but only you ever submit a payment
+- 💱 **Plan your exchanges** — see how much you have in each currency, plan how much to exchange, simulate what it leaves in a sandbox, and get gap alerts per currency
 - ⏰ **Exchange at a good moment** — after comparing, set reminders: a target rate, a “favorable level” (top 10–30% of the last 90 days) or an exchange-by date; optional browser notifications
 - 🧾 **Keep spending in order** — import a bank CSV, scan a receipt, or quick-add by text or voice (“lunch 12.50”); suggested categories, duplicate flags, recurring expenses and one-click batch review
-- 🎓 **Plan student money** — “Can I afford this?” checks, a term-based cash-flow planner for tuition, living costs and income, a scholarship & grant tracker with deadlines and document checklists, weekly/monthly insights with concrete suggestions, and email reports
+- 🏛️ **Compare banks, not just rates** — the AI reads banks' public rate and fee pages (falling back to its own knowledge, clearly marked), then builds exchange scenarios: which bank converts, pay at once or split in two
+- 🎓 **Plan the term** — “Can I afford this?” checks, a term-based cash-flow planner for tuition, living costs and income, a scholarship & grant tracker with deadlines and document checklists, weekly/monthly insights with concrete suggestions, and daily, weekly or monthly email digests with urgent alerts
 - 🏦 **Bank transfer templates** — SWIFT wires and domestic formats (SEPA, BSB, FPS, ACH, CNAPS, NEFT), checked as you type, with copy-ready instructions and an MT103 preview
 - 🌱 **Stay motivated, kindly** — milestone badges, a forgiving check-in streak, short opt-in challenges, money-skill levels and celebration moments; no rankings, no pressure, nothing shared
 - 🧾 **Trace everything** — one audit trail answers who authorized what, which checks ran, and what happened next
@@ -37,9 +40,9 @@ DOT is a natural-language AI agent that helps you:
 
 ## ✨ Highlights
 
-### 1. Understand → plan → act, every stage visible
+### 1. Ask, and get cards you can use
 
-On each turn the agent first calls `record_plan` to record its **intent, extracted amounts/currencies/recipient, missing details and planned steps**, then calls tools within its permission tier. The three stages stream live over SSE, and tool results render as cards (rates, comparisons, drafts, logged expenses), each labeled by data kind — reference data, simulation or ledger record.
+On each turn the agent first calls `record_plan` to record its **intent, extracted amounts/currencies/recipient, missing details and planned steps**, then calls tools. Results land on a **result board** as jelly cards you can drag, join (to ask how two results connect) and open; when it needs something only you know — a recipient, bank details for a template, an exchange plan, your balance — it pops up a prefilled form beside the chat. The assistant can look things up, explain and prepare drafts, plans and templates, but it has no tool to submit or approve a payment.
 
 ![AI agent](docs/screenshots/agent.png)
 
@@ -59,35 +62,45 @@ Live comparison as you type: a reference-rate benchmark, three simulated options
 
 The authorization screen shows the environment label, exact amounts, rate source, a live quote countdown, the status timeline and every guardrail check. After ticking the confirmation you must **press and hold** the ring. The approval is bound to a SHA-256 digest of the exact details — any change voids it.
 
-### 4. AI watches the exchange rate for you
+### 4. Your money at a glance — exchange plans, sandbox and gaps
+
+The **Overview** follows one line of thought: *how much do I have → how do I plan to exchange it → what would that leave → where am I short?*
+
+- **How much you have** — the latest balance per currency, typed in or read from a bank CSV, each shown big **in its own currency** (no single converted headline to confuse AUD with CNY). A **currency-mix bar** shows the share of each, and one small line gives the reference-rate total as an estimate.
+- **Exchange plans** — your intentions: “get 4,300 AUD from CNY by the 25th for tuition”, or “spend 20,000 CNY”. A plan can be set by what you receive or what you spend; tap a plan to edit it with a live preview (rate, what you pay, what each currency has left, how much of the need it covers). Suggestions come ready-made from tuition, a term's living costs and bills that nothing covers yet. Plans are only intent — nothing is exchanged — and each plan's pair is judged by the AI watch, which treats the plan's amount, date and lowest acceptable rate as hard limits. The Send page's *needs* form and the assistant (`plan_exchange`, or a pop-up plan form) create the same plans.
+- **Sandbox** (its own page in the sidebar; the overview shows a summary card) — applies your plans to your balances in numbers only and shows before/after per currency. Try a worse or better rate (−3%, −5%, +3%), add pretend money (“what if my parents send 20,000 CNY”) or leave plans out; none of it is saved. Below it, the **simulated payments** list shows what payments prepared by DOT or by you did to the pretend test balances — held while *not completed*, deducted once the simulation completes. No real money ever moves.
+- **Gaps** — per currency for the next 60 days: what you hold, plus what plans bring in, minus what they take out, against what you need (tuition, living costs, bills, purpose-only plans) plus your safety buffer. The chart shows held, planned and the hatched shortfall against the need line; the text gives the gap without exchanging, after your plans, and if rates were 3% worse. *Plan to cover it* opens a prefilled plan. Currencies with no balance entered are flagged instead of guessed.
+- **Alerts** — gaps due within 7 days, plans that need more than you hold, a rate below your limit and plans falling due become reminders; with email on they arrive at once, the rest go into the digest.
+
+### 5. AI watches the exchange rate for you
 
 Step ③ on the Send page starts with the **AI watch**. For every pair you use (active goals and recent transfers are picked up automatically), the AI judges by itself whether now is a good time: it reads the 90-day position, the gap to the 90-day average, the recent trend, the experimental 7-day forecast (and whether it beat the baseline), plus your deadline. The verdict is *good time / waiting looks reasonable / exchange soon — deadline / below your acceptable rate / no strong signal*, with a confidence level, the reasons as chips and — when a model is configured — a short explanation written by the model in your language. The worker re-checks every ten minutes and reminds you (bell, browser notification, email if enabled) when the judgment turns to “good time” or “deadline”.
 
-**You can guide it.** Under *Your needs* (or simply by telling the assistant) give the amount you need to receive, the date you need it by and the lowest rate you accept. These are hard limits: a rate below your floor is never called a good time, and a close deadline is never told to wait. Without a model, a transparent rule engine makes the same kind of judgment. Fixed rules — a target rate, a favorable level, an exchange-by date — remain available as an optional extra. Nothing is ever exchanged automatically.
+**You can guide it.** Your **exchange plans** (from the overview, the *needs* form here, or simply by telling the assistant) give the amount you need to receive, the date you need it by and the lowest rate you accept. These are hard limits: a rate below your floor is never called a good time, and a close deadline is never told to wait. Without a model, a transparent rule engine makes the same kind of judgment. Fixed rules — a target rate, a favorable level, an exchange-by date — remain available as an optional extra. Nothing is ever exchanged automatically.
 
-### 5. Bank transfer templates (SWIFT and domestic)
+### 6. Bank transfer templates (SWIFT and domestic)
 
-The **Templates** page stores the bank details you pay often, in seven formats: **SWIFT** international wire, **SEPA** (IBAN), **Australian BSB**, **UK Faster Payments** (sort code), **US ACH** (ABA routing), **China CNAPS** and **India NEFT/IMPS** (IFSC). Every field is checked as you type — BIC structure, IBAN checksum and country length, ABA checksum, BSB / sort code / IFSC / CNAPS formats, the SWIFT character set (Chinese names must use the Latin spelling on the account), a BIC/IBAN country mismatch, and a reminder that CNY wires usually need a purpose code.
+The **Bank transfer templates** tab of the Send page stores the bank details you pay often, in seven formats: **SWIFT** international wire, **SEPA** (IBAN), **Australian BSB**, **UK Faster Payments** (sort code), **US ACH** (ABA routing), **China CNAPS** and **India NEFT/IMPS** (IFSC). Every field is checked as you type — BIC structure, IBAN checksum and country length, ABA checksum, BSB / sort code / IFSC / CNAPS formats, the SWIFT character set (Chinese names must use the Latin spelling on the account), a BIC/IBAN country mismatch, and a reminder that CNY wires usually need a purpose code.
 
-A confirmed template opens a **copy-ready instruction sheet** (copy each field, copy all, download .txt) and, for SWIFT, an **MT103-style field preview** (:32A:, :57A:, :59:, :70:, :71A:) for reference — your bank builds the real message; DOT never sends instructions anywhere. Account numbers are masked everywhere except the owner's sheet. Templates drafted by the assistant, and templates whose bank details change, stay **unconfirmed** until you check them against an official source — the classic “our bank details have changed” scam is called out on every sheet. *Compare & plan* jumps to the Send page with the template's currency, amount and purpose.
+A confirmed template opens a **copy-ready instruction sheet** (copy each field, copy all, download .txt) and, for SWIFT, an **MT103-style field preview** (:32A:, :57A:, :59:, :70:, :71A:) for reference — your bank builds the real message; DOT never sends instructions anywhere. Account numbers are masked everywhere except the owner's sheet. Templates drafted by the assistant, and templates whose bank details change, stay **unconfirmed** until you check them against an official source — the classic “our bank details have changed” scam is called out on every sheet. *Compare & plan* switches to the comparison tab with the template's currency, amount and purpose; when you pick a recipient that has a confirmed template, the Send form links to it, and a new draft reminds you which template to use at your bank. The assistant can also fill a template from bank details you paste in the chat: the form pops up prefilled, problems are marked with ⚠ and their reason, and if you close it the draft stays on the result board to continue later.
 
-### 6. Spending you can trust
+### 7. Spending you can trust
 
-The **Spending** page is built for students: drop the CSV your bank exports (comma/semicolon, debit/credit columns, day-first dates and GBK files are detected), and every row arrives **pending** with a suggested category and a duplicate flag (same merchant and amount within ±2 days, including re-imported statements). Select, recategorize in bulk and confirm — corrections are learned per merchant. Receipts are read by the vision model and always shown for checking before saving. Quick-add understands `lunch 12.50`, `bus pass 40`, `昨天 打车 23元` and voice input. Recurring expenses (rent, phone, subscriptions) create **expected** entries a week ahead to confirm or adjust. The assistant can log expenses too (`log_expense`), but they wait in the same review queue.
+The **Spending** page is built for students: drop the CSV your bank exports (comma/semicolon, debit/credit columns, day-first dates and GBK files are detected), and every row arrives **pending** with a suggested category and a duplicate flag (same merchant and amount within ±2 days, including re-imported statements). Select, recategorize in bulk and confirm — corrections are learned per merchant. **Pictures:** drop, paste or pick up to four images — shop receipts, or screenshots of your banking or card app listing several transactions; the vision model reads every transaction (resolving “yesterday” or weekday names, `A$12,10` decimal commas, skipping rows without an amount) and you check them as a list before saving. **Quick-add** reads one line your way: `lunch 12.50`, `午饭40澳刀`, `2026年10月19号 午饭10澳元`, `午饭10澳元 打车25` (two entries), `上周五 coles 21.50`, `ランチ 1200円` and voice input. Fast offline rules read most lines instantly; when they cannot, *Read with AI* (or Enter) hands the line to the model. The same reader serves the assistant's `log_expense`. Recurring expenses (rent, phone, subscriptions) create **expected** entries a week ahead to confirm or adjust. The assistant can log expenses too (`log_expense`), but they wait in the same review queue.
 
-### 7. Student money
+### 8. Term planning
 
-The **Student money** page plans a whole term on your own figures:
+The **Term planning** page plans a whole term on your own figures:
 
 - **Can I afford this?** — enter a price; it is checked against cash now (ledger + holdings you entered), the term plan, upcoming tuition and extras, your safety buffer and what is left of this month's budget. The answer is *Yes / Possible, but tight / Not right now*, with the numbers, a before/after balance chart and the earliest safer date.
 - **Term cash flow** — add terms (dates, tuition and its due date, living costs and income per month). Monthly amounts are spread evenly per day, tuition lands on its date, awarded scholarships count as income on their payout date, and months outside a term use your average confirmed spending. You get the opening cash, monthly closing balances, the lowest point and the first shortfall.
 - **Scholarships & grants** — status from researching to awarded, deadline countdowns, a document checklist (transcript, CV, statement, references…), and reminders 14/7/3/1 days before a deadline while documents are missing. Tuition due dates are reminded too.
 - **Insights** (on the Spending page) — the last 7 or 30 days versus the period before and your usual level, with tips such as categories that rose, frequent small purchases, subscription totals, term-budget pace, upcoming tuition and plan shortfalls — each with an estimated saving.
-- **Email reports** — a weekly (Monday) or monthly (1st) report and important reminders, sent over your own SMTP server to the single address you save. Without SMTP you can still preview them.
+- **Email reports** — choose a **daily, weekly (on the weekday you pick) or monthly** digest: balances, currency gaps (also with rates 3% worse), exchange plans, the AI's timing view, spending and reminders. **Urgent alerts** (a gap due within 7 days, a rate below your limit, plans that need more than you hold, payment problems) can go out at once, and a digest is skipped when nothing changed. Sent over your own SMTP server to the single address you save; without SMTP you can still preview them.
 
 Everything here is an estimate from your plan and confirmed spending, never financial advice, and nothing moves money.
 
-### 8. Progress, the encouraging way
+### 9. Progress, the encouraging way
 
 The **Progress** page adds light game mechanics that build money skills without competition:
 
@@ -99,9 +112,9 @@ The **Progress** page adds light game mechanics that build money skills without 
 
 Everything comes from your own activity, nothing is compared or shared, and both progress features and celebrations can be switched off.
 
-### 9. Tools and memory
+### 10. Tools and memory
 
-**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 40 tools, including `check_bank_details`, `draft_transfer_template`, `exchange_advice`, `watch_exchange`, `progress_overview`, `start_challenge`, `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
+**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, kind)` next to its implementation (kind: view or prepare); the agent validates arguments and audits every call. There are 41 tools, including `request_details` (pop-up forms), `plan_exchange`, `simulate_exchange`, `money_overview`, `check_bank_details`, `draft_transfer_template`, `exchange_advice`, `progress_overview`, `start_challenge`, `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that submit or approve payments, raise limits or change recipients. Adding a tool is one decorated function.
 
 **Memory** lives in [`finance/memory.py`](finance/memory.py), in three layers:
 
@@ -115,7 +128,7 @@ Recall works across languages (word matching for Latin scripts, character bigram
 
 ![Memory](docs/screenshots/memory.png)
 
-### 6. Black & white · dots, lines, circles · in motion
+### 11. Black & white · dots, lines, circles · in motion
 
 | Pull close · depth-of-field blur | Dark mode |
 | --- | --- |
@@ -127,7 +140,37 @@ Recall works across languages (word matching for Latin scripts, character bigram
 - Modals zoom out of the click point over a blurred backdrop; scroll reveal, 3D card tilt, magnetic buttons, count-up numbers, line-drawing animations
 - Respects `prefers-reduced-motion`; zero external dependencies under a strict `'self'` CSP
 
-### 7. Six languages
+### Where things are
+
+The sidebar follows what you are doing: **Assistant** (AI assistant) · **My money** (overview, sandbox with the test money) ·
+**Send money** (rates — with a table of banks' rates and wire fees —, send — with *Compare & send*, *Recipients* (incl.
+payment limits) and *Bank transfer templates* tabs —, and transfer history: your own transfers and what is about to be sent,
+without the automated test payments) · **Plan** (spending — two tabs, *Entries | Fixed costs*; fixed costs merge bills, recurring costs and subscriptions into
+one list with a chart and the payment-habits indicator on top —, term planning — term cash flow, extra income / costs /
+safety buffer, scholarships —, progress) · **System** (memory, audit log). The route manager opens from *More routes*.
+Email settings live in **Settings** (top right).
+
+**Goals are exchange plans now.** A plan can name a recipient and a purpose category; linked transfers count towards it
+(sent / on the way / left) and only what is left goes into the exchange scenarios. Existing goals are converted on upgrade
+and the originals archived, never deleted.
+
+**Do everything by chat.** Apart from paying itself, anything in the app can be asked of the assistant: add a bill or a
+subscription, set a balance, log or recategorize spending, add a term, track a scholarship, change the email digest, toggle
+routes, set limits… It reads your records first (`read_records`), then shows a **confirm card** (`do_action`) with the action
+and its details; nothing runs until you press *Confirm*, and the server validates it again when it does. Authorizing and
+submitting a payment still happens only by your hand on the Send page.
+
+**Banks and scenarios.** On the Send page you pick the two currencies and, optionally, your sending and receiving banks.
+DOT reads each bank's official public pages (rate tables, fee schedules) with the AI model — rate, sending fee, intermediary
+and receiving fees, with the links and the time. When a bank's pages cannot be read or do not say, the model's own
+knowledge of that bank's standard fees and usual rate margin fills in, labelled as an estimate; typing the figures is the
+last resort. It then lays out **exchange scenarios**: convert
+at the sending bank or let the receiving bank convert, pay at once or in two parts (the second at the experimental 7-day
+forecast; every part pays the fixed fees again), each with every known fee and a list of what is unknown. A scenario can
+become exchange plans, or be tried in the **sandbox**, which shows what you hold today and then, by date, what plans,
+goals, bills, subscriptions, term costs and the scenario would do to each currency — each source can be left out.
+
+### 12. Six languages
 
 English · 简体中文 · 繁體中文 · Tiếng Việt · 日本語 · 한국어 — numbers, dates and region names localized with `Intl`; backend errors arrive as stable codes and are translated in the UI.
 
@@ -144,7 +187,7 @@ flowchart LR
     U[User · 6-language UI] -->|session cookie / SSE| N[Nginx]
     N --> API[FastAPI]
     API --> AG[Agent<br/>understand → plan → act]
-    AG -->|whitelisted tools · permission tiers| S[Finance service]
+    AG -->|whitelisted tools · never submits| S[Finance service]
     API --> S
     S --> G[13 guardrail checks]
     G --> SB[Sandbox provider<br/>local simulation · async settlement]
@@ -156,7 +199,7 @@ flowchart LR
 | Module | Files |
 | --- | --- |
 | Agent orchestration (model loop, streaming, episodes) | `finance/agent.py` |
-| **Tool registry** — every tool's schema, tier and implementation | `finance/tools.py` |
+| **Tool registry** — every tool's schema, kind and implementation | `finance/tools.py` |
 | **Memory** — conversation, notes, episodes, recall | `finance/memory.py` |
 | Offline rule planner | `finance/agent_rules.py` |
 | Payments core, guardrails, approvals, routes | `finance/service.py` |
@@ -220,14 +263,15 @@ Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenA
 
 ### Email reports (optional)
 
-Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) and run `docker compose up -d --force-recreate backend`. Then save your address under **Student money → Email reports**. With Gmail or Outlook use an app password.
+Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) and run `docker compose up -d --force-recreate backend`. Then save your address under **Settings → Email reports** (or tell the assistant “send a weekly digest to me@example.com”). With Gmail or Outlook use an app password.
 
 ### Try the new features
 
-1. **Send** → enter an amount → step ③ shows the AI watch's verdict; add your deadline and lowest acceptable rate under *Your needs*, or open *Add your own rule*
-2. **Spending** → drop a bank CSV → review the pending rows (duplicates are left unticked) → **Confirm**
-3. **Student money** → add a term → ask “Can I afford this?” for a price; track a scholarship and tick its documents
-4. **Spending** → type `lunch 12.50` (or press the mic) → **Save**; or **Scan a receipt** (needs a vision-capable model, otherwise fill the form yourself)
+1. **Overview** → enter your balances → adopt a suggested exchange plan (or *New plan*) → watch the sandbox and the gaps change; try −3% or add pretend money
+2. **Send** → enter an amount → step ③ shows the AI watch's verdict; save your amount, deadline and lowest acceptable rate as an exchange plan, or open *Add your own rule*
+3. **Spending** → drop a bank CSV → review the pending rows (duplicates are left unticked) → **Confirm**
+4. **Term planning** → add a term → ask “Can I afford this?” for a price; track a scholarship and tick its documents; pick a daily, weekly or monthly email digest
+5. **Spending** → type `lunch 12.50` (or press the mic) → **Save**; or **Scan a receipt** (needs a vision-capable model, otherwise fill the form yourself)
 
 ### Sandbox test amounts
 
@@ -252,7 +296,7 @@ Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP
 | 4.7 Multi-currency funds | Per-currency total / available / reserved; reference equivalents with source, labeled “not a conversion”; settle only on confirmed completion, release only on confirmed failure |
 | 4.8 Goals & budget | Completed and planned kept apart; income / expense / safety buffer / user-entered holdings; one-time vs installments and funding shortfall |
 | 4.9 Natural-language agent | Mandatory plan first; three stages streamed over SSE; data-kind labels; chat and UI share one state |
-| 4.10 Permission tiers & guardrails | T1 view / T2 prepare / T3 submit; 13 checks run before approval and again before submission, each recorded in the audit log |
+| 4.10 Permissions & guardrails | the assistant looks up and prepares, only the owner approves and submits; 13 checks run before approval and again before submission, each recorded in the audit log |
 | 4.11 End-to-end sandbox transfer | Quote → guardrails → authorization screen → hold to authorize → idempotent submit → async tracking → settlement → receipt; failure and timeout recovery |
 | 4.12 Approvals & history | Accepting a recommendation, confirming a change and authorizing a payment are recorded separately; any change voids the old approval |
 | 4.13 Audit log | Time, actor, action, outcome, correlation ID, request ID; denials recorded too; sensitive identifiers masked; triggers block edits and deletes |
@@ -277,7 +321,7 @@ Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP
 ## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 157 tests: service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
+.\.venv\Scripts\python -m pytest -q        # 196 tests: service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
 .\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .

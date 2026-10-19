@@ -261,6 +261,7 @@ class HabitsMixin:
                                 "alert" if o["state"] == "overdue" else "warn",
                                 dict(title=o["title"], due_date=o["due_date"], amount=str(o["amount"]), currency=o["currency"])))
         current.extend(self.student_reminders())
+        current.extend(self.plan_reminders())
         current.extend(self.motivation_reminders())
         created = 0
         with self.store.tx() as c:

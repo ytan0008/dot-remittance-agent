@@ -5,7 +5,7 @@ from finance.agent import Agent
 from finance.api import create_app
 from finance.domain import Denied
 
-TODAY = date.today()
+TODAY = datetime.now(timezone.utc).date()  # the service counts days in its time zone (UTC by default)
 
 
 def checkin(f, days_ago, action="expenses.add"):

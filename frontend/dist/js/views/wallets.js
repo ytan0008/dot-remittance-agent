@@ -1,9 +1,26 @@
 import {state, t, api, toast, isOwner, invalidate, rerender, value, modal, closeModal, need} from '../core.js';
 import {esc, amt, panel, field, options, icons, empty, dl, mono, tag} from '../ui.js';
-import {money, day, num, when, region, currencyName} from '../i18n.js';
+import {money, day, num, when, region, currencyName, plain} from '../i18n.js';
 
 const ECON = ['AU', 'BN', 'CA', 'CL', 'CN', 'HK', 'ID', 'JP', 'KR', 'MY', 'MX', 'NZ', 'PG', 'PE', 'PH', 'RU', 'SG', 'TW', 'TH', 'US', 'VN'];
 const CUR = {AU: 'AUD', BN: 'BND', CA: 'CAD', CL: 'CLP', CN: 'CNY', HK: 'HKD', ID: 'IDR', JP: 'JPY', KR: 'KRW', MY: 'MYR', MX: 'MXN', NZ: 'NZD', PG: 'PGK', PE: 'PEN', PH: 'PHP', RU: 'RUB', SG: 'SGD', TW: 'TWD', TH: 'THB', US: 'USD', VN: 'VND'};
+
+export function ledgerPanel() {
+  return panel(t('wallets.ledger'), ledger(), {sub: t('kind.simulation'), cls: 'ledger-panel'});
+}
+
+export function recipientsPanels() {
+  return `${panel(t('wallets.recipients'), recipients(), {actions: `<button class="button" data-action="new-recipient" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('action.add_recipient')}</button>`})}
+    ${panel(t('autonomy.limits'), limits(), {sub: t('wallets.limits_sub')})}`;
+}
+
+/** Bars and the display-currency switch of the test-money ledger, wherever it is shown. */
+export function mountLedger(root) {
+  root.querySelectorAll('.ledger .bar-fill[data-ratio]').forEach(el => el.style.setProperty('--ratio', el.dataset.ratio));
+  root.querySelector('#display-currency')?.addEventListener('change', async e => {
+    state.display = e.target.value; invalidate(['equivalents']); await need(['equivalents']); rerender();
+  });
+}
 
 function ledger() {
   const list = (state.data.balances || []).filter(b => b.rail === 'sandbox');
@@ -43,12 +60,23 @@ export function recipientForm({currency = '', country = ''} = {}) {
       }});
 }
 
+/* Payment limits: your own safety caps on each sandbox payment (the assistant can never change them). */
+function limits() {
+  const l = state.data.settings?.limits || {};
+  return `<div class="limits">${Object.entries(l).filter(([c]) => c !== 'ETH').map(([c, x]) => `<form class="limit-row" id="limit-${esc(c)}" data-currency="${esc(c)}" data-form="limit-form">
+      <b class="cur">${esc(c)}</b>
+      ${field('lp-' + c, t('autonomy.per'), `<input id="lp-${esc(c)}" name="per_payment" inputmode="decimal" value="${esc(plain(x.per_payment, c))}" ${isOwner() ? '' : 'disabled'}>`, t('autonomy.ceiling') + ' ' + esc(money(x.ceiling_per_payment, c)))}
+      ${field('ld-' + c, t('autonomy.daily'), `<input id="ld-${esc(c)}" name="daily" inputmode="decimal" value="${esc(plain(x.daily, c))}" ${isOwner() ? '' : 'disabled'}>`, t('autonomy.ceiling') + ' ' + esc(money(x.ceiling_daily, c)))}
+      <button class="button sm" ${isOwner() ? '' : 'disabled'}>${t('common.save')}</button><div class="form-error"></div></form>`).join('')}</div><p class="fine">${t('autonomy.limits_note')}</p>`;
+}
+
 export const view = {
   id: 'wallets',
-  needs: ['balances', 'recipients', 'equivalents'],
+  needs: ['balances', 'recipients', 'equivalents', 'settings'],
   render() {
     return `${panel(t('wallets.ledger'), ledger(), {sub: t('kind.simulation')})}
-    ${panel(t('wallets.recipients'), recipients(), {actions: `<button class="button" data-action="new-recipient" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('action.add_recipient')}</button>`})}`;
+    ${panel(t('wallets.recipients'), recipients(), {actions: `<button class="button" data-action="new-recipient" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('action.add_recipient')}</button>`})}
+    ${panel(t('autonomy.limits'), limits(), {sub: t('wallets.limits_sub')})}`;
   },
   mount(root) {
     root.querySelectorAll('.bar-fill[data-ratio]').forEach(el => el.style.setProperty('--ratio', el.dataset.ratio));
@@ -71,6 +99,10 @@ export const view = {
     async copy(el) { try { await navigator.clipboard.writeText(el.dataset.value); toast(t('common.copied'), 'good'); } catch { toast(el.dataset.value); } },
   },
   submit: {
+    async 'limit-form'(f) {
+      await api('/settings/limits', 'PUT', {currency: f.dataset.currency, per_payment: value(f, 'per_payment'), daily: value(f, 'daily')});
+      invalidate(['settings']); toast(t('autonomy.limits_saved'), 'good'); rerender();
+    },
     async 'recipient-form'(f) {
       const id = value(f, 'recipient_id');
       if ((state.data.recipients || []).some(r => r.id === id)) throw new Error(t('wallets.r_exists'));

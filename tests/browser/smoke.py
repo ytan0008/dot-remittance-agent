@@ -11,6 +11,7 @@ errors = []
 
 
 def hold(page, selector, ms=1500):
+    page.locator(selector).scroll_into_view_if_needed(); page.wait_for_timeout(200)  # a tall dialog scrolls, like a person would
     box = page.locator(selector).bounding_box()
     page.mouse.move(box['x'] + 20, box['y'] + box['height'] / 2)
     page.mouse.down(); page.wait_for_timeout(ms); page.mouse.up()
@@ -18,7 +19,9 @@ def hold(page, selector, ms=1500):
 
 def prepare_and_authorize(page, amount, purpose):
     page.goto(base + '/#send'); page.wait_for_timeout(1200)
-    page.locator('.route-chip', has_text='AU → CN').click()
+    page.get_by_role('tab', name='Compare & send').click(); page.wait_for_timeout(600)
+    page.locator('#pair-source').select_option('AUD'); page.wait_for_timeout(500)
+    page.locator('#pair-target').select_option('CNY'); page.wait_for_timeout(800)
     page.locator('#send-amount').fill(amount)
     expect(page.locator('.option.best')).to_be_visible(timeout=15000)
     page.locator('#send-recipient').select_option('ui-acceptance')
@@ -42,13 +45,11 @@ with sync_playwright() as p:
     page.goto(base)
     expect(page.locator('#side-status')).to_have_text('Service connected', timeout=30000)
     assert 'simulation' in page.locator('#env-badge').inner_text().lower(), 'never test spending against a live environment'
-    # The agent steps need tier 3; restore whatever the owner had chosen when the test ends.
     api = "async (a) => { const r = await fetch('/api' + a[0], {method: a[1], headers: {'Content-Type': 'application/json', 'X-Workspace-Request': '1'}, body: a[2] ? JSON.stringify(a[2]) : undefined}); return r.json(); }"
-    original_tier = page.evaluate(api, ['/settings', 'GET', None])['agent_tier']
-    page.evaluate(api, ['/settings/tier', 'PUT', {'tier': 3}])
-    try:  # restore the owner's tier even if an assertion fails midway
+    if True:
 
-        page.goto(base + '/#wallets'); page.wait_for_timeout(1200)
+        page.goto(base + '/#send'); page.wait_for_timeout(1200)
+        page.get_by_role('tab', name='Recipients').click(); page.wait_for_timeout(800)
         if not page.locator('.list .row', has_text='ui-acceptance').count():
             page.get_by_role('button', name='Add recipient').first.click()
             page.locator('#r-name').fill('UI acceptance payee'); page.locator('#r-id').fill('ui-acceptance')
@@ -73,16 +74,17 @@ with sync_playwright() as p:
         expect(page.locator('#modal .detail-top .chip')).to_contain_text('Completed', timeout=40000)
         page.keyboard.press('Escape')
 
-        # Agent: understand -> plan -> act, and refusal to execute without authorization.
+        # Agent: the draft lands as a card on the board, and the assistant never submits it.
         page.goto(base + '/#agent'); page.wait_for_timeout(1000)
         # Works with the offline planner and with a real model: check behavior, not wording.
         page.locator('#chat-form textarea').fill('Send 5 AUD to ui-acceptance for books')
         page.keyboard.press('Enter')
         page.wait_for_function("() => document.querySelectorAll('.msg.bot.done').length >= 2 && !document.querySelector('.msg.bot.live')", timeout=120000)
         last = page.locator('.msg.bot').last
-        expect(last.locator('.stage')).to_have_count(3)
-        expect(last.locator('.rcard.draft')).to_be_visible()
-        draft_id = last.locator('.rcard.draft [data-action="detail"]').get_attribute('data-id')
+        expect(last.locator('.did-chip').first).to_be_visible()
+        card = page.locator('#agent-board .acard.draft').first
+        expect(card).to_be_visible()
+        draft_id = card.locator('[data-action="detail"]').get_attribute('data-id')
         page.locator('#chat-form textarea').fill('execute it')
         page.keyboard.press('Enter')
         page.wait_for_function("() => document.querySelectorAll('.msg.bot.done').length >= 3 && !document.querySelector('.msg.bot.live')", timeout=120000)
@@ -97,8 +99,6 @@ with sync_playwright() as p:
             page.goto(base + '/#' + view); page.wait_for_timeout(1500)
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'mobile overflow on {view}'
         page.screenshot(path=str(out / 'mobile.png'))
-    finally:
-        page.evaluate(api, ['/settings/tier', 'PUT', {'tier': original_tier}])
     browser.close()
 
 assert not errors, errors

@@ -2,27 +2,31 @@ import {state, need, invalidate, bus, toast, modal, closeModal, formError, $, $$
 import {t, initLang, setLang, LANGS, lang, relative, region, when} from './i18n.js';
 import {esc, icons, options, field, empty, panel} from './ui.js';
 import {field as dotField, transition, reveal, interactive, countUp, swipe, progress, reduced} from './motion.js';
+import {deformTitles} from './deform.js';
+import {springNav} from './navspring.js';
 import {view as overview} from './views/overview.js';
 import {view as agent, send as sendChat, paint as paintChat} from './views/agent.js';
 import {view as sendView, enableNotifications} from './views/send.js';
 import {view as payments, openDetail} from './views/payments.js';
 import {view as markets} from './views/markets.js';
-import {view as plans} from './views/plans.js';
 import {view as habits} from './views/habits.js';
 import {view as wallets, recipientForm} from './views/wallets.js';
-import {view as autonomy} from './views/autonomy.js';
-import {view as routes} from './views/routes.js';
 import {view as audit} from './views/audit.js';
 import {view as memory} from './views/memory.js';
-import {view as spending} from './views/spending.js';
-import {view as study} from './views/study.js';
+import {view as spending, openFixed} from './views/spending.js';
+import {view as study, emailPanel} from './views/study.js';
 import {view as templates} from './views/templates.js';
 import {view as progressView, medal} from './views/progress.js';
+import {view as sandbox} from './views/sandbox.js';
+import {view as banksView} from './views/banks.js';
 
-const VIEWS = [overview, agent, sendView, templates, spending, payments, markets, plans, study, progressView, habits, wallets, autonomy, memory, routes, audit];
+const VIEWS = [overview, sandbox, agent, sendView, templates, spending, payments, markets, study, progressView, habits, wallets, memory, audit, banksView];
 const BY_ID = Object.fromEntries(VIEWS.map(v => [v.id, v]));
-const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'templates', 'spending', 'payments']], ['nav.g_insight', ['markets', 'plans', 'study', 'progress', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
-const DOCK = ['overview', 'agent', 'send', 'payments'];
+const GROUPS = [['nav.g_ai', ['agent']], ['nav.g_money', ['overview', 'sandbox']], ['nav.g_send', ['markets', 'send', 'payments']],
+  ['nav.g_plan', ['spending', 'study', 'progress']], ['nav.g_system', ['memory', 'audit']]];
+const DOCK = ['overview', 'agent', 'send', 'spending'];
+// Pages that were merged into others: their old links still land in the right place.
+const MOVED = {templates: ['send', 'templates'], wallets: ['send', 'recipients'], routes: ['send', 'compare'], habits: ['spending'], plans: ['overview']};
 const ORDER = GROUPS.flatMap(g => g[1]);
 let pendingPaint = false, refreshTimer = 0, events = null, primed = false;
 
@@ -30,9 +34,18 @@ let pendingPaint = false, refreshTimer = 0, events = null, primed = false;
 function shellText() {
   $$('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   $$('[data-i18n-label]').forEach(el => el.setAttribute('aria-label', t(el.dataset.i18nLabel)));
-  $('#nav').innerHTML = GROUPS.map(([g, ids]) => `<div class="nav-group"><span class="nav-caption">${t(g)}</span>${ids.map(id => `<a href="#${id}" data-view="${id}" class="${state.view === id ? 'active' : ''}">${icons[id]}<span>${t('nav.' + id)}</span><b>${String(ORDER.indexOf(id) + 1).padStart(2, '0')}</b></a>`).join('')}</div>`).join('');
-  $('#dock').innerHTML = DOCK.map(id => `<a href="#${id}" data-view="${id}" class="${state.view === id ? 'active' : ''}">${icons[id]}<span>${t('nav.' + id)}</span></a>`).join('') +
-    `<button data-action="open-sheet" class="${DOCK.includes(state.view) ? '' : 'active'}">${icons.more}<span>${t('nav.more')}</span></button>`;
+  // Build the navigation once per language; switching pages only moves the active class, so the CSS transitions and the
+  // spring blob animate from where they are instead of every item jumping to its new size at once.
+  const nav = $('#nav'), dock = $('#dock');
+  if (nav.dataset.lang !== lang) {
+    nav.innerHTML = GROUPS.map(([g, ids]) => `<div class="nav-group"><span class="nav-caption">${t(g)}</span>${ids.map(id => `<a href="#${id}" data-view="${id}">${icons[id]}<span class="nav-label">${t('nav.' + id)}</span><b>${String(ORDER.indexOf(id) + 1).padStart(2, '0')}</b></a>`).join('')}</div>`).join('');
+    dock.innerHTML = DOCK.map(id => `<a href="#${id}" data-view="${id}">${icons[id]}<span>${t('nav.' + id)}</span></a>`).join('') +
+      `<button data-action="open-sheet" data-view="more">${icons.more}<span>${t('nav.more')}</span></button>`;
+    nav.dataset.lang = lang;
+  }
+  nav.querySelectorAll('a[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === state.view));
+  dock.querySelectorAll('[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === state.view || (a.dataset.view === 'more' && !DOCK.includes(state.view))));
+  springNav($('#nav'), 'y'); springNav($('#dock'), 'x');  // start at once: the animation runs on the compositor
   $('#lang-select').innerHTML = LANGS.map(([c, n]) => `<option value="${c}" ${c === lang ? 'selected' : ''}>${n}</option>`).join('');
   $('#crumb').textContent = t('nav.' + state.view);
   document.title = `${t('nav.' + state.view)} · DOT`;
@@ -53,13 +66,14 @@ function status() {
 }
 
 function heading(id) {
-  return `<div class="page-head reveal"><div><span class="eyebrow">${String(ORDER.indexOf(id) + 1).padStart(2, '0')} / ${esc(t('nav.' + id)).toUpperCase()}</span><h1>${t('page.' + id)}<i>.</i></h1><p>${t('page.' + id + '_d')}</p></div>
+  const page = id === 'send' && state.send.tab === 'templates' ? 'templates' : id;
+  return `<div class="page-head reveal"><div><span class="eyebrow">${String(ORDER.indexOf(id) + 1).padStart(2, '0')} / ${esc(t('nav.' + id)).toUpperCase()}</span><h1>${t('page.' + page)}<i>.</i></h1><p>${t('page.' + page + '_d')}</p></div>
     ${id === 'overview' ? `<div class="head-actions"><button class="button ghost" data-action="go" data-view="agent">${icons.agent}${t('overview.ask')}</button><button class="button primary magnetic" data-action="go" data-view="send">${icons.plus}${t('action.new_transfer')}</button></div>` : ''}</div>`;
 }
 
 export function enhance(root, quiet = false) {
   if (quiet) root.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
-  reveal(root); interactive(root);
+  reveal(root); interactive(root); deformTitles(root);
   if (!quiet) countUp(root, (n, d) => new Intl.NumberFormat(lang, {minimumFractionDigits: d, maximumFractionDigits: d}).format(n));
 }
 bus.enhance = enhance;
@@ -92,6 +106,16 @@ bus.flush = () => { if (pendingPaint) render(); };
 bus.repaint = () => { const id = document.activeElement?.id, y = scrollY; paint(true); scrollTo(0, y); if (id) document.getElementById(id)?.focus({preventScroll: true}); };
 
 async function show(id, mode = 'forward') {
+  if (id === 'send' && state.view !== 'send') state.send.tab = 'compare';  // a plain visit opens the main tab
+  if (MOVED[id]) {
+    const openRoutes = id === 'routes';
+    if (id === 'habits') openFixed();  // bills and the payment-habits indicator live in Spending → Fixed costs
+    const [to, tab] = MOVED[id];
+    id = to;
+    if (tab) state.send.tab = tab;
+    history.replaceState(null, '', '#' + id);
+    if (openRoutes) state.send.openRoutes = true;  // the route manager is a dialog on the Send page
+  }
   const v = BY_ID[id] ? id : 'overview';
   const changed = v !== state.view;
   state.view = v;
@@ -228,6 +252,7 @@ async function session() {
 
 async function settingsModal() {
   if (state.role) await need(['memory', 'economies']);
+  if (isOwner()) { try { state.data.email = await api('/email'); } catch { /* shown as unavailable */ } }
   const m = state.data.memory || {};
   const theme = document.documentElement.dataset.theme;
   const zones = ['UTC', 'Australia/Sydney', 'Asia/Shanghai', 'Asia/Taipei', 'Asia/Hong_Kong', 'Asia/Ho_Chi_Minh', 'Asia/Tokyo', 'Asia/Seoul', 'Asia/Singapore', 'Asia/Manila', 'America/Los_Angeles', 'America/New_York', 'Pacific/Auckland'];
@@ -243,6 +268,7 @@ async function settingsModal() {
       ${field('set-tz', t('settings.time_zone'), `<select id="set-tz" name="time_zone">${options(zones.map(z => [z, z]), m.time_zone || 'UTC')}</select>`)}</div>
       ${field('set-goal', t('settings.payment_goal'), `<input id="set-goal" name="payment_goal" maxlength="200" value="${esc(m.payment_goal || '')}">`)}
       <div class="form-error"></div><button class="button" ${isOwner() ? '' : 'disabled'}>${t('common.save')}</button></form>
+    ${isOwner() ? `<section class="settings-sec email-sec">${emailPanel()}</section>` : ''}
     <section class="settings-sec"><span class="eyebrow">${t('settings.session')}</span>
       <dl class="facts"><div><dt>${t('settings.role')}</dt><dd>${esc(state.role ? t('role.' + state.role) : '—')}</dd></div><div><dt>${t('settings.model')}</dt><dd>${state.model ? esc(state.modelName || t('agent.mode.model')) : t('settings.model_off')}</dd></div>
       <div><dt>${t('settings.rails')}</dt><dd>${t('env.sandbox')}</dd></div></dl>
@@ -250,6 +276,7 @@ async function settingsModal() {
       <form id="login-form" class="inline-form">${field('access-token-2', t('login.switch'), `<input id="access-token-2" type="password" name="token" minlength="24" autocomplete="off" required>`)}<div class="form-error"></div>
       <div class="row-actions"><button class="button">${t('login.connect')}</button>${state.role ? `<button type="button" class="button ghost" data-action="logout">${t('login.logout')}</button>` : ''}</div></form></section>`, 'SETTINGS', {mount: root => {
     root.querySelector('#set-lang').addEventListener('change', e => changeLang(e.target.value));
+    root.querySelector('#em-digest')?.addEventListener('change', e => { const wd = root.querySelector('#em-weekday'); if (wd) wd.disabled = e.target.value !== 'weekly'; });
     root.querySelector('#set-theme').addEventListener('change', e => setTheme(e.target.value));
     root.querySelector('#set-notify').addEventListener('change', async e => { if (e.target.checked) e.target.checked = await enableNotifications(); else localStorage.setItem('dot.notify', '0'); });
   }});
@@ -432,6 +459,11 @@ async function boot() {
 }
 
 let swipeMode = null;
+// Clicking "Send" while already on another tab of the Send page goes back to its main tab (the hash does not change).
+document.addEventListener('click', e => {
+  const a = e.target.closest('#nav a[data-view="send"], #dock a[data-view="send"]');
+  if (a && state.view === 'send' && state.send.tab !== 'compare') { state.send.tab = 'compare'; show('send'); }
+});
 addEventListener('hashchange', () => {
   const next = location.hash.slice(1);
   const mode = swipeMode || (ORDER.indexOf(next) >= ORDER.indexOf(state.view) ? 'forward' : 'back');

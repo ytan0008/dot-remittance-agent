@@ -1,18 +1,21 @@
 import {state, t, toast, isOwner, canPrepare, invalidate, api, bus} from '../core.js';
 import {stream} from '../api.js';
-import {esc, chip, amt, tag, mono, short, icons, panel} from '../ui.js';
-import {lang, money, num, day, pct, has, when, region} from '../i18n.js';
+import {esc, chip, amt, tag, icons, panel, field, options} from '../ui.js';
+import {lang, money, num, day, pct, has, region} from '../i18n.js';
 import {sparkline} from '../charts.js';
 import {envLabel} from './payments.js';
+import {jellyBoard, buzz} from '../jelly.js';
 
-const TIERS = {view: 1, prepare: 2, submit: 3};
-const NEED_TIER = {view: 1, prepare: 2, submit: 3};
 const CUR_TO_ECON = {AUD: 'AU', CNY: 'CN', VND: 'VN', USD: 'US', PHP: 'PH', MXN: 'MX', JPY: 'JP', KRW: 'KR', HKD: 'HK', TWD: 'TW',
   SGD: 'SG', NZD: 'NZ', CAD: 'CA', MYR: 'MY', THB: 'TH', IDR: 'ID', CLP: 'CL', PEN: 'PE', RUB: 'RU', BND: 'BN', PGK: 'PG'};
 const FORM_CURRENCIES = ['AUD', 'CNY', 'USD', 'VND', 'PHP', 'MXN', 'JPY', 'KRW', 'HKD', 'TWD', 'SGD', 'NZD', 'CAD', 'MYR', 'THB', 'IDR'];
+const CURRENCIES = ['AUD', 'CNY', 'USD', 'EUR', 'GBP', 'JPY', 'HKD', 'SGD', 'CAD', 'NZD', 'KRW', 'VND', 'INR', 'CHF'];
+const FORMATS = ['swift', 'sepa', 'au_bsb', 'uk_fps', 'us_ach', 'cn_cnaps', 'in_neft'];
+const BOARD_MAX = 6;
 const slug = name => (name || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-let keySeq = 0;
-const TOOL_TIER = {remember_note: 'prepare', forget_note: 'prepare', prepare_payment: 'prepare', modify_payment: 'prepare', reconcile_payment: 'prepare', propose_change: 'prepare', execute_payment: 'submit'};
+const toolName = tool => has('tool.' + tool) ? t('tool.' + tool) : tool;
+let keySeq = 0, board = null, formats = null;
+const fmts = () => formats || state.data.tformats;  // page refreshes may drop state.data; the open form must not lose it
 
 /** Minimal, safe Markdown for model answers: escape everything first, then bold, inline code and bullet lists. */
 function md(text) {
@@ -30,64 +33,211 @@ function md(text) {
 
 export const suggestions = () => [t('agent.s1'), t('agent.s2'), t('agent.s3'), t('agent.s4')];
 
-function card(step) {
+/* ---------- result cards: every useful tool result becomes a jelly card that says something and leads somewhere ---------- */
+
+const go = (view, label = t('nav.' + view)) => `<button class="link sm" data-action="go" data-view="${view}">${esc(label)} ${icons.arrow}</button>`;
+const line = (k, v) => `<div class="kv"><span>${esc(k)}</span>${v}</div>`;
+
+/** {title, body, foot, cls} for one finished step, or null when it has nothing worth showing on its own. */
+function cardFor(step) {
   const r = step.result;
   if (step.status === 'fail') {
-    const need = NEED_TIER[step.params?.need];
-    const fix = step.code === 'tier_denied' && need && isOwner()
-      ? `<button class="button sm primary" data-action="chat-tier" data-tier="${need}">${t('agent.raise_tier', {n: need})} ${icons.arrow}</button>` : '';
-    return `<div class="rcard fail"><b>${t('agent.blocked')}</b><p>${esc(step.code && has('err.' + step.code) ? t('err.' + step.code, step.params) : step.error)}</p>${fix}</div>`;
+    return {title: t('agent.blocked'), cls: 'fail', body: `<p>${esc(step.code && has('err.' + step.code) ? t('err.' + step.code, step.params) : step.error || '')}</p>`, foot: ''};
   }
-  if (step.status !== 'ok' || !r) return '';
+  if (step.status !== 'ok' || !r) return null;
   switch (step.tool) {
-    case 'get_balances':
-      return `<div class="rcard"><span class="eyebrow">${t('kind.ledger')}</span>${r.filter(b => b.total !== null).map(b => `<div class="kv"><span>${esc(b.currency)}</span>${amt(b.available, b.currency)}<small class="muted">${t('wallets.reserved')} ${esc(money(b.reserved, b.currency))}</small></div>`).join('')}</div>`;
+    case 'get_balances': {
+      const list = (Array.isArray(r) ? r : []).filter(b => b.total !== null).slice(0, 3);
+      return {title: t('kind.ledger'), body: list.map(b => line(b.currency, amt(b.available, b.currency))).join('') || `<p>—</p>`, foot: go('sandbox')};
+    }
     case 'latest_rate':
-      return `<div class="rcard"><span class="eyebrow">${tag('reference')}</span><div class="big-num">${num(r.rate, 6)} <small>${esc(r.target)}/${esc(r.source)}</small></div><small class="muted">${esc(r.provider)} · ${day(r.observed)}${r.change_pct ? ' · ' + pct(r.change_pct, 3) : ''}${r.derived ? ' · ' + t('rates.derived') : ''}</small></div>`;
+      return {title: `${r.source} → ${r.target}`, body: `<b class="ac-big">${num(r.rate, 6)}</b><small>${esc(r.provider)} · ${day(r.observed)}${r.change_pct ? ' · ' + pct(r.change_pct, 3) : ''}</small>`, foot: go('markets')};
     case 'rate_history':
-      return `<div class="rcard"><span class="eyebrow">${tag('historical')}</span>${sparkline(r.series)}<small class="muted">${t('rates.percentile')} ${num(r.percentile, 1)} · ${t('rates.position.' + r.position)} · ${r.observations} ${t('rates.obs')}</small></div>`;
+      return {title: t('kind.historical'), body: `${sparkline(r.series)}<small>${t('rates.percentile')} ${num(r.percentile, 1)} · ${t('rates.position.' + r.position)}</small>`, foot: go('markets')};
     case 'forecast_rate':
-      return `<div class="rcard"><span class="eyebrow">${tag('forecast')}</span>${r.available ? `<div class="big-num">${num(r.point, 6)}</div><small class="muted">80%: ${num(r.interval_80[0], 6)} – ${num(r.interval_80[1], 6)} · ${r.beats_baseline ? t('forecast.beats') : t('forecast.not_beats')}</small>` : `<small>${esc(r.reason)}</small>`}</div>`;
-    case 'compare_options':
-      return `<div class="rcard"><span class="eyebrow">${t('agent.comparison')}</span>${r.options.slice(0, 4).map(o => `<div class="kv">${tag(o.kind)}<span>${esc(t('option.' + o.id))}</span>${amt(r.mode === 'send' ? o.receive : o.send, r.mode === 'send' ? r.target : r.source)}</div>`).join('')}<button class="link" data-action="go" data-view="send">${t('agent.open_compare')} ${icons.arrow}</button></div>`;
+      return {title: t('kind.forecast'), body: r.available ? `<b class="ac-big">${num(r.point, 6)}</b><small>80%: ${num(r.interval_80[0], 5)} – ${num(r.interval_80[1], 5)}</small>` : `<small>${esc(r.reason)}</small>`, foot: go('markets')};
+    case 'compare_options': {
+      const best = (r.options || [])[0];
+      const value = o => amt(r.mode === 'send' ? o.receive : o.send, r.mode === 'send' ? r.target : r.source);
+      return {title: t('agent.comparison'), body: best ? `<b class="ac-big">${value(best)}</b><small>${t('agent.c.best', {o: t('option.' + best.id)})} · ${t('agent.c.options', {n: r.options.length})}</small>` : '',
+        foot: go('send', t('agent.open_compare'))};
+    }
     case 'scenario':
-      return `<div class="rcard"><span class="eyebrow">${tag('scenario')}</span><div class="kv"><span>${t('scenario.now')}</span>${amt(r.receive_now, r.target)}</div><div class="kv"><span>${t('scenario.then', {p: pct(r.rate_change_pct)})}</span>${amt(r.receive_scenario, r.target)}</div><div class="kv"><span>${t('scenario.extra')}</span>${amt(r.extra_needed, r.source)}</div></div>`;
-    case 'prepare_payment': case 'modify_payment': case 'get_payment': case 'execute_payment': case 'reconcile_payment': {
+      return {title: t('kind.scenario'), body: line(t('scenario.now'), amt(r.receive_now, r.target)) + line(t('scenario.then', {p: pct(r.rate_change_pct)}), amt(r.receive_scenario, r.target)), foot: go('send')};
+    case 'exchange_advice': {
+      const v = r.verdict || r.last?.verdict;
+      return {title: `${r.source} → ${r.target}`, body: `${v ? `<span class="tag k-ai_${esc(v)}">${esc(t('kind.ai_' + v))}</span>` : ''}<p>${esc((r.explanation || r.reason || r.last?.explanation || t('agent.c.watching')).slice(0, 150))}</p>`, foot: go('overview')};
+    }
+    case 'plan_exchange':
+      return {title: `${r.source} → ${r.target}`, body: `<b class="ac-big">${esc(money(r.amount, r.amount_currency))} <small>${esc(r.amount_currency)}</small></b><small>${esc(r.purpose || t('ov.kind.custom'))}${r.due ? ' · ' + day(r.due) : ''}</small>`, foot: go('overview', t('ov.p.title'))};
+    case 'simulate_exchange': {
+      const rows = (r.rows || []).filter(x => x.before || x.after).slice(0, 3);
+      const short = (r.rows || []).filter(x => x.gap_after && x.known).length;
+      return {title: t('ov.s.title'), cls: short ? 'fail' : '', body: rows.map(x => line(x.currency, `<b>${esc(money(x.before, x.currency))} → ${esc(money(x.after, x.currency))}</b>`)).join('')
+        + `<small>${short ? t('agent.c.gaps', {n: short}) : t('agent.c.no_gaps')}</small>`, foot: go('overview')};
+    }
+    case 'money_overview': {
+      const p = r.position || {};
+      const need = (r.needs || [])[0];
+      return {title: t('ov.cash_now'), body: `<b class="ac-big">${p.has_cash ? esc(money(p.total, p.display)) + ` <small>${esc(p.display)}</small>` : '—'}</b>${need ? `<small>${t('agent.c.need', {n: (r.needs || []).length})}</small>` : ''}`, foot: go('overview')};
+    }
+    case 'prepare_payment': case 'modify_payment': case 'get_payment': case 'reconcile_payment': {
       const b = r.details;
-      const cta = r.status === 'draft' ? (isOwner() ? t('agent.review_authorize') : t('agent.view')) : t('agent.view');
+      if (!b) return null;
       const lacking = (r.checks || []).find(c => c.id === 'available_funds' && c.status === 'fail');
       const fund = lacking && isOwner() && b.rail !== 'evm' ? `<button class="button sm ghost" data-action="fund" data-currency="${esc(b.source)}">${icons.plus}${t('agent.add_funds', {c: b.source})}</button>` : '';
-      return `<div class="rcard draft"><div class="kv"><span class="env env-${esc(b.rail)}"><i></i>${esc(envLabel(b))}</span>${chip(r.status)}</div><div class="flow-amt"><span class="flow-side"><small>${t('detail.you_send')}</small>${amt(b.value, b.source, 'lg')}</span><span class="flow-arrow">${icons.arrow}</span><span class="flow-side"><small>${t('detail.they_receive')} · ${esc(b.recipient.name)}</small>${amt(b.receive, b.target, 'lg')}</span></div><small class="muted">${esc(b.recipient.name)} · ${esc(b.purpose)} · ${t('detail.fee')} ${esc(money(b.fee, b.source))} ${esc(b.source)}</small><div class="row-actions"><button class="button primary sm" data-action="detail" data-id="${esc(r.id)}">${cta} ${icons.arrow}</button>${fund}</div></div>`;
+      return {title: esc(envLabel(b)), cls: 'draft', badge: chip(r.status),
+        body: `<div class="ac-flow">${amt(b.value, b.source)}<span>${icons.arrow}</span>${amt(b.receive, b.target)}</div><small>${esc(b.recipient.name)} · ${t('detail.fee')} ${esc(money(b.fee, b.source))} ${esc(b.source)}</small>`,
+        foot: `<button class="button primary sm" data-action="detail" data-id="${esc(r.id)}">${r.status === 'draft' && isOwner() ? t('agent.review_authorize') : t('agent.view')} ${icons.arrow}</button>${fund}`};
     }
+    case 'list_payments':
+      return {title: t('nav.payments'), body: `<b class="ac-big">${(r.items || r || []).length ?? 0}</b><small>${t('agent.c.payments')}</small>`, foot: go('payments')};
+    case 'list_recipients':
+      return {title: t('nav.wallets'), body: (Array.isArray(r) ? r : []).slice(0, 3).map(x => `<p>· ${esc(x.name)} <small>${esc(x.currency)}</small></p>`).join('') || '<p>—</p>', foot: go('wallets', t('send.tab_recipients'))};
     case 'remember_note':
-      return `<div class="rcard"><span class="eyebrow">${t('memory.saved')}</span><p>“${esc(r.text)}”</p><small class="muted">${esc(t('memory.kind.' + r.kind))}</small><button class="link" data-action="go" data-view="memory">${t('nav.memory')} ${icons.arrow}</button></div>`;
+      return {title: t('memory.saved'), body: `<p>“${esc(r.text)}”</p>`, foot: go('memory')};
     case 'forget_note':
-      return `<div class="rcard"><span class="eyebrow">${t('memory.forgotten')}</span><button class="link" data-action="go" data-view="memory">${t('nav.memory')} ${icons.arrow}</button></div>`;
+      return {title: t('memory.forgotten'), body: '', foot: go('memory')};
     case 'recall_memory':
-      return `<div class="rcard"><span class="eyebrow">${t('memory.recall_card')}</span>${r.notes.length || r.episodes.length ? r.notes.map(n => `<p>· ${esc(n.text)}</p>`).join('') + r.episodes.slice(0, 3).map(e => `<small class="muted">${when(e.time)} — “${esc(e.request.slice(0, 80))}”</small>`).join('') : `<p>${t('memory.empty')}</p>`}</div>`;
-    case 'request_recipient_details':
-      return `<div class="rcard form-card"><span class="eyebrow">${t('agent.form_title')}</span><p>${t('agent.form_card')}</p>${state.chat.form ? `<button class="button sm" data-action="open-side-form">${t('agent.form_open')} ${icons.arrow}</button>` : `<small class="muted">${t('agent.form_done')}</small>`}</div>`;
-    case 'propose_change': {
-      const rows = Object.entries(r.payload || {}).map(([k, v]) => `<div><dt>${esc(has('field.' + k) ? t('field.' + k) : k)}</dt><dd>${esc(v)}</dd></div>`).join('');
-      const act = r.status === 'pending' && isOwner()
-        ? `<div class="row-actions"><button class="button sm primary" data-action="chat-decide" data-id="${esc(r.id)}" data-accept="1">${icons.check}${t('agent.confirm')}</button><button class="button sm ghost" data-action="chat-decide" data-id="${esc(r.id)}" data-accept="0">${t('agent.reject')}</button></div>`
-        : r.status === 'pending' ? `<button class="link" data-action="go" data-view="autonomy">${t('agent.review_proposal')} ${icons.arrow}</button>` : '';
-      return `<div class="rcard proposal-card p-${esc(r.status)}"><div class="kv"><span class="eyebrow">${t('agent.proposal')} · ${esc(t('proposal.kind.' + r.kind))}</span>${chip(r.status, 'proposal.status')}</div><dl class="facts compact">${rows}</dl>${act}</div>`;
+      return {title: t('memory.recall_card'), body: (r.notes || []).slice(0, 3).map(n => `<p>· ${esc(n.text)}</p>`).join('') || `<p>${t('memory.empty')}</p>`, foot: go('memory')};
+    case 'propose_change': case 'do_action': {
+      const pending = r.status === 'pending';
+      const act = pending && isOwner()
+        ? `<button class="button sm primary" data-action="chat-decide" data-id="${esc(r.id)}" data-accept="1">${icons.check}${t(r.kind === 'action' ? 'act.confirm' : 'agent.confirm')}</button><button class="button sm ghost" data-action="chat-decide" data-id="${esc(r.id)}" data-accept="0">${t('agent.reject')}</button>`
+        : pending ? `<small>${t('act.owner')}</small>` : '';
+      if (r.kind === 'action') {  // "Get this done for me": what will run, with which details — it runs only on Confirm
+        const a = r.payload?.action, params = r.payload?.params || {};
+        const val = v => typeof v === 'boolean' || v === 'true' || v === 'false' ? t(String(v) === 'true' ? 'act.yes' : 'act.no') : typeof v === 'object' && v ? Object.values(v).join(' ') : String(v);
+        const rows = Object.entries(params).slice(0, 6).map(([k, v]) => line(has('act.p.' + k) ? t('act.p.' + k) : k, `<b>${esc(val(v))}</b>`)).join('');
+        return {title: has('act.' + a) ? t('act.' + a) : a, cls: pending ? 'ask' : '', badge: chip(r.status, 'proposal.status'),
+          body: `${r.note ? `<p>${esc(r.note)}</p>` : ''}${rows}`, foot: act};
+      }
+      const rows = Object.entries(r.payload || {}).slice(0, 3).map(([k, v]) => line(has('field.' + k) ? t('field.' + k) : k, `<b>${esc(v)}</b>`)).join('');
+      return {title: `${t('agent.proposal')} · ${t('proposal.kind.' + r.kind)}`, badge: chip(r.status, 'proposal.status'), body: rows, foot: act};
+    }
+    case 'read_records': {
+      const list = Array.isArray(r) ? r : null;
+      const label = x => x.title || x.description || x.name || x.purpose || (x.source && x.target ? `${x.source} → ${x.target}` : '') || x.kind || '';
+      return {title: t('act.records'), body: list ? (list.slice(0, 5).map(x => `<p>· ${esc(label(x))}</p>`).join('') || '<p>—</p>') + (list.length > 5 ? `<small>+${list.length - 5}</small>` : '') : '<p>✓</p>', foot: ''};
+    }
+    case 'sandbox_timeline':
+      return {title: t('ov.s.title'), body: `<small>${day(r.today)} → ${day(r.end)}</small>${(r.negative || []).length ? `<p>${t('sb.low_neg', {a: '', d: ''})} ${esc(r.negative.join(', '))}</p>` : ''}`, foot: go('sandbox')};
+    case 'bank_scenarios': {
+      const best = (r.scenarios || [])[0];
+      return {title: t('scen.title'), body: best ? `<b class="ac-big">${esc(money(best.total_receive, r.target))} <small>${esc(r.target)}</small></b><small>${t('scen.best')}</small>` : '<p>—</p>', foot: go('send')};
+    }
+    case 'request_details': {
+      const fm = forms.get(step.formKey);
+      const done = fm?.done;
+      return {title: t('af.card'), cls: done ? 'done' : 'ask', badge: done ? `<span class="tag">${icons.check}${t('af.done')}</span>` : '',
+        body: `<p>${esc(t('af.' + (r.form === 'watch' ? 'plan' : r.form) + '.title'))}</p>${!done && fm?.values && Object.values(fm.values).some(Boolean) ? `<small>${t('af.draft_kept')}</small>` : ''}`,
+        foot: fm && !done ? `<button class="button sm primary" data-action="resume-form" data-key="${fm.key}">${t(state.chat.form?.key === fm.key ? 'agent.form_open' : 'af.resume')} ${icons.arrow}</button>` : ''};
     }
     case 'reminders':
-      return `<div class="rcard"><span class="eyebrow">${t('shell.reminders')}</span>${r.length ? r.slice(0, 3).map(x => `<p>· ${esc(t('reminder.' + x.kind, x.data))}</p>`).join('') : `<p>${t('reminder.none')}</p>`}</div>`;
-    case 'goals_overview':
-      return `<div class="rcard"><span class="eyebrow">${t('nav.plans')}</span>${r.length ? r.slice(0, 3).map(g => `<div class="kv"><span>${esc(g.title)}</span>${amt(g.remaining, g.target)}</div>`).join('') : `<p>${t('plans.empty')}</p>`}</div>`;
+      return {title: t('shell.reminders'), body: (Array.isArray(r) ? r : []).slice(0, 2).map(x => `<p>· ${esc(t('reminder.' + x.kind, x.data))}</p>`).join('') || `<p>${t('reminder.none')}</p>`, foot: go('overview')};
+    case 'goals_overview': case 'goal_plan':
+      return {title: t('nav.plans'), body: (Array.isArray(r) ? r : [r]).slice(0, 2).map(g => g.title ? line(g.title, amt(g.remaining, g.target)) : '').join('') || `<p>${t('plans.empty')}</p>`, foot: go('plans')};
     case 'habits_overview':
-      return `<div class="rcard"><span class="eyebrow">${t('habits.indicator')}</span><p>${r.indicator.on_time_pct ?? '—'}% · ${t('habits.streak')} ${r.indicator.streak}</p><small class="muted">${t('habits.not_score')}</small></div>`;
+      return {title: t('habits.indicator'), body: `<b class="ac-big">${r.indicator?.on_time_pct ?? '—'}%</b><small>${t('habits.streak')} ${r.indicator?.streak ?? 0}</small>`, foot: go('habits')};
+    case 'progress_overview': case 'start_challenge':
+      return {title: t('nav.progress'), body: r.level ? `<b class="ac-big">Lv ${esc(r.level.level ?? r.level)}</b>` : `<p>${esc(r.kind ? t('agent.c.challenge') : '')}</p>`, foot: go('progress')};
+    case 'log_expense': case 'spending_summary': case 'spending_insights': {
+      const tip = (r.tips || [])[0];
+      const head = r.total !== undefined ? `<b class="ac-big">${esc(money(r.total, r.currency))} <small>${esc(r.currency)}</small></b>` : r.description ? `<p>${esc(r.description)} · ${esc(money(Math.abs(r.amount), r.currency))} ${esc(r.currency)}</p>` : '';
+      return {title: t('nav.spending'), body: head + (tip ? `<small>${esc(tip.text || t('insight.' + tip.id, tip.params || {}) || '')}</small>` : ''), foot: go('spending')};
+    }
+    case 'afford_check':
+      return {title: t('afford.title'), cls: 'v-' + r.verdict, body: `<b class="ac-big">${esc(t('afford.v.' + r.verdict))}</b><small>${esc(r.label || '')} · ${esc(money(r.amount, r.currency))} ${esc(r.currency)}${r.wait_until ? ' · ' + esc(t('afford.wait', {d: day(r.wait_until)})) : ''}</small>`, foot: go('study')};
+    case 'cashflow_plan':
+      return {title: t('agent.c.cashflow'), body: r.lowest ? line(t('agent.c.lowest'), `<b>${esc(money(r.lowest.amount, r.currency))}</b>`) + `<small>${day(r.lowest.date)}${r.below_buffer ? ' · ' + t('agent.c.below_buffer') : ''}</small>` : '', foot: go('study')};
+    case 'list_scholarships': case 'track_scholarship': {
+      const list = Array.isArray(r) ? r : [r];
+      return {title: t('agent.c.scholarships'), body: list.slice(0, 3).map(s => `<p>· ${esc(s.name)}${s.days_left != null ? ` <small>${t('agent.c.days', {n: s.days_left})}</small>` : ''}</p>`).join('') || '<p>—</p>', foot: go('study')};
+    }
+    case 'list_transfer_templates': case 'draft_transfer_template': case 'check_bank_details': {
+      const list = Array.isArray(r) ? r : r.id ? [r] : [];
+      const issues = (r.issues || []).filter(i => i.level === 'error').length;
+      return {title: t('nav.templates'), body: list.length ? list.slice(0, 3).map(x => `<p>· ${esc(x.name)} <small>${esc(t('tf.fmt.' + x.format))}</small></p>`).join('')
+        : `<p>${esc(t('tf.fmt.' + (r.format || 'swift')))} · ${issues ? t('tf.invalid') : t('tf.valid')}</p>`, foot: go('templates')};
+    }
+    case 'list_routes':
+      return {title: t('nav.routes'), body: `<b class="ac-big">${(Array.isArray(r) ? r : []).length}</b>`, foot: go('routes', t('send.more_routes'))};
     default:
-      return '';
+      return null;
   }
 }
 
-function stepRow(s) {
-  const tier = TOOL_TIER[s.tool] || 'view';
-  return `<li class="step st-${esc(s.status)}"><span class="step-dot"></span><span class="step-name">${esc(has('tool.' + s.tool) ? t('tool.' + s.tool) : s.tool)}</span><span class="tier-badge t${TIERS[tier]}">T${TIERS[tier]}</span></li>`;
+/** All cards for the conversation, newest first; each card keeps a stable id (message key + step index). */
+function cards() {
+  const out = [];
+  for (const m of state.chat.messages) {
+    if (m.role !== 'assistant') continue;
+    m.key ??= ++keySeq;
+    m.steps.forEach((s, i) => {
+      if (s.tool === 'record_plan') return;
+      let c = null;
+      try { c = cardFor(s); } catch { c = null; }
+      if (c) out.push({id: `${m.key}-${i}`, tool: s.tool, same: `${s.tool}:${s.result?.id || ''}`, ...c});
+    });
+  }
+  const seen = new Set();  // asking the same thing twice refreshes its card instead of stacking a copy
+  return out.reverse().filter(c => !seen.has(c.same) && seen.add(c.same)).slice(0, BOARD_MAX);
+}
+
+const cardInner = c => `<header><span class="ac-tool">${esc(toolName(c.tool))}</span>${c.badge || ''}</header><b class="ac-title">${c.title}</b><div class="ac-body">${c.body}</div>${c.foot ? `<footer>${c.foot}</footer>` : ''}`;
+const cardEl = c => `<article class="jelly-tile acard ${c.cls || ''}" data-jelly data-card="${c.id}" data-title="${esc(String(c.title).replace(/<[^>]+>/g, ''))}">${cardInner(c)}</article>`;
+
+function boardPanel() {
+  const list = cards();
+  return panel(t('agent.board'), `<div class="jelly-stage" id="agent-stage">
+      <div class="jelly-head"><small>${t('agent.board_hint')}</small>${list.length > 1 ? `<button class="link sm" data-action="agent-scatter">${t('ov.scatter')}</button>` : ''}</div>
+      <div class="jelly-board agent-board ${list.length ? '' : 'is-empty'}" id="agent-board">${list.map(cardEl).join('')}<p class="board-empty">${t('agent.board_empty')}</p></div>
+    </div>`, {cls: 'board-panel', sub: t('agent.board_sub')});
+}
+
+/** Joining two cards is a question: what do these two mean together? */
+function combinePill(a, b) {
+  const x = a.dataset.title, y = b.dataset.title;
+  return `<b>${esc(x)} + ${esc(y)}</b><button class="button sm" data-action="prompt" data-prompt="${esc(t('agent.combine_prompt', {a: x, b: y}))}">${t('agent.combine')} ${icons.arrow}</button>`;
+}
+
+function syncBoard() {
+  const el = document.getElementById('agent-board');
+  if (!el) return;
+  const list = cards(), ids = new Set(list.map(c => c.id));
+  el.classList.toggle('is-empty', !list.length);
+  for (const tile of [...el.querySelectorAll('[data-card]')]) if (!ids.has(tile.dataset.card)) board ? board.remove(tile) : tile.remove();
+  for (const c of [...list].reverse()) {
+    const html = cardInner(c);
+    const tile = el.querySelector(`[data-card="${c.id}"]`);
+    if (tile) {
+      if (tile.dataset.sig !== html) { tile.innerHTML = html; tile.dataset.sig = html; tile.className = `jelly-tile acard ${c.cls || ''}`; }
+      continue;
+    }
+    const tmp = document.createElement('div');
+    tmp.innerHTML = cardEl(c);
+    const fresh = tmp.firstElementChild;
+    fresh.dataset.sig = html;
+    el.appendChild(fresh);
+    board?.add(fresh);
+  }
+}
+
+function capabilities() {
+  const can = [1, 2, 3, 4, 5].map(n => `<li>${icons.check}<span>${t('agent.can_' + n)}</span></li>`).join('');
+  return panel(t('agent.can'), `<ul class="can-list">${can}</ul>`, {cls: 'can-panel'});
+}
+
+/* ---------- chat ---------- */
+
+function trace(m, steps) {
+  const plan = m.plan;
+  if (!plan && !steps.length) return m.done ? '' : `<div class="thinking"><span class="think-orb"><i></i></span><span class="think-text">${t('agent.thinking')}</span></div>`;
+  const entities = plan ? Object.entries(plan.entities || {}).filter(([, v]) => v && typeof v !== 'object') : [];
+  const intent = plan ? (has('intent.' + plan.intent) ? t('intent.' + plan.intent) : plan.intent) : '';
+  return `<div class="did">${plan ? `<span class="did-intent">${esc(intent)}${entities.length ? ' · ' + entities.map(([, v]) => esc(v)).join(' · ') : ''}</span>` : ''}
+    ${steps.map((s, i) => `<button class="did-chip st-${esc(s.status)}" data-action="card-focus" data-card="${m.key}-${m.steps.indexOf(s)}">${esc(toolName(s.tool))}</button>`).join('')}
+    ${plan?.missing?.length ? `<span class="missing">${t('agent.missing')}: ${plan.missing.map(esc).join(', ')}</span>` : ''}</div>`;
 }
 
 export function message(m) {
@@ -95,16 +245,10 @@ export function message(m) {
   if (m.role === 'user') return `<div class="msg user" data-key="${m.key}"><div class="bubble">${esc(m.text)}</div></div>`;
   if (m.role === 'note') return `<div class="msg note"><p>${esc(m.text)}</p></div>`;
   const steps = m.steps.filter(s => s.tool !== 'record_plan');
-  const plan = m.plan;
-  const entities = plan ? Object.entries(plan.entities || {}).filter(([, v]) => v && typeof v !== 'object') : [];
   return `<div class="msg bot ${m.done ? 'done' : 'live'}" data-key="${m.key}">
     <div class="who"><span class="agent-orb sm"><i></i></span>DOT <span class="mode-badge m-${esc(m.mode || 'model')}">${t('agent.mode.' + (m.mode || 'model'))}</span></div>
     ${m.note ? `<p class="mode-note">${esc(t('agent.offline_note'))}</p>` : ''}
-    <div class="stages">
-      <section class="stage ${plan ? 'on' : 'wait'}"><span class="stage-n">01</span><div><b>${t('agent.understand')}</b>${plan ? `<p>${esc(t('intent.' + plan.intent) !== 'intent.' + plan.intent ? t('intent.' + plan.intent) : plan.intent)}</p><div class="entity-row">${entities.map(([k, v]) => `<span class="entity"><small>${esc(t('entity.' + k))}</small>${esc(v)}</span>`).join('')}</div>${plan.missing?.length ? `<p class="missing">${t('agent.missing')}: ${plan.missing.map(esc).join(', ')}</p>` : ''}` : `<div class="thinking"><span class="think-orb"><i></i></span><span class="think-text">${t('agent.thinking')}</span></div>`}</div></section>
-      <section class="stage ${steps.length ? 'on' : plan ? 'on' : 'wait'}"><span class="stage-n">02</span><div><b>${t('agent.plan')}</b>${steps.length ? `<ol class="steps">${steps.map(stepRow).join('')}</ol>` : plan ? `<p class="muted">${t(plan.missing?.length ? 'agent.plan_wait' : 'agent.plan_none')}</p>` : ''}</div></section>
-      <section class="stage ${steps.some(s => s.status !== 'planned') ? 'on' : 'wait'}"><span class="stage-n">03</span><div><b>${t('agent.act')}</b><div class="rcards">${steps.map(card).join('')}</div></div></section>
-    </div>
+    ${trace(m, steps)}
     ${m.text ? `<div class="answer md">${md(m.text)}</div>` : m.done ? '' : `<div class="typing"><i></i><i></i><i></i><span>${t('agent.writing')}</span></div>`}
   </div>`;
 }
@@ -120,57 +264,298 @@ export function composer(id = 'chat-form') {
   return `<form id="${id}" class="composer" data-chat><textarea name="message" rows="1" maxlength="4000" aria-label="${t('agent.input')}" placeholder="${t('agent.placeholder')}" ${busy ? 'disabled' : ''}></textarea><button class="send-button" aria-label="${t('agent.send')}" ${busy ? 'disabled' : ''}>${busy ? '<span class="spinner"></span>' : '↑'}</button></form>`;
 }
 
-export function pipeline() {
-  const last = [...state.chat.messages].reverse().find(m => m.role === 'assistant');
-  const steps = last ? last.steps.filter(s => s.tool !== 'record_plan') : [];
-  const stage = !last ? 0 : last.done ? 3 : steps.some(s => s.status !== 'planned') ? 3 : last.plan ? 2 : 1;
-  const nodes = steps.slice(0, 8).map((s, i, a) => {
-    const angle = -Math.PI / 2 + (i + .5) / Math.max(a.length, 1) * Math.PI * 2;
-    return `<g class="pnode st-${esc(s.status)}"><circle cx="${(160 + Math.cos(angle) * 128).toFixed(1)}" cy="${(160 + Math.sin(angle) * 128).toFixed(1)}" r="6"/></g>`;
+/* ---------- forms the assistant pops up when it needs something only the person can give ---------- */
+
+const val = (form, name) => (new FormData(form).get(name) ?? '').toString().trim();
+const sel = (name, list, selected, extra = '') => `<select id="af-${name}" name="${name}" ${extra}>${options(list.map(c => Array.isArray(c) ? c : [c, c]), selected)}</select>`;
+const inp = (name, value = '', extra = '') => `<input id="af-${name}" name="${name}" value="${esc(value ?? '')}" ${extra}>`;
+const f = (name, label, input, hint = '') => field('af-' + name, label, input, hint);
+const pickCurrency = (c, list = CURRENCIES, fallback = 'AUD') => list.includes(String(c || '').toUpperCase()) ? String(c).toUpperCase() : fallback;
+
+function templateFields(fmt, values) {
+  const fm = fmts()?.formats?.[fmt];
+  if (!fm) return '';
+  return fm.fields.map(x => {
+    const v = values[x.id] ?? '';
+    let input;
+    if (x.kind === 'charges') input = sel(x.id, (fmts().charges || []).map(c => [c, t('tf.charge.' + c)]), v || 'SHA');
+    else if (x.kind === 'purpose') input = sel(x.id, [['', '—'], ...(fmts().purposes || []).map(c => [c, `${c} · ${t('tf.purpose.' + c)}`])], v);
+    else if (x.kind === 'account_type') input = sel(x.id, [['checking', t('tf.checking')], ['savings', t('tf.savings')]], v || 'checking');
+    else input = inp(x.id, v, `maxlength="${x.max + 8}" autocomplete="off" spellcheck="false" class="${/bic|iban|account|bsb|sort|aba|ifsc|cnaps|digits/.test(x.kind) ? 'mono' : ''}"`);
+    return `<div class="field af-tf ${v ? 'filled' : ''}" data-field="${x.id}"><label for="af-${x.id}">${t('tf.f.' + x.id)}${x.required ? '' : ` <small class="muted">${t('tf.optional')}</small>`}</label>${input}<small class="tf-msg">${v ? t('af.from_chat') : esc(t('tf.h.' + x.id))}</small></div>`;
   }).join('');
-  return `<svg class="pipeline-orbit" viewBox="0 0 320 320" role="img" aria-label="${t('agent.pipeline')}">
-    <circle class="ring r3 ${stage >= 3 ? 'on' : ''}" cx="160" cy="160" r="128"/><circle class="ring r2 ${stage >= 2 ? 'on' : ''}" cx="160" cy="160" r="88"/><circle class="ring r1 ${stage >= 1 ? 'on' : ''}" cx="160" cy="160" r="50"/>
-    <g class="spin ${state.chat.streaming ? 'go' : ''}"><circle cx="160" cy="32" r="3"/><circle cx="160" cy="288" r="2"/></g>
-    <circle class="core" cx="160" cy="160" r="24"/><text x="160" y="164" text-anchor="middle" class="core-text">dot.</text>
-    <text x="160" y="104" text-anchor="middle" class="ring-label">${t('agent.understand').toUpperCase()}</text>
-    <text x="160" y="66" text-anchor="middle" class="ring-label">${t('agent.plan').toUpperCase()}</text>
-    <text x="160" y="26" text-anchor="middle" class="ring-label">${t('agent.act').toUpperCase()}</text>${nodes}</svg>`;
 }
+
+/** What the form shows: the assistant's prefill, overlaid with whatever the person already typed (kept across repaints). */
+function current(fm) {
+  const p = {...(fm.prefill || {})}, typed = fm.values || {};
+  if (fm.kind !== 'template') return {...p, ...typed};
+  const fields = {...(p.fields || {})};
+  for (const [k, v] of Object.entries(typed)) if (!k.startsWith('__')) fields[k] = v;
+  return {...p, fields, format: typed.__format || p.format, name: typed.__name ?? p.name, currency: typed.__currency || p.currency};
+}
+
+function snapshot(form) {
+  const fm = state.chat.form;
+  if (!fm || !form) return;
+  fm.values = Object.fromEntries([...new FormData(form)].filter(([k]) => k !== '__checked'));
+}
+
+function formBody(fm) {
+  const p = current(fm);
+  switch (fm.kind) {
+    case 'recipient': {
+      const currency = pickCurrency(p.currency, FORM_CURRENCIES, 'CNY');
+      const country = p.country || CUR_TO_ECON[currency] || '';
+      return f('name', t('wallets.r_name'), inp('name', p.name, 'required maxlength="100"'))
+        + f('recipient_id', t('wallets.r_id'), inp('recipient_id', p.recipient_id || slug(p.name), 'required pattern="[A-Za-z0-9_\\-]{1,64}" maxlength="64"'), t('wallets.r_id_hint'))
+        + `<div class="grid-2">${f('currency', t('wallets.r_currency'), sel('currency', FORM_CURRENCIES, currency))}
+           ${f('country', t('wallets.r_country'), sel('country', [['', '—'], ...[...new Set(Object.values(CUR_TO_ECON))].map(c => [c, region(c)])], country))}</div>`
+        + f('account', t('wallets.r_account'), inp('account', '', `maxlength="34" placeholder="${t('wallets.r_account_ph')}"`), t('wallets.r_account_hint'));
+    }
+    case 'template': {
+      const fmt = FORMATS.includes(p.format) ? p.format : 'swift';
+      const known = fmts()?.formats?.[fmt]?.fields?.map(x => x.id) || [];
+      const values = {...Object.fromEntries(Object.entries(p).filter(([k]) => known.includes(k))), ...(p.fields || {})};
+      const name = p.name || [values.beneficiary_name || values.account_name, t('tf.fmt.' + fmt)].filter(Boolean).join(' · ');
+      const fixed = fmts()?.formats?.[fmt]?.currency;
+      return `<div class="af-formats" role="radiogroup">${FORMATS.map(x => `<button type="button" class="af-fmt ${x === fmt ? 'on' : ''}" data-action="af-format" data-format="${x}" aria-pressed="${x === fmt}">${t('tf.fmt.' + x)}</button>`).join('')}</div>
+        <input type="hidden" name="__format" value="${fmt}">
+        <div class="grid-2">${f('__name', t('tf.name'), inp('__name', name, 'required maxlength="80"'))}
+          ${f('__currency', t('plans.currency'), fixed ? inp('__currency', fixed, 'readonly') : sel('__currency', CURRENCIES, pickCurrency(p.currency)))}</div>
+        <div class="af-fields">${templateFields(fmt, values)}</div>
+        <label class="check-label"><input type="checkbox" name="__checked"> ${t('af.template.check')}</label>`;
+    }
+    case 'cash':
+      return `<div class="grid-2">${f('currency', t('plans.currency'), sel('currency', CURRENCIES, pickCurrency(p.currency)))}
+        ${f('amount', t('spend.amount'), inp('amount', p.amount, 'required inputmode="decimal" maxlength="24"'))}</div>`;
+    case 'term':
+      return f('name', t('af.term.name'), inp('name', p.name, 'required maxlength="80"'))
+        + `<div class="grid-2">${f('start', t('af.term.start'), inp('start', p.start, 'type="date" required'))}${f('end', t('af.term.end'), inp('end', p.end, 'type="date" required'))}</div>`
+        + `<div class="grid-2">${f('currency', t('plans.currency'), sel('currency', CURRENCIES, pickCurrency(p.currency)))}${f('tuition', t('af.term.tuition'), inp('tuition', p.tuition, 'inputmode="decimal"'))}</div>`
+        + `<div class="grid-2">${f('tuition_due', t('af.term.tuition_due'), inp('tuition_due', p.tuition_due, 'type="date"'))}${f('living', t('af.term.living'), inp('living', p.living, 'inputmode="decimal"'))}</div>`
+        + f('income', t('af.term.income'), inp('income', p.income, 'inputmode="decimal"'));
+    case 'scholarship':
+      return f('name', t('af.scholarship.name'), inp('name', p.name, 'required maxlength="120"'))
+        + f('provider', t('af.scholarship.provider'), inp('provider', p.provider, 'maxlength="120"'))
+        + `<div class="grid-2">${f('amount', t('spend.amount'), inp('amount', p.amount, 'inputmode="decimal"'))}${f('currency', t('plans.currency'), sel('currency', CURRENCIES, pickCurrency(p.currency)))}</div>`
+        + f('deadline', t('af.scholarship.deadline'), inp('deadline', p.deadline, 'type="date"'));
+    case 'plan':
+      return `<div class="grid-2">${f('source', t('af.watch.source'), sel('source', CURRENCIES, pickCurrency(p.source, CURRENCIES, 'CNY')))}${f('target', t('af.watch.target'), sel('target', CURRENCIES, pickCurrency(p.target)))}</div>`
+        + `<div class="grid-2">${f('side', t('af.plan.side'), sel('side', [['receive', t('ov.e.side_receive')], ['spend', t('ov.e.side_spend')]], p.side === 'spend' ? 'spend' : 'receive'))}${f('amount', t('spend.amount'), inp('amount', p.amount, 'required inputmode="decimal"'))}</div>`
+        + `<div class="grid-2">${f('due', t('af.watch.deadline'), inp('due', p.due || p.deadline, 'type="date"'))}${f('purpose', t('ov.e.purpose'), inp('purpose', p.purpose || p.note, 'maxlength="120"'))}</div>`
+        + f('min_rate', t('af.watch.min_rate'), inp('min_rate', p.min_rate, 'inputmode="decimal"'), t('af.watch.min_rate_hint'));
+    case 'expense':
+      return f('text', t('spend.quick'), inp('text', p.text, `required maxlength="200" placeholder="${t('spend.quick_ph')}"`), t('af.expense.hint'));
+    case 'afford':
+      return `<div class="grid-2">${f('amount', t('spend.amount'), inp('amount', p.amount, 'required inputmode="decimal"'))}${f('currency', t('plans.currency'), sel('currency', CURRENCIES, pickCurrency(p.currency)))}</div>`
+        + f('label', t('afford.label'), inp('label', p.label, `maxlength="80" placeholder="${t('afford.label_ph')}"`))
+        + f('date', t('afford.date'), inp('date', p.date, 'type="date"'));
+    default:
+      return '';
+  }
+}
+
+export function sideForm() {
+  const fm = state.chat.form;
+  if (!fm) return '';
+  const owner = isOwner();
+  return `<div class="side-form af-${esc(fm.kind)}" data-key="${fm.key}">
+    <div class="side-form-head"><span class="side-form-orb"><i></i></span><div><b>${t('af.' + fm.kind + '.title')}</b><small>${t('af.' + fm.kind + '.intro')}</small></div>
+      <button type="button" class="x" data-action="close-side-form" aria-label="${t('common.close')}">×</button></div>
+    <form id="side-form" class="form-block" data-key="${fm.key}" data-kind="${esc(fm.kind)}">
+      <fieldset ${owner ? '' : 'disabled'}>${formBody(fm)}</fieldset>
+      ${owner ? '' : `<p class="note warn">${t('af.owner_only')}</p>`}
+      <div class="form-error"></div>
+      <div class="row-actions"><button class="button primary" ${owner ? '' : 'disabled'}>${icons.check}${t('af.' + fm.kind + '.submit')}</button><button type="button" class="button ghost" data-action="close-side-form">${t('agent.form_cancel')}</button></div>
+    </form></div>`;
+}
+
+let formSeq = 0;
+const forms = new Map();  // key -> form, kept after closing so it can be resumed from the board
+
+function openForm(kind, prefill = {}, extra = {}, step = null) {
+  if (kind === 'watch') kind = 'plan';  // the exchange watch's needs are exchange plans now
+  const fm = {key: ++formSeq, kind, prefill: prefill || {}, ...extra};
+  forms.set(fm.key, fm);
+  if (step) step.formKey = fm.key;
+  const show = () => { state.chat.form = fm; paintSideForm(); syncBoard(); };
+  if (kind === 'template' && !formats) {
+    (async () => { try { formats = fmts() || await api('/transfer-formats'); } catch { /* the form still opens, with the format chooser */ } show(); })();
+  } else show();
+  return fm.key;
+}
+
+function resumeForm(key) {
+  const fm = forms.get(Number(key));
+  if (!fm || fm.done) return;
+  if (state.chat.form?.key === fm.key) { wobbleForm(); return; }
+  fm.shown = false;  // play the entrance again
+  state.chat.form = fm;
+  paintSideForm();
+  syncBoard();
+  document.getElementById('side-form-host')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+/** Pops the form in (jelly + blur + buzz) or out, without touching anything the user is typing. */
+export function paintSideForm() {
+  const host = document.getElementById('side-form-host');
+  if (!host) return;
+  const fm = state.chat.form;
+  const shown = host.firstElementChild;
+  if (fm && shown?.dataset.key === String(fm.key) && !shown.classList.contains('leaving')) return;
+  if (!fm) {
+    if (shown) { shown.classList.add('leaving'); setTimeout(() => { if (!state.chat.form) host.innerHTML = ''; }, 460); }
+    return;
+  }
+  host.innerHTML = sideForm();
+  const again = fm.shown;  // a page refresh repaints the same form: no second entrance
+  fm.shown = true;
+  host.firstElementChild.classList.toggle('settled', !!again);
+  if (!again) buzz([14, 40, 22]);
+  if (!again) host.querySelectorAll('.side-form-head, .side-form .field, .side-form .af-formats, .side-form .check-label, .side-form .row-actions, .side-form .note')
+    .forEach((el, i) => { el.style.animationDelay = (220 + Math.min(i, 10) * 55) + 'ms'; });
+  const form = host.querySelector('#side-form');
+  if (fm.kind === 'recipient') {
+    const name = form.querySelector('#af-name'), id = form.querySelector('#af-recipient_id');
+    let touched = false;
+    id.addEventListener('input', () => { touched = true; });
+    name.addEventListener('input', () => { if (!touched) id.value = slug(name.value) || id.value; });
+    form.querySelector('#af-currency').addEventListener('change', e => { const c = CUR_TO_ECON[e.target.value]; if (c) form.querySelector('#af-country').value = c; });
+  }
+  form.addEventListener('input', e => {
+    const box = e.target.closest('.af-tf');
+    box?.classList.toggle('filled', !!e.target.value);
+    box?.classList.remove('lv-error');  // fixing a field clears its mark
+    snapshot(form);
+  });
+  form.addEventListener('change', () => snapshot(form));
+  if (again) return;
+  if (matchMedia('(max-width: 1280px)').matches) host.scrollIntoView({behavior: 'smooth', block: 'start'});
+  const first = [...form.querySelectorAll('input:not([type=hidden]):not([readonly]), select')].find(x => !x.value) || form.querySelector('input:not([type=hidden])');
+  setTimeout(() => first?.focus({preventScroll: true}), 420);
+}
+
+function wobbleForm() {
+  const host = document.getElementById('side-form-host');
+  host?.classList.remove('nudge'); void host?.offsetWidth; host?.classList.add('nudge');
+  buzz([10, 30, 10]);
+}
+
+function closeForm(done = false) {
+  const fm = state.chat.form;
+  if (fm) {
+    snapshot(document.getElementById('side-form'));
+    if (done) fm.done = true;
+  }
+  state.chat.form = null;
+  paintSideForm();
+  syncBoard();
+}
+
+const SUBMIT = {
+  async recipient(form, fm) {
+    if ((state.data.recipients || []).some(r => r.id === val(form, 'recipient_id'))) throw new Error(t('wallets.r_exists'));
+    const body = {recipient_id: val(form, 'recipient_id'), name: val(form, 'name'), currency: val(form, 'currency'), country: val(form, 'country'),
+      account: val(form, 'account').replace(/\s+/g, ''), kind: 'individual', address: '', enabled: true};
+    const proposal = fm.proposalId, p = fm.prefill || {};
+    const same = proposal && ['name', 'currency'].every(k => (p[k] || '') === body[k]) && (p.recipient_id || body.recipient_id) === body.recipient_id;
+    if (same) await api(`/proposals/${encodeURIComponent(proposal)}/decide`, 'POST', {accept: true});
+    else {
+      if (proposal) await api(`/proposals/${encodeURIComponent(proposal)}/decide`, 'POST', {accept: false, note: 'replaced by owner-entered details'});
+      await api('/recipients', 'POST', body);
+    }
+    for (const m of state.chat.messages) for (const st of m.steps || []) if (proposal && st.result?.id === proposal) st.result = {...st.result, status: same ? 'confirmed' : 'rejected'};
+    invalidate(['recipients', 'proposals']);
+    return t('agent.form_done_msg', {name: body.name, id: body.recipient_id, currency: body.currency});
+  },
+  async template(form) {
+    const fmt = val(form, '__format');
+    const spec = fmts()?.formats?.[fmt];
+    if (!spec) throw new Error(t('tf.invalid'));
+    const fields = Object.fromEntries(spec.fields.map(x => [x.id, val(form, x.id)]).filter(([, v]) => v));
+    const currency = spec.currency || val(form, '__currency');
+    const check = await api('/transfer-templates/validate', 'POST', {format: fmt, fields, currency});
+    const errors = (check.issues || []).filter(i => i.level === 'error');
+    let first = null;
+    form.querySelectorAll('.af-tf').forEach(el => {
+      const mine = errors.filter(i => i.field === el.dataset.field);
+      el.classList.toggle('lv-error', mine.length > 0);
+      if (mine.length) {
+        el.querySelector('.tf-msg').textContent = mine.map(i => t('tf.e.' + i.code)).join(' · ');
+        el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
+        first ??= el;
+      }
+    });
+    if (errors.length) {
+      buzz([10, 30, 10]);
+      if (first) { first.scrollIntoView({behavior: 'smooth', block: 'center'}); first.querySelector('input, select, textarea')?.focus({preventScroll: true}); }
+      throw new Error(t('af.template.fix', {n: errors.length}));
+    }
+    const name = val(form, '__name');
+    const saved = await api('/transfer-templates', 'POST', {name, format: fmt, fields, currency, purpose: '', notes: ''});
+    if (form.querySelector('[name=__checked]')?.checked) await api(`/transfer-templates/${encodeURIComponent(saved.id)}/confirm`, 'POST', {});
+    invalidate(['ttemplates']);
+    return t('af.template.done', {name});
+  },
+  async cash(form) {
+    const currency = val(form, 'currency'), amount = val(form, 'amount');
+    await api('/cash', 'PUT', {currency, amount, label: ''});
+    return t('af.cash.done', {amount, currency});
+  },
+  async term(form) {
+    const body = Object.fromEntries(['name', 'currency', 'start', 'end', 'tuition', 'tuition_due', 'living', 'income'].map(k => [k, val(form, k)]));
+    if (!body.tuition_due) body.tuition_due = null;
+    await api('/terms', 'POST', body);
+    return t('af.term.done', {name: body.name});
+  },
+  async scholarship(form) {
+    const body = {name: val(form, 'name'), provider: val(form, 'provider'), amount: val(form, 'amount'), currency: val(form, 'currency'), deadline: val(form, 'deadline') || null};
+    await api('/scholarships', 'POST', body);
+    return t('af.scholarship.done', {name: body.name});
+  },
+  async plan(form) {
+    const body = {source: val(form, 'source'), target: val(form, 'target'), amount: val(form, 'amount'), side: val(form, 'side') || 'receive',
+      due: val(form, 'due') || null, purpose: val(form, 'purpose'), kind: 'custom', min_rate: val(form, 'min_rate') || null};
+    await api('/exchange-plans', 'POST', body);
+    invalidate(['money']);
+    return t('af.plan.done', {pair: `${body.source}→${body.target}`, amount: body.amount});
+  },
+  async expense(form) {
+    const parsed = await api('/expenses/parse', 'POST', {text: val(form, 'text')});
+    await api('/expenses', 'POST', {date: parsed.date, amount: parsed.amount, currency: parsed.currency, description: parsed.description, category: parsed.category, source: 'manual'});
+    return t('af.expense.done', {text: val(form, 'text')});
+  },
+  async afford(form) {
+    return t('af.afford.done', {amount: val(form, 'amount'), currency: val(form, 'currency'), label: val(form, 'label') || '—'});
+  },
+};
 
 export const view = {
   id: 'agent',
   submit: {
-    async 'side-recipient-form'(form) {
-      const v = Object.fromEntries(new FormData(form));
-      const f = state.chat.form || {};
-      if ((state.data.recipients || []).some(r => r.id === v.recipient_id)) throw new Error(t('wallets.r_exists'));
-      const body = {recipient_id: v.recipient_id.trim(), name: v.name.trim(), currency: v.currency, country: v.country || '',
-        account: (v.account || '').replace(/\s+/g, ''), kind: 'individual', address: '', enabled: true};
-      const proposal = f.proposalId;
-      const same = proposal && f.prefill && ['name', 'currency'].every(k => (f.prefill[k] || '') === body[k]) && (f.prefill.recipient_id || body.recipient_id) === body.recipient_id;
-      if (same) await api(`/proposals/${encodeURIComponent(proposal)}/decide`, 'POST', {accept: true});
-      else {
-        if (proposal) await api(`/proposals/${encodeURIComponent(proposal)}/decide`, 'POST', {accept: false, note: 'replaced by owner-entered details'});
-        await api('/recipients', 'POST', body);
-      }
-      let raised = false;
-      if (v.raise) { await api('/settings/tier', 'PUT', {tier: 2}); raised = true; }
-      for (const m of state.chat.messages) for (const st of m.steps || []) if (proposal && st.result?.id === proposal) st.result = {...st.result, status: same ? 'confirmed' : 'rejected'};
-      state.chat.form = null;
-      paintSideForm();
-      invalidate(['recipients', 'settings', 'proposals']);
+    async 'side-form'(form) {
+      const fm = state.chat.form;
+      if (!fm || !SUBMIT[fm.kind]) return;
+      const next = await SUBMIT[fm.kind](form, fm);
+      invalidate(['reminders', 'transfers']);
       toast(t('wallets.saved'), 'good');
-      send(t('agent.form_done_msg', {name: body.name, id: body.recipient_id, currency: body.currency}) + (raised ? ' ' + t('agent.after_tier', {n: 2}) : ''));
+      buzz([20, 30, 40]);
+      closeForm(true);
+      send(next);
     },
   },
-  needs: ['settings', 'mandates', 'recipients'],
+  needs: ['recipients'],
   mount(root) {
     root.querySelectorAll('#chat-log').forEach(log => { log.scrollTop = log.scrollHeight; });
     const host = root.querySelector('#side-form-host');
     if (host && state.chat.form) { host.innerHTML = ''; paintSideForm(); }
+    const stage = root.querySelector('#agent-stage');
+    board?.stop();
+    board = stage ? jellyBoard(stage, {link: combinePill, fixed: true}) : null;
   },
   actions: {
-    /* One-click owner decisions inside the chat; the agent then continues on its own. */
+    /* One-click owner decisions inside the chat; the assistant then continues on its own. */
     async 'chat-decide'(el) {
       const accept = el.dataset.accept === '1';
       const result = await api(`/proposals/${encodeURIComponent(el.dataset.id)}/decide`, 'POST', {accept});
@@ -181,26 +566,55 @@ export const view = {
     },
     'open-side-form'() {
       if (state.view !== 'agent') { location.hash = 'agent'; return; }
-      const host = document.getElementById('side-form-host');
-      host?.classList.remove('nudge'); void host?.offsetWidth; host?.classList.add('nudge');
-      host?.scrollIntoView({behavior: 'smooth', block: 'start'});
+      wobbleForm();
+      document.getElementById('side-form-host')?.scrollIntoView({behavior: 'smooth', block: 'start'});
     },
-    'close-side-form'() { state.chat.form = null; paintSideForm(); paint(); },
-    async 'chat-tier'(el) {
-      const n = Number(el.dataset.tier);
-      await api('/settings/tier', 'PUT', {tier: n});
-      invalidate(['settings']); toast(t('autonomy.tier_set', {n}), 'good');
-      send(t('agent.after_tier', {n}));
+    'close-side-form'() { closeForm(); },
+    'resume-form'(el) {
+      if (state.view !== 'agent') { location.hash = 'agent'; setTimeout(() => resumeForm(el.dataset.key), 500); return; }
+      resumeForm(el.dataset.key);
     },
+    'af-format'(el) {
+      const form = document.getElementById('side-form'), fm = state.chat.form;
+      if (!form || !fm) return;
+      const old = fmts()?.formats?.[val(form, '__format')];
+      const values = Object.fromEntries((old?.fields || []).map(x => [x.id, val(form, x.id)]).filter(([, v]) => v));
+      // Carry what was typed across formats where it means the same thing.
+      const acct = values.account || values.iban || values.account_number;
+      const who = values.beneficiary_name || values.account_name;
+      const fmt = el.dataset.format;
+      const spec = fmts()?.formats?.[fmt];
+      if (!spec) return;
+      const ids = spec.fields.map(x => x.id);
+      const moved = Object.fromEntries(Object.entries(values).filter(([k]) => ids.includes(k)));
+      for (const k of ['account', 'iban', 'account_number']) if (ids.includes(k) && !moved[k] && acct) moved[k] = acct;
+      for (const k of ['beneficiary_name', 'account_name']) if (ids.includes(k) && !moved[k] && who) moved[k] = who;
+      form.querySelector('[name=__format]').value = fmt;
+      form.querySelectorAll('.af-fmt').forEach(b => { b.classList.toggle('on', b.dataset.format === fmt); b.setAttribute('aria-pressed', String(b.dataset.format === fmt)); });
+      const box = form.querySelector('.af-fields');
+      box.innerHTML = templateFields(fmt, moved);
+      box.classList.remove('swap'); void box.offsetWidth; box.classList.add('swap');
+      const cur = form.querySelector('[name=__currency]');
+      if (spec.currency && cur) cur.closest('.field').outerHTML = f('__currency', t('plans.currency'), inp('__currency', spec.currency, 'readonly'));
+      else if (!spec.currency && cur?.readOnly) cur.closest('.field').outerHTML = f('__currency', t('plans.currency'), sel('__currency', CURRENCIES, 'AUD'));
+      snapshot(form);
+      buzz(8);
+    },
+    'card-focus'(el) {
+      const tile = document.querySelector(`#agent-board [data-card="${el.dataset.card}"]`);
+      if (!tile) return;
+      board?.focus(tile);
+      if (matchMedia('(max-width: 1280px)').matches) tile.scrollIntoView({behavior: 'smooth', block: 'center'});
+    },
+    'agent-scatter'() { board?.scatter(); },
   },
   render() {
-    const tier = state.data.settings?.agent_tier ?? 3;
     return `<div class="agent-layout">
       ${panel(`<span class="agent-orb"><i></i></span>${t('agent.title')}`, `<div class="chat-log" id="chat-log">${chatLog()}</div>${composer()}<p class="fine">${t('agent.disclaimer')}</p>`, {cls: 'chat-panel', sub: state.model ? `${t('agent.mode.model')}${state.modelName ? ' · ' + esc(state.modelName) : ''}` : t('agent.mode.rules')})}
       <div class="agent-side">
         <div id="side-form-host" class="side-form-host">${sideForm()}</div>
-        ${panel(t('agent.pipeline'), `<div class="pipeline-wrap" id="pipeline">${pipeline()}</div><ol class="legend"><li><b>01</b>${t('agent.understand_d')}</li><li><b>02</b>${t('agent.plan_d')}</li><li><b>03</b>${t('agent.act_d')}</li></ol>`, {cls: 'tilt'})}
-        ${panel(t('agent.boundary'), `<div class="tier-meter">${[1, 2, 3].map(n => `<span class="${n <= tier ? 'on' : ''}"><b>T${n}</b>${t('tier.' + n)}</span>`).join('')}</div><p class="fine">${t('agent.boundary_d')}</p><button class="link" data-action="go" data-view="autonomy">${t('agent.manage_boundary')} ${icons.arrow}</button>`)}
+        ${boardPanel()}
+        ${capabilities()}
       </div></div>`;
   },
 };
@@ -227,10 +641,10 @@ export async function send(text) {
       if (e.type === 'tool_result') {
         const s = m.steps.find(x => x.tool === e.tool && x.status === 'running') || {};
         Object.assign(s, {status: e.ok ? 'ok' : 'fail', result: e.result, error: e.error, code: e.code, params: e.params});
-        if (['prepare_payment', 'modify_payment', 'execute_payment', 'reconcile_payment', 'propose_change'].includes(e.tool)) invalidate();
-        if (e.ok && e.tool === 'request_recipient_details') openForm(e.result.prefill, {reason: ''});
+        if (['prepare_payment', 'modify_payment', 'reconcile_payment', 'propose_change', 'do_action', 'log_expense', 'track_scholarship', 'plan_exchange', 'draft_transfer_template'].includes(e.tool)) invalidate();
+        if (e.ok && e.tool === 'request_details') openForm(e.result.form, e.result.prefill, {reason: e.result.reason}, s);
         if (e.ok && e.tool === 'propose_change' && e.result.kind === 'recipient' && e.result.status === 'pending' && isOwner())
-          openForm(e.result.payload, {proposalId: e.result.id});
+          openForm('recipient', e.result.payload, {proposalId: e.result.id}, s);
       }
       if (e.type === 'message') m.text = e.text || (e.code ? t('err.' + e.code) : '');
       if (e.type === 'done') m.done = true;
@@ -261,7 +675,7 @@ function morph(old, next) {
   for (let i = fresh.length; i < kids.length; i++) kids[i].remove();
 }
 
-/** Repaints only the conversation and pipeline, in place, so streaming never flickers. */
+/** Repaints the conversation and the card board in place, so streaming never flickers. */
 export function paint() {
   for (const log of document.querySelectorAll('#chat-log, #mini-chat-log')) {
     const limit = log.id === 'mini-chat-log' ? 2 : 0;
@@ -278,67 +692,5 @@ export function paint() {
     if (btn.dataset.icon !== icon) { btn.dataset.icon = icon; btn.innerHTML = state.chat.streaming ? '<span class="spinner"></span>' : '↑'; }
     form.classList.toggle('busy', state.chat.streaming);
   }
-  const p = document.getElementById('pipeline');
-  if (p) { const next = p.cloneNode(false); next.innerHTML = pipeline(); morph(p, next); }
-}
-
-
-/* ---------- recipient form that slides out beside the chat ---------- */
-export function sideForm() {
-  const f = state.chat.form;
-  if (!f) return '';
-  const p = f.prefill || {};
-  const currency = FORM_CURRENCIES.includes(p.currency) ? p.currency : 'CNY';
-  const country = p.country || CUR_TO_ECON[currency] || '';
-  const tier = state.data.settings?.agent_tier ?? 3;
-  const owner = isOwner();
-  const econ = Object.keys(CUR_TO_ECON).map(c => CUR_TO_ECON[c]);
-  return `<div class="side-form" data-key="${f.key}">
-    <div class="side-form-head"><span class="side-form-orb"><i></i></span><div><b>${t('agent.form_title')}</b><small>${t('agent.form_intro')}</small></div>
-      <button type="button" class="x" data-action="close-side-form" aria-label="${t('common.close')}">×</button></div>
-    ${f.reason ? `<p class="fine">${esc(f.reason)}</p>` : ''}
-    <form id="side-recipient-form" class="form-block" data-key="${f.key}">
-      <div class="field"><label for="sf-name">${t('wallets.r_name')}</label><input id="sf-name" name="name" required maxlength="100" value="${esc(p.name || '')}" ${owner ? '' : 'disabled'}></div>
-      <div class="field"><label for="sf-id">${t('wallets.r_id')}</label><input id="sf-id" name="recipient_id" required pattern="[A-Za-z0-9_\\-]{1,64}" maxlength="64" value="${esc(p.recipient_id || slug(p.name) || '')}" ${owner ? '' : 'disabled'}><small>${t('wallets.r_id_hint')}</small></div>
-      <div class="grid-2"><div class="field"><label for="sf-currency">${t('wallets.r_currency')}</label><select id="sf-currency" name="currency" ${owner ? '' : 'disabled'}>${FORM_CURRENCIES.map(c => `<option ${c === currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
-      <div class="field"><label for="sf-country">${t('wallets.r_country')}</label><select id="sf-country" name="country" ${owner ? '' : 'disabled'}><option value="">—</option>${[...new Set(econ)].map(c => `<option value="${c}" ${c === country ? 'selected' : ''}>${esc(region(c))}</option>`).join('')}</select></div></div>
-      <div class="field"><label for="sf-account">${t('wallets.r_account')}</label><input id="sf-account" name="account" maxlength="34" placeholder="${t('wallets.r_account_ph')}" ${owner ? '' : 'disabled'}><small>${t('wallets.r_account_hint')}</small></div>
-      ${owner && tier < 2 ? `<label class="check-label"><input type="checkbox" name="raise" checked> ${t('agent.form_allow_t2')}</label>` : ''}
-      ${owner ? '' : `<p class="note warn">${t('agent.form_owner_only')}</p>`}
-      <div class="form-error"></div>
-      <div class="row-actions"><button class="button primary" ${owner ? '' : 'disabled'}>${icons.check}${t('agent.form_submit')}</button><button type="button" class="button ghost" data-action="close-side-form">${t('agent.form_cancel')}</button></div>
-    </form></div>`;
-}
-
-let formSeq = 0;
-function openForm(prefill, extra = {}) {
-  state.chat.form = {key: ++formSeq, prefill, ...extra};
-  paintSideForm();
-}
-
-/** Slides the form in or out without touching anything the user is typing. */
-export function paintSideForm() {
-  const host = document.getElementById('side-form-host');
-  if (!host) return;
-  const f = state.chat.form;
-  const shown = host.firstElementChild;
-  if (f && shown?.dataset.key === String(f.key)) return;
-  if (!f) {
-    if (shown) { shown.classList.add('leaving'); setTimeout(() => { if (!state.chat.form) host.innerHTML = ''; }, 460); }
-    return;
-  }
-  host.innerHTML = sideForm();
-  // Jelly entrance: the panel springs in, then each row follows a beat later.
-  host.querySelectorAll('.side-form-head, .side-form .field, .side-form .check-label, .side-form .row-actions, .side-form .fine, .side-form .note')
-    .forEach((el, i) => { el.style.animationDelay = (260 + i * 60) + 'ms'; });
-  const form = host.querySelector('#side-recipient-form');
-  const name = form.querySelector('#sf-name'), id = form.querySelector('#sf-id');
-  let touched = false;
-  id.addEventListener('input', () => { touched = true; });
-  name.addEventListener('input', () => { if (!touched) id.value = slug(name.value) || id.value; });
-  form.querySelector('#sf-currency').addEventListener('change', e => {
-    const c = CUR_TO_ECON[e.target.value]; if (c) form.querySelector('#sf-country').value = c;
-  });
-  if (matchMedia('(max-width: 1280px)').matches) host.scrollIntoView({behavior: 'smooth', block: 'start'});
-  setTimeout(() => (name.value ? id : name).focus({preventScroll: true}), 420);
+  syncBoard();
 }

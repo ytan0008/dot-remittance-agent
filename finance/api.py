@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 from .domain import Denied, new_request_id
 from .service import Finance
@@ -111,10 +112,6 @@ class Fund(Model):
     amount: str
 
 
-class Tier(Model):
-    tier: int
-
-
 class Limit(Model):
     currency: str
     per_payment: str
@@ -208,10 +205,16 @@ class ExpensePatch(Model):
 class QuickText(Model):
     text: str = Field(min_length=1, max_length=200)
     currency: str | None = None
+    ai: bool = False
+
+
+Image = Annotated[str, Field(max_length=6_000_000)]  # a data URL; the global 4000-character cap is for text fields
 
 
 class Receipt(Model):
-    image: str = Field(max_length=6_000_000)
+    model_config = ConfigDict(extra="forbid", str_max_length=6_000_000)
+    image: Image | None = None
+    images: list[Image] | None = Field(default=None, max_length=4)
 
 
 class ReviewIn(Model):
@@ -279,6 +282,8 @@ class EmailIn(Model):
     digest: str = "off"
     reminders: bool = False
     language: str = "en"
+    weekday: int = 0
+    skip_quiet: bool = True
 
 
 class EmailSend(Model):
@@ -332,6 +337,78 @@ class SheetIn(Model):
     amount: str | None = None
 
 
+class PlanIn(Model):
+    source: str
+    target: str
+    amount: str = Field(max_length=24)
+    side: str = "receive"
+    due: str | None = None
+    purpose: str = Field(default="", max_length=120)
+    kind: str = "custom"
+    need_ref: str | None = Field(default=None, max_length=200)
+    min_rate: str | None = Field(default=None, max_length=24)
+    recipient_id: str | None = Field(default=None, max_length=64)
+    category: str | None = Field(default=None, max_length=20)
+
+
+class PlanStatus(Model):
+    status: str
+
+
+class Pretend(Model):
+    currency: str
+    amount: str = Field(max_length=24)
+
+
+class SimulateIn(Model):
+    display: str | None = None
+    extra: list[Pretend] = Field(default_factory=list, max_length=12)
+    rate_shift: str = Field(default="0", max_length=8)
+    plan_ids: list[str] | None = Field(default=None, max_length=50)
+
+
+class BankRefresh(Model):
+    source: str
+    target: str
+    urls: list[str] | None = Field(default=None, max_length=3)
+
+
+class BankPricing(Model):
+    model_config = ConfigDict(extra="forbid", str_max_length=200)
+    source: str
+    target: str
+    rate: str | None = None
+    fee_send: dict | None = None
+    fee_pct: str | None = None
+    intermediary: dict | None = None
+    fee_receive: dict | None = None
+    notes: str = ""
+
+
+class ScenarioIn(Model):
+    source: str
+    target: str
+    amount: str = Field(max_length=24)
+    mode: str = "send"
+    send_bank: str | None = None
+    receive_bank: str | None = None
+    due: str | None = None
+
+
+class TimelineIn(Model):
+    display: str | None = None
+    off: list[str] = Field(default_factory=list, max_length=200)
+    scenario: dict | None = None
+    days: int = 90
+    extra: list[Pretend] = Field(default_factory=list, max_length=12)
+
+
+class CashIn(Model):
+    currency: str
+    amount: str = Field(max_length=24)
+    label: str = Field(default="", max_length=120)
+
+
 class Recommendation(Model):
     subject: str
     detail: dict
@@ -371,6 +448,7 @@ def create_app(finance=None, agent=None, background=None):
         app.state.finance = finance or Finance()
         app.state.agent = agent or Agent(app.state.finance)
         app.state.finance.exchange_judge = app.state.agent.judge
+        app.state.finance.page_reader = app.state.agent.judge  # reads public bank pages into rates and fees
         app.state.sessions = {}
         stop = asyncio.Event()
         run_worker = background if background is not None else os.getenv("ENABLE_WORKER", "true") == "true"
@@ -451,8 +529,7 @@ def create_app(finance=None, agent=None, background=None):
     @app.get("/session")
     def session(actor=Depends(role)):
         a = app.state.agent
-        return {"role": actor, "model_configured": a.configured, "model": a.model if a.configured else None,
-                "agent_tier": service().agent_tier()}
+        return {"role": actor, "model_configured": a.configured, "model": a.model if a.configured else None}
 
     @app.delete("/session")
     def logout(request: Request, response: Response):
@@ -601,10 +678,6 @@ def create_app(finance=None, agent=None, background=None):
     def settings(actor=Depends(role)):
         return service().settings()
 
-    @app.put("/settings/tier")
-    def set_tier(body: Tier, actor=Depends(role)):
-        return service().set_agent_tier(actor, body.tier)
-
     @app.put("/settings/limits")
     def set_limit(body: Limit, actor=Depends(role)):
         return service().set_limit(actor, body.currency, body.per_payment, body.daily)
@@ -726,12 +799,21 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.post("/expenses/parse")
     def parse_quick(body: QuickText, actor=Depends(role)):
-        return service().parse_quick(body.text, body.currency)
+        # Rules first (instant, offline); the AI model reads what they cannot, when asked to.
+        try:
+            if not body.ai:
+                return service().parse_quick(body.text, body.currency)
+        except Denied:
+            if not app.state.agent.configured:
+                raise
+            return {"needs_ai": True, "items": []}
+        service().require(actor, "prepare")
+        return app.state.agent.parse_expense_text(body.text, body.currency)
 
     @app.post("/expenses/receipt")
     def receipt(body: Receipt, actor=Depends(role)):
         service().owner(actor)
-        return app.state.agent.read_receipt(body.image)
+        return app.state.agent.read_documents(body.images or [body.image])
 
     @app.post("/expenses")
     def add_expense(body: ExpenseIn, actor=Depends(role)):
@@ -814,18 +896,91 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.put("/email")
     def set_email(body: EmailIn, actor=Depends(role)):
-        return service().set_email(actor, body.address, body.digest, body.reminders, body.language)
+        return service().set_email(actor, body.address, body.digest, body.reminders, body.language, body.weekday, body.skip_quiet)
 
     @app.post("/email/preview")
     def email_preview(body: EmailSend, actor=Depends(role)):
         service().owner(actor)
-        r = service().report(body.period if body.period in ("week", "month") else "week", body.language)
+        r = service().report(body.period if body.period in ("day", "week", "month") else "week", body.language)
         return {"subject": r["subject"], "text": r["text"]}
 
     @app.post("/email/send")
     def email_send(body: EmailSend, actor=Depends(role)):
         service().owner(actor)
         return service().send_report(actor, body.period)
+
+    # ---------- overview: cash position and exchange needs ----------
+    @app.get("/overview/money")
+    def overview_money(display: str | None = None, actor=Depends(role)):
+        return service().money_overview(display)
+
+    @app.put("/cash")
+    def set_cash(body: CashIn, actor=Depends(role)):
+        return service().set_cash(actor, body.currency, body.amount, body.label)
+
+    @app.delete("/cash/{currency}")
+    def clear_cash(currency: str, actor=Depends(role)):
+        return service().clear_cash(actor, currency)
+
+    # ---------- banks: public rates and fees read by AI, and exchange scenarios ----------
+    @app.get("/banks")
+    def banks(source: str | None = None, target: str | None = None, actor=Depends(role)):
+        return service().banks(source, target)
+
+    @app.post("/banks/{bank_id}/refresh")
+    def refresh_bank(bank_id: str, body: BankRefresh, actor=Depends(role)):
+        return service().refresh_bank(actor, bank_id, body.source, body.target, body.urls)
+
+    @app.put("/banks/{bank_id}/pricing")
+    def bank_pricing(bank_id: str, body: BankPricing, actor=Depends(role)):
+        return service().set_bank_pricing(actor, bank_id, body.source, body.target, body.model_dump(exclude={"source", "target"}))
+
+    @app.post("/exchange-scenarios")
+    def exchange_scenarios(body: ScenarioIn, actor=Depends(role)):
+        return service().exchange_scenarios(body.source, body.target, body.amount, body.mode, body.send_bank, body.receive_bank, body.due)
+
+    # ---------- exchange plans, the what-if sandbox and gaps ----------
+    @app.get("/exchange-plans")
+    def exchange_plans(closed: bool = False, actor=Depends(role)):
+        return service().exchange_plans(include_closed=closed)
+
+    @app.get("/exchange-plans/suggestions")
+    def plan_suggestions(actor=Depends(role)):
+        return service().plan_suggestions()
+
+    @app.post("/exchange-plans")
+    def add_plan(body: PlanIn, actor=Depends(role)):
+        return service().save_plan(actor, body.source, body.target, body.amount, body.side, body.due, body.purpose, body.kind,
+                                   body.need_ref, body.min_rate, recipient_id=body.recipient_id, category=body.category)
+
+    @app.put("/exchange-plans/{pid}")
+    def update_plan(pid: str, body: PlanIn, actor=Depends(role)):
+        return service().save_plan(actor, body.source, body.target, body.amount, body.side, body.due, body.purpose, body.kind,
+                                   body.need_ref, body.min_rate, plan_id=pid, recipient_id=body.recipient_id, category=body.category)
+
+    @app.post("/exchange-plans/{pid}/status")
+    def plan_status(pid: str, body: PlanStatus, actor=Depends(role)):
+        return service().set_plan_status(actor, pid, body.status)
+
+    @app.delete("/exchange-plans/{pid}")
+    def delete_plan(pid: str, actor=Depends(role)):
+        return service().delete_plan(actor, pid)
+
+    @app.post("/simulate")
+    def simulate(body: SimulateIn, actor=Depends(role)):
+        return service().simulate(body.display, [x.model_dump() for x in body.extra], body.rate_shift, body.plan_ids)
+
+    @app.post("/sandbox/timeline")
+    def sandbox_timeline(body: TimelineIn, actor=Depends(role)):
+        return service().timeline(body.display, body.off, body.scenario, body.days, [x.model_dump() for x in body.extra])
+
+    @app.get("/gaps")
+    def gaps(display: str | None = None, actor=Depends(role)):
+        return service().currency_gaps(display)
+
+    @app.get("/sandbox/ledger")
+    def sandbox_ledger(actor=Depends(role)):
+        return service().virtual_ledger()
 
     # ---------- transfer templates (SWIFT and domestic bank instructions) ----------
     @app.get("/transfer-formats")

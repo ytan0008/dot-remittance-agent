@@ -196,6 +196,13 @@ class WatchMixin:
         language = language or self.memory().get("language") or "en"
         w = self.watch(source, target)
         needs = {k: w[k] for k in ("amount", "deadline", "min_rate", "note")} if w else {}
+        planned = self.pair_plan_needs(source, target)  # the student's exchange plans for this pair are needs too
+        if planned:
+            dates = [d for d in (needs.get("deadline"), planned["deadline"]) if d]
+            floors = [Decimal(r) for r in (needs.get("min_rate"), planned["min_rate"]) if r]
+            needs = dict(amount=planned["amount"] or needs.get("amount"), deadline=min(dates) if dates else None,
+                         min_rate=str(max(floors)) if floors else None,
+                         note=" · ".join(x for x in (needs.get("note"), planned["note"]) if x)[:200], plans=planned["plans"])
         sig = self.exchange_signals(source, target, needs)
         key = canonical([sig["observed"], sig["rate"], needs, language, bool(use_model and self.exchange_judge)])
         if w and w["last"] and w["last"].get("key") == key:

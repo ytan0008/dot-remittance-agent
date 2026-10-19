@@ -15,7 +15,7 @@ SIMULATED_OPTIONS = [
     dict(id="sim-instant", fixed_usd="5", percent="0.012", spread="0.015", eta_hours=0.25,
          eta="minutes (cash pickup / wallet)", intermediary="pickup-agent charges unknown"),
 ]
-PROPOSAL_KINDS = ("recipient", "preference", "goal", "obligation", "rate_alert")
+PROPOSAL_KINDS = ("recipient", "preference", "goal", "obligation", "rate_alert", "action")
 BUDGET_KINDS = ("income", "expense", "buffer", "holding")
 
 
@@ -314,6 +314,9 @@ class PlanningMixin:
             self._validate_obligation(payload)
         elif kind == "rate_alert":
             self._validate_alert(payload)
+        elif kind == "action":
+            from . import actions
+            payload = dict(action=payload.get("action"), params=actions.check(payload.get("action"), payload.get("params")))
         pid = str(uuid.uuid4())
         with self.store.tx() as c:
             c.execute("INSERT INTO proposals(id,kind,payload,status,created_by,created,note) VALUES (?,?,?,?,?,?,?)",
@@ -350,6 +353,9 @@ class PlanningMixin:
                 self.add_obligation(actor, **payload)
             elif p["kind"] == "rate_alert":
                 self.add_rate_alert(actor, **payload)
+            elif p["kind"] == "action":
+                from . import actions
+                actions.run(self, actor, payload["action"], payload["params"])
         with self.store.tx() as c:
             c.execute("UPDATE proposals SET status=?,decided_by=?,decided=?,note=COALESCE(?,note) WHERE id=?",
                       ("confirmed" if accept else "rejected", actor, now(), note or None, pid))

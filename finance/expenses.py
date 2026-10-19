@@ -10,6 +10,7 @@ import re
 import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from .quickparse import parse_text
 from .domain import Denied, canonical, now, decimals
 
 CATEGORIES = ("rent", "groceries", "dining", "transport", "utilities", "phone", "subscriptions", "tuition", "shopping",
@@ -197,7 +198,7 @@ class ExpensesMixin:
         day_first = not any(re.match(r"^\s*\d{1,2}[/-](\d{1,2})[/-]", d) and int(re.match(r"^\s*\d{1,2}[/-](\d{1,2})", d).group(1)) > 12
                             for d in dates)
         imp = str(uuid.uuid4())
-        created, skipped = [], 0
+        created, skipped, balances = [], 0, []
         with self.store.tx() as c:
             rules = self._rules(c)
             seen = {}
@@ -210,6 +211,9 @@ class ExpensesMixin:
                     debit, credit = parse_amount(get("debit")), parse_amount(get("credit"))
                     value = -abs(debit) if debit else (abs(credit) if credit else None)
                 description = get("description") or " ".join(cell for i, cell in enumerate(r) if i not in cols.values())[:200]
+                running = parse_amount(get("balance")) if "balance" in cols else None
+                if day and running is not None:
+                    balances.append((day, running))
                 if not day or value is None or value == 0:
                     skipped += 1
                     continue
@@ -226,6 +230,14 @@ class ExpensesMixin:
                            "pending", fp, dup, imp, now()))
                 created.append(eid)
             c.execute("INSERT INTO expense_imports VALUES (?,?,?,?)", (imp, (filename or "statement.csv")[:120], len(created), now()))
+            if balances:
+                # The balance after the newest transaction: exports run newest-first or oldest-first.
+                newest = max(d for d, _ in balances)
+                same = [b for d, b in balances if d == newest]
+                descending = balances[0][0] > balances[-1][0]
+                latest = same[0] if descending else same[-1]
+                self._record_cash(c, actor, currency, int((latest * 10 ** decimals(currency)).to_integral_value()), str(newest), "csv",
+                                  (filename or "statement.csv")[:120])
             self.store.event(c, actor, "expenses.import", "ok", imp, rows=len(created), skipped=skipped, filename=(filename or "")[:60])
         recurring = self.detect_recurring(imp)
         return dict(import_id=imp, rows=self.expenses(import_id=imp), skipped=skipped, recurring_candidates=recurring,
@@ -280,38 +292,86 @@ class ExpensesMixin:
 
     # ---------- quick-add (text or voice) ----------
     def parse_quick(self, text, currency=None):
+        """One line of text -> one or more expenses (quickparse handles dates, currency words, glued numbers)."""
         raw = " ".join(str(text or "").split())
         if not raw or len(raw) > 200:
             raise Denied("type something like “lunch 12.50”", "quick_invalid")
-        low = raw.lower()
-        day = date.today()
-        for words, delta in ((["yesterday", "昨天", "昨日", "hôm qua", "어제"], 1), (["前天", "一昨日", "그저께", "hôm kia"], 2)):
-            if any(w in low for w in words):
-                day -= timedelta(days=delta)
-                for w in words:
-                    raw = re.sub(re.escape(w), " ", raw, flags=re.I)
-        m = re.search(r"(?<![\w.])(?:[$¥€£₫₩]|aud|usd|cny|rmb|vnd|jpy|krw)?\s*(\d{1,7}(?:[.,]\d{1,2})?)\s*(元|块|塊|đ|円|원|aud|usd|cny|vnd|jpy|krw)?(?![\w.])",
-                      raw, re.I)
-        if not m:
+        default = (currency or self._currency_default()).upper()
+        found = parse_text(raw, date.today(), default)
+        if not found:
             raise Denied("add an amount, e.g. “bus pass 40”", "quick_amount")
-        amount = Decimal(m.group(1).replace(",", "."))
-        unit = (m.group(2) or "").lower()
-        code = {"元": "CNY", "块": "CNY", "塊": "CNY", "rmb": "CNY", "đ": "VND", "円": "JPY", "원": "KRW"}.get(unit, unit.upper() or None)
-        prefix = re.search(r"(aud|usd|cny|rmb|vnd|jpy|krw)\s*" + re.escape(m.group(1)), raw, re.I)
-        if prefix:
-            code = {"RMB": "CNY"}.get(prefix.group(1).upper(), prefix.group(1).upper())
-        currency = (code or currency or self._currency_default()).upper()
-        description = (raw[:m.start()] + " " + raw[m.end():]).strip(" ,.-:：，") or "expense"
-        description = re.sub(r"\s+", " ", re.sub(r"(?i)\b(aud|usd|cny|rmb|vnd|jpy|krw)\b", " ", description)).strip() or "expense"
+        items = []
         with self.store.read() as c:
-            category, why = suggest_category(description, self._rules(c))
-        if category == "income":
-            category = "other"
-        minor = int((amount * 10 ** decimals(currency)).to_integral_value())
-        return dict(date=str(day), amount=-minor, currency=currency, description=description[:200], category=category, suggested=why,
-                    source="quick")
+            rules = self._rules(c)
+            for it in found[:10]:
+                category, why = suggest_category(it["description"], rules)
+                cur = it["currency"]
+                minor = int((it["amount"] * 10 ** decimals(cur)).to_integral_value())
+                items.append(dict(date=str(it["date"]), amount=-minor, currency=cur, description=it["description"][:200],
+                                  category="other" if category == "income" else category, suggested=why, source="quick"))
+        return dict(items[0], items=items, by="rules")
+
+    def expense_items(self, raw_items, source="quick", default=None):
+        """Normalize what an AI model read (text or images) into the same item shape; drops rows without an amount."""
+        default = (default or self._currency_default()).upper()
+        out = []
+        with self.store.read() as c:
+            rules = self._rules(c)
+        for x in (raw_items or [])[:40]:
+            if not isinstance(x, dict):
+                continue
+            amount = parse_amount(x.get("amount"))
+            if amount is None or amount == 0:
+                continue
+            cur = str(x.get("currency") or default).upper()[:3]
+            cur = "CNY" if cur == "RMB" else cur if re.fullmatch(r"[A-Z]{3}", cur) else default
+            day = parse_date(x.get("date"), day_first=False) or parse_date(x.get("date")) or date.today()
+            if day > date.today() + timedelta(days=1):
+                day = date.today()
+            text = str(x.get("description") or x.get("merchant") or "expense").strip()[:200] or "expense"
+            incoming = str(x.get("direction", "out")).lower() in ("in", "income", "refund", "credit")
+            category = x.get("category") if x.get("category") in CATEGORIES else suggest_category(text, rules)[0]
+            if category == "income" and not incoming:
+                category = "other"
+            minor = int((abs(amount) * 10 ** decimals(cur)).to_integral_value())
+            out.append(dict(date=str(day), amount=minor if incoming else -minor, currency=cur, description=text, category=category,
+                            suggested="ai", source=source))
+        return out
 
     # ---------- receipt (vision model, user checks before saving) ----------
+    def document_prompt(self, today=None, default=None):
+        today = today or date.today()
+        return ("Read every money movement in these images. They may be a shop receipt or invoice (one total), a banking or card "
+                "app screenshot listing several transactions, or a statement. Reply with JSON only: "
+                '{"kind": "receipt|transactions|statement|other", "items": [{"date": "YYYY-MM-DD", "amount": "12.10", '
+                '"currency": "AUD", "description": "merchant or what it was", "category": "...", "direction": "out|in"}]}. '
+                f"Today is {today.isoformat()} ({today.strftime('%A')}); resolve relative dates such as yesterday, weekday names or "
+                "'昨天/星期日' against it, never into the future. Amounts are positive numbers; '12,10' with two decimals after a comma "
+                f"means 12.10. A$/AU$ is AUD; a bare $ or no currency means {default or 'AUD'}. For a receipt give only the amount "
+                "paid (the total), not each line. Skip rows without an amount (pending or declined), balances and totals of a list. "
+                "category is one of: " + ", ".join(CATEGORIES) + ". If there is no money movement at all reply "
+                '{"kind": "other", "items": []}.')
+
+    def document_result(self, raw_json):
+        try:
+            data = json.loads(re.search(r"\{.*\}", raw_json or "", re.S).group(0))
+        except (AttributeError, ValueError):
+            return dict(available=False, items=[], reason="could not read the image")
+        items = self.expense_items(data.get("items"), "receipt")
+        if not items:
+            return dict(available=False, items=[], kind=data.get("kind") or "other", reason="no amounts found in the image")
+        return dict(available=True, kind=data.get("kind") or "receipt", items=items, **{k: items[0][k] for k in ("date", "amount", "currency", "category")},
+                    description=items[0]["description"])
+
+    def expense_text_prompt(self, text, today=None, default=None):
+        today = today or date.today()
+        return ("Turn this note about spending into expenses. Reply with JSON only: "
+                '{"items": [{"date": "YYYY-MM-DD", "amount": "10", "currency": "AUD", "description": "lunch", "category": "...", "direction": "out|in"}]}. '
+                f"Today is {today.isoformat()} ({today.strftime('%A')}); resolve relative dates against it, never into the future. "
+                f"Slang: 刀/bucks = dollars; a bare amount means {default or 'AUD'}. One item per thing paid for; description in the "
+                "user's language, short. category is one of: " + ", ".join(CATEGORIES) + ". If there is no amount reply "
+                '{"items": []}. Note: ' + json.dumps(str(text)[:200], ensure_ascii=False))
+
     def receipt_prompt(self):
         return ("Extract this receipt as JSON with keys: date (YYYY-MM-DD or empty), total (number as string, the amount paid), "
                 "currency (ISO code or empty), merchant, category (one of: " + ", ".join(CATEGORIES) + "). "

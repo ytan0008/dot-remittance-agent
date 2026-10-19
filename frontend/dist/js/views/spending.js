@@ -1,12 +1,13 @@
-import {state, t, api, toast, isOwner, invalidate, rerender, modal, closeModal, formError, bus} from '../core.js';
+import {state, t, api, toast, isOwner, invalidate, rerender, modal, closeModal, formError, bus, need} from '../core.js';
+import {indicatorPanel} from './habits.js';
 import {esc, amt, panel, icons, empty, options, segmented} from '../ui.js';
 import {money, day, lang, decimalsOf, plain} from '../i18n.js';
 
 const CATEGORIES = ['rent', 'groceries', 'dining', 'transport', 'utilities', 'phone', 'subscriptions', 'tuition', 'shopping',
   'health', 'entertainment', 'travel', 'transfer', 'fees', 'income', 'other'];
 const SPEECH = {en: 'en-US', 'zh-CN': 'zh-CN', 'zh-TW': 'zh-TW', vi: 'vi-VN', ja: 'ja-JP', ko: 'ko-KR'};
-const ui = {month: new Date().toISOString().slice(0, 7), quick: '', preview: null, repeat: '', selected: new Set(), lastImport: null, period: 'week'};
-let parseTimer = 0, recognizer = null;
+const ui = {month: new Date().toISOString().slice(0, 7), quick: '', preview: null, repeat: '', selected: new Set(), lastImport: null, period: 'week', tab: 'entries', fixedType: 'auto'};
+let parseTimer = 0, recognizer = null, pasteHandler = null, scanned = [];
 
 const catOptions = selected => options(CATEGORIES.map(c => [c, t('cat.' + c)]), selected);
 const shiftMonth = (m, n) => { const d = new Date(m + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 7); };
@@ -35,23 +36,33 @@ function quickAdd() {
       <span class="quick-orb"><i></i></span>
       <input id="quick-input" name="text" maxlength="200" placeholder="${t('spend.quick_ph')}" value="${esc(ui.quick)}" aria-label="${t('spend.quick')}" ${isOwner() ? '' : 'disabled'}>
       ${mic ? `<button type="button" class="mic" data-action="spend-voice" aria-label="${t('spend.voice')}"><i></i></button>` : ''}
+      <button type="button" class="button ghost sm quick-ai" data-action="quick-ai" ${ui.quick.trim() && isOwner() ? '' : 'disabled'} title="${t('spend.ai_read_d')}">${icons.agent}${t('spend.ai_read')}</button>
       <button class="button primary sm" ${p && isOwner() ? '' : 'disabled'}>${icons.check}${t('spend.save')}</button>
     </form>
     <div class="quick-preview ${p ? 'on' : ''}" id="quick-preview">${p ? previewCard(p) : `<small class="muted">${t('spend.quick_hint')}</small>`}</div>
     <div class="spend-actions">
       <label class="drop-zone" id="csv-drop"><input type="file" id="csv-file" accept=".csv,text/csv" hidden ${isOwner() ? '' : 'disabled'}>
         <span class="drop-icon">${icons.payments}</span><span><b>${t('spend.import')}</b><small>${t('spend.import_d')}</small></span></label>
-      <label class="drop-zone"><input type="file" id="receipt-file" accept="image/*" capture="environment" hidden ${isOwner() ? '' : 'disabled'}>
-        <span class="drop-icon">${icons.print}</span><span><b>${t('spend.scan')}</b><small>${t('spend.scan_d')}</small></span></label>
+      <label class="drop-zone" id="img-drop"><input type="file" id="receipt-file" accept="image/*" multiple hidden ${isOwner() ? '' : 'disabled'}>
+        <span class="drop-icon">${icons.print}</span><span><b>${t('spend.scan')}</b><small>${t('spend.scan_d2')}</small></span></label>
     </div></div>`;
 }
 
 function previewCard(p) {
-  return `<span class="pv"><small>${t('spend.date')}</small><input type="date" id="pv-date" value="${esc(p.date)}"></span>
-    <span class="pv"><small>${t('spend.amount')}</small><b>${esc(money(-p.amount, p.currency))} ${esc(p.currency)}</b></span>
-    <span class="pv grow"><small>${t('spend.description')}</small><b>${esc(p.description)}</b></span>
-    <span class="pv"><small>${t('spend.category')}</small><select id="pv-cat">${catOptions(p.category)}</select></span>
+  const list = p.items || [p];
+  const by = p.by === 'model' ? `<span class="tag">${icons.agent}${t('spend.by_ai')}</span>` : '';
+  if (list.length === 1) {
+    const x = list[0];
+    return `${by}<span class="pv"><small>${t('spend.date')}</small><input type="date" data-pv="date" data-i="0" value="${esc(x.date)}"></span>
+    <span class="pv"><small>${t('spend.amount')}</small><b>${esc(money(-x.amount, x.currency))} ${esc(x.currency)}</b></span>
+    <span class="pv grow"><small>${t('spend.description')}</small><b>${esc(x.description)}</b></span>
+    <span class="pv"><small>${t('spend.category')}</small><select data-pv="category" data-i="0">${catOptions(x.category)}</select></span>
     <span class="pv"><small>${t('spend.repeat')}</small><select id="pv-repeat">${options([['', t('spend.once')], ['monthly', t('habits.monthly')], ['weekly', t('spend.weekly')]], ui.repeat)}</select></span>`;
+  }
+  return `${by}<span class="pv-multi-head">${t('spend.n_items', {n: list.length})}</span>
+    <ul class="pv-multi">${list.map((x, i) => `<li><input type="date" data-pv="date" data-i="${i}" value="${esc(x.date)}" aria-label="${t('spend.date')}">
+      <b class="grow">${esc(x.description)}</b><b>${esc(money(-x.amount, x.currency))} ${esc(x.currency)}</b>
+      <select data-pv="category" data-i="${i}" aria-label="${t('spend.category')}">${catOptions(x.category)}</select></li>`).join('')}</ul>`;
 }
 
 function reviewTable() {
@@ -90,11 +101,80 @@ function insightsPanel() {
     {cls: 'insight-panel', actions: segmented('period', [['week', t('insight.week')], ['month', t('insight.month')]], ui.period, 'insight-period')});
 }
 
-function recurringPanel() {
-  const r = state.data.recurring || {active: [], candidates: []};
-  const cand = r.candidates.length ? `<div class="cand-list">${r.candidates.map((c, i) => `<div class="cand"><span class="pulse"></span><div><b>${esc(c.description)}</b><small>${t('spend.looks', {cadence: t(c.cadence === 'weekly' ? 'spend.weekly' : 'habits.monthly'), n: c.occurrences})}</small></div>${amt(c.amount, c.currency)}<button class="button sm" data-action="spend-make-recurring" data-i="${i}" ${isOwner() ? '' : 'disabled'}>${t('spend.make_recurring')}</button></div>`).join('')}</div>` : '';
-  const active = r.active.length ? `<ul class="list">${r.active.map(x => `<li class="row"><span class="cat-dot c-${esc(x.category)}"></span><div><b>${esc(x.description)}</b><small>${esc(t('cat.' + x.category))} · ${t(x.cadence === 'weekly' ? 'spend.weekly' : 'habits.monthly')} · ${t('spend.next_due', {d: day(x.next_date)})}</small></div>${amt(x.amount, x.currency)}<button class="x" data-action="spend-stop" data-id="${esc(x.id)}" aria-label="${t('spend.stop')}" ${isOwner() ? '' : 'disabled'}>×</button></li>`).join('')}</ul>` : `<p class="fine">${t('spend.no_recurring')}</p>`;
-  return panel(t('spend.recurring'), cand + active + `<p class="fine">${t('spend.recurring_d')}</p>`, {sub: 'AUTO'});
+/* ---------- fixed costs: bills you pay, and charges that renew by themselves, in one list and one picture ---------- */
+const SUB_CATS = ['subscriptions', 'phone'];
+const monthlyOf = (amount, cadence) => cadence === 'weekly' ? Math.round(amount * 52 / 12) : cadence === 'monthly' ? amount : 0;
+
+/** Bills (obligations) and automatic charges (recurring) as one shape. */
+function fixedItems() {
+  const r = state.data.recurring || {active: []};
+  const auto = r.active.map(x => ({id: x.id, type: SUB_CATS.includes(x.category) ? 'sub' : 'auto', name: x.description, amount: x.amount, currency: x.currency,
+    cadence: x.cadence, next: x.next_date, category: x.category, monthly: monthlyOf(x.amount, x.cadence)}));
+  const bills = (state.data.obligations || []).map(o => ({id: o.id, type: 'bill', name: o.title, amount: o.amount, currency: o.currency,
+    cadence: o.recurring === 'monthly' ? 'monthly' : 'once', next: o.due_date, category: o.category, state: o.state, paid: !!o.paid_at,
+    monthly: o.recurring === 'monthly' ? o.amount : 0}));
+  return [...bills, ...auto].sort((a, b) => String(a.next).localeCompare(String(b.next)));
+}
+
+function fixedChart(items) {
+  const monthly = items.filter(x => x.monthly > 0);
+  const byCur = {};
+  for (const x of monthly) (byCur[x.currency] ||= []).push(x);
+  const bars = Object.entries(byCur).map(([cur, list]) => {
+    list.sort((a, b) => b.monthly - a.monthly);
+    const top = Math.max(1, ...list.map(x => x.monthly)), total = list.reduce((sum, x) => sum + x.monthly, 0);
+    return `<div class="rec-cur"><div class="rec-total"><span class="eyebrow">${esc(cur)}</span>${amt(total, cur, 'lg')}<small>${t('spend.sub_month')} · ${esc(money(total * 12, cur))} ${t('spend.sub_year')}</small></div>
+      <ul class="cat-bars rec-bars">${list.map(x => `<li><span class="cat-name"><i class="cat-dot c-${esc(x.category)}"></i>${esc(x.name)}</span>
+        <span class="cat-track"><i class="bar-fill" data-ratio="${(x.monthly / top).toFixed(3)}"></i></span>${amt(x.monthly, cur)}<span class="tag fx-${x.type}">${t('fixed.t.' + x.type)}</span></li>`).join('')}</ul></div>`;
+  }).join('');
+  const now = Date.now(), span = 30 * 864e5, dots = [];
+  for (const x of items) {
+    if (x.paid || !x.next) continue;
+    let d = Date.parse(x.next);
+    const step = x.cadence === 'weekly' ? 7 * 864e5 : x.cadence === 'monthly' ? 30.4 * 864e5 : Infinity;
+    while (d <= now + span) { if (d >= now - 864e5) dots.push({x, d}); d += step; }
+  }
+  const big = Math.max(1, ...dots.map(o => o.x.amount));
+  const strip = dots.length ? `<div class="rec-strip"><span class="eyebrow">${t('spend.rec_next30')}</span>
+    <div class="rec-line" role="img" aria-label="${t('spend.rec_next30')}">${dots.map(o => `<i class="rec-dot ${o.x.type === 'bill' ? 'bill' : ''}" data-x="${(Math.max(0, (o.d - now) / span) * 100).toFixed(2)}" data-r="${Math.round(8 + 14 * o.x.amount / big)}" title="${esc(o.x.name)} · ${esc(money(o.x.amount, o.x.currency))} ${esc(o.x.currency)} · ${day(new Date(o.d).toISOString().slice(0, 10))}"></i>`).join('')}</div>
+    <div class="rec-axis"><span>${t('spend.rec_today')}</span><span>+15</span><span>+30</span></div></div>` : '';
+  return panel(t('fixed.chart'), (bars || `<p class="fine">${t('fixed.none_monthly')}</p>`) + strip, {cls: 'rec-panel', sub: t('fixed.chart_sub')});
+}
+
+function fixedList(items) {
+  const owner = isOwner() ? '' : 'disabled';
+  const r = state.data.recurring || {candidates: []};
+  const rows = items.length ? `<ul class="list fixed-list">${items.map(x => `<li class="row fx-${x.type} ${x.paid ? 'paid' : ''}">
+      <span class="cat-dot c-${esc(x.category)}"></span>
+      <div><b>${esc(x.name)}</b><small>${t('fixed.t.' + x.type)} · ${t('fixed.c.' + x.cadence)} · ${x.paid ? t('fixed.paid') : t('spend.next_due', {d: day(x.next)})}</small></div>
+      ${amt(x.amount, x.currency)}
+      ${x.type === 'bill' && x.state ? `<span class="chip s-${esc(x.state)}"><i></i>${t('ob.' + x.state)}</span>` : '<span></span>'}
+      <span class="row-actions">${x.type === 'bill'
+        ? `${!x.paid ? `<button class="button sm" data-action="mark-paid" data-id="${esc(x.id)}" ${owner}>${t('habits.mark_paid')}</button>` : ''}<button class="x" data-action="ob-delete" data-id="${esc(x.id)}" aria-label="${t('common.archive')}" ${owner}>×</button>`
+        : `<button class="link sm" data-action="spend-stop" data-id="${esc(x.id)}" ${owner}>${t('spend.sub_cancel')}</button>`}</span></li>`).join('')}</ul>` : `<p class="fine">${t('fixed.none')}</p>`;
+  const cand = r.candidates.length ? `<div class="cand-list"><span class="eyebrow">${t('fixed.found')}</span>${r.candidates.map((c, i) => `<div class="cand"><span class="pulse"></span><div><b>${esc(c.description)}</b><small>${t('spend.looks', {cadence: t(c.cadence === 'weekly' ? 'spend.weekly' : 'habits.monthly'), n: c.occurrences})}</small></div>${amt(c.amount, c.currency)}<button class="button sm" data-action="spend-make-recurring" data-i="${i}" ${owner}>${t('spend.sub_track')}</button></div>`).join('')}</div>` : '';
+  const today = new Date().toISOString().slice(0, 10);
+  const form = `<form id="fixed-form" class="fixed-form" autocomplete="off">
+      <div class="segmented fx-type" role="radiogroup">${['auto', 'bill'].map(v => `<button type="button" class="${ui.fixedType === v ? 'on' : ''}" data-action="fixed-type" data-v="${v}">${t('fixed.add_' + v)}</button>`).join('')}</div>
+      <div class="fixed-fields">
+        <input name="name" required maxlength="100" placeholder="${t(ui.fixedType === 'bill' ? 'habits.title_ph' : 'spend.sub_name_ph')}" aria-label="${t('spend.description')}" ${owner}>
+        <input name="amount" inputmode="decimal" required placeholder="${t('spend.amount')}" aria-label="${t('spend.amount')}" ${owner}>
+        <select name="currency" aria-label="${t('plans.currency')}" ${owner}>${options(['AUD', 'CNY', 'USD', 'EUR', 'GBP', 'JPY', 'KRW', 'VND'].map(c => [c, c]), (state.data.memory || {}).display_currency || 'AUD')}</select>
+        <select name="cadence" aria-label="${t('spend.repeat')}" ${owner}>${options(ui.fixedType === 'bill' ? [['monthly', t('habits.monthly')], ['once', t('habits.once')]] : [['monthly', t('habits.monthly')], ['weekly', t('spend.weekly')]], 'monthly')}</select>
+        <select name="category" aria-label="${t('spend.category')}" ${owner}>${ui.fixedType === 'bill'
+          ? options(['rent', 'tuition', 'utility', 'loan', 'family', 'subscription', 'other'].map(c => [c, t('category.' + c)]), 'rent')
+          : catOptions('subscriptions')}</select>
+        <label class="fx-date"><small>${t(ui.fixedType === 'bill' ? 'habits.due' : 'spend.sub_last')}</small><input name="date" type="date" value="${today}" required ${owner}></label>
+        <button class="button primary sm" ${owner}>${icons.plus}${t('spend.sub_add')}</button></div>
+      <div class="form-error"></div></form>`;
+  return panel(`${t('fixed.title')} <span class="muted">/ ${items.length}</span>`, `${rows}${cand}${form}<p class="fine">${t('fixed.note')}</p>`, {cls: 'fixed-panel'});
+}
+
+export const openFixed = () => { ui.tab = 'fixed'; };
+
+function tabs() {
+  return `<div class="page-tabs" role="tablist">${[['entries', t('spend.tab_entries')], ['fixed', t('spend.tab_fixed')]].map(([v, l]) =>
+    `<button type="button" role="tab" aria-selected="${ui.tab === v}" class="${ui.tab === v ? 'on' : ''}" data-action="spend-tab" data-v="${v}">${v === 'fixed' ? icons.habits : icons.spending}${esc(l)}</button>`).join('')}</div>`;
 }
 
 function recentList() {
@@ -114,26 +194,44 @@ export const view = {
       api('/expenses?status=pending'), api('/expenses?status=expected'), api('/recurring'),
       api(`/insights?period=${ui.period}&lang=${encodeURIComponent(lang)}`).catch(() => null)]);
     Object.assign(state.data, {spendSummary: summ, spendMonth: month, spendPending: pending, spendExpected: expected, recurring, spendInsights: insights});
+    await need(['obligations', 'habits', 'transfers'], true);  // the fixed-costs tab: bills and the payment-habits indicator
     // New rows start selected, except likely duplicates which the student must opt into.
     for (const r of [...pending, ...expected]) if (!ui.known?.has(r.id)) { if (!r.duplicate_of) ui.selected.add(r.id); }
     ui.known = new Set([...pending, ...expected].map(r => r.id));
     for (const id of [...ui.selected]) if (!ui.known.has(id)) ui.selected.delete(id);
   },
   render() {
-    return `${quickAdd()}${reviewTable()}${insightsPanel()}<div class="split wide-left">${summary()}${recurringPanel()}</div>${recentList()}`;
+    if (ui.tab === 'fixed') {
+      const items = fixedItems();
+      return `${tabs()}${indicatorPanel()}${fixedChart(items)}${fixedList(items)}`;
+    }
+    return `${tabs()}${quickAdd()}${reviewTable()}${insightsPanel()}<div class="split wide-left">${summary()}${recentList()}</div>`;
   },
   mount(root) {
     root.querySelectorAll('.bar-fill[data-ratio]').forEach(el => el.style.setProperty('--ratio', el.dataset.ratio));
+    root.querySelectorAll('.rec-dot[data-x]').forEach(el => { el.style.left = el.dataset.x + '%'; el.style.width = el.style.height = el.dataset.r + 'px'; });
     const input = root.querySelector('#quick-input');
     input?.addEventListener('input', () => { ui.quick = input.value; clearTimeout(parseTimer); parseTimer = setTimeout(parseQuick, 260); });
     root.querySelector('#quick-preview')?.addEventListener('change', e => {
       if (!ui.preview) return;
-      if (e.target.id === 'pv-cat') ui.preview.category = e.target.value;
-      if (e.target.id === 'pv-date') ui.preview.date = e.target.value;
+      const item = (ui.preview.items || [ui.preview])[Number(e.target.dataset.i)];
+      if (item && e.target.dataset.pv) item[e.target.dataset.pv] = e.target.value;
       if (e.target.id === 'pv-repeat') ui.repeat = e.target.value;
     });
     root.querySelector('#csv-file')?.addEventListener('change', e => e.target.files[0] && importCsv(e.target.files[0]));
-    root.querySelector('#receipt-file')?.addEventListener('change', e => e.target.files[0] && scanReceipt(e.target.files[0]));
+    root.querySelector('#receipt-file')?.addEventListener('change', e => { if (e.target.files.length) scanImages([...e.target.files]); e.target.value = ''; });
+    const imgDrop = root.querySelector('#img-drop');
+    if (imgDrop) {  // drag images in (several at once), with a soft jelly hover
+      ['dragenter', 'dragover'].forEach(ev => imgDrop.addEventListener(ev, e => { e.preventDefault(); imgDrop.classList.add('over'); }));
+      ['dragleave', 'drop'].forEach(ev => imgDrop.addEventListener(ev, e => { e.preventDefault(); imgDrop.classList.remove('over'); }));
+      imgDrop.addEventListener('drop', e => { const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name)); if (files.length) scanImages(files); });
+    }
+    pasteHandler ??= e => {  // paste a screenshot anywhere on the Spending page
+      if (state.view !== 'spending' || document.getElementById('modal').open) return;
+      const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+      if (files.length) { e.preventDefault(); scanImages(files); }
+    };
+    document.removeEventListener('paste', pasteHandler); document.addEventListener('paste', pasteHandler);
     const drop = root.querySelector('#csv-drop');
     if (drop) {
       ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
@@ -172,25 +270,51 @@ export const view = {
     async 'spend-stop'(el) { await api('/recurring/' + encodeURIComponent(el.dataset.id), 'DELETE'); await reload(); },
     async 'spend-delete'(el) { await api('/expenses/' + encodeURIComponent(el.dataset.id), 'DELETE'); await reload(); },
     'spend-voice'(el) { voice(el); },
-    async 'receipt-save'() {},
+    'spend-tab'(el) { ui.tab = el.dataset.v === 'fixed' ? 'fixed' : 'entries'; rerender(); scrollTo({top: 0, behavior: 'smooth'}); },
+    'fixed-type'(el) { ui.fixedType = el.dataset.v === 'bill' ? 'bill' : 'auto'; rerender(); },
+    async 'quick-ai'() { await parseQuick(true); },
   },
   submit: {
+    async 'fixed-form'(f) {
+      const v = Object.fromEntries(new FormData(f));
+      const amount = String(v.amount).replace(',', '.').trim();
+      if (!(Number(amount) > 0)) throw new Error(t('err.amount_invalid'));
+      if (ui.fixedType === 'bill') {  // a bill you pay yourself; it counts toward the payment-habits indicator
+        await api('/obligations', 'POST', {title: v.name.trim(), category: v.category, amount, currency: v.currency, due_date: v.date, recurring: v.cadence === 'monthly' ? 'monthly' : 'none'});
+      } else {  // a charge that renews by itself
+        await api('/recurring', 'POST', {description: v.name.trim(), amount: Math.round(Number(amount) * 10 ** decimalsOf(v.currency)), currency: v.currency,
+          category: v.category, cadence: v.cadence, last_date: v.date});
+      }
+      invalidate(['obligations', 'habits', 'reminders']);
+      toast(t('fixed.added'), 'good'); await reload();
+    },
     async 'quick-form'() {
-      if (!ui.preview) return;
-      const p = ui.preview;
-      await api('/expenses', 'POST', {date: p.date, amount: p.amount, currency: p.currency, description: p.description, category: p.category,
-        source: ui.voiced ? 'voice' : 'quick', recurring: ui.repeat || null});
+      if (!ui.preview) { if (ui.quick.trim()) await parseQuick(true); return; }  // Enter with nothing read yet: ask the AI
+      const list = ui.preview.items || [ui.preview];
+      for (const p of list) {
+        await api('/expenses', 'POST', {date: p.date, amount: p.amount, currency: p.currency, description: p.description, category: p.category,
+          source: ui.voiced ? 'voice' : 'quick', recurring: list.length === 1 ? ui.repeat || null : null});
+      }
       Object.assign(ui, {quick: '', preview: null, repeat: '', voiced: false});
-      toast(t('spend.saved'), 'good'); await reload();
+      toast(list.length > 1 ? t('spend.saved_n', {n: list.length}) : t('spend.saved'), 'good'); await reload();
       document.getElementById('quick-input')?.focus();
     },
     async 'receipt-form'(f) {
-      const v = Object.fromEntries(new FormData(f));
-      const cur = v.currency.toUpperCase();
-      const minor = Math.round(Number(String(v.amount).replace(',', '.')) * 10 ** decimalsOf(cur));
-      if (!(minor > 0)) throw new Error(t('err.amount_invalid'));
-      await api('/expenses', 'POST', {date: v.date, amount: -minor, currency: cur, description: v.description, category: v.category, source: 'receipt'});
-      closeModal(); toast(t('spend.saved'), 'good'); await reload();
+      const rows = [...f.querySelectorAll('[data-row]')].filter(r => r.querySelector('[name=pick]').checked);
+      if (!rows.length) throw new Error(t('spend.pick_one'));
+      for (const r of rows) {
+        const val = n => r.querySelector(`[name=${n}]`).value.trim();
+        const cur = val('currency').toUpperCase();
+        const minor = Math.round(Number(val('amount').replace(',', '.')) * 10 ** decimalsOf(cur));
+        if (!(minor > 0)) { r.classList.add('bad'); throw new Error(t('err.amount_invalid')); }
+        const sign = r.dataset.in === '1' ? 1 : -1;
+        await api('/expenses', 'POST', {date: val('date'), amount: sign * minor, currency: cur, description: val('description'), category: val('category'), source: 'receipt'});
+      }
+      closeModal(); toast(rows.length > 1 ? t('spend.saved_n', {n: rows.length}) : t('spend.saved'), 'good'); await reload();
+    },
+    'receipt-add-row'() {
+      const tbody = document.querySelector('#receipt-form tbody');
+      tbody?.insertAdjacentHTML('beforeend', scanRow({date: new Date().toISOString().slice(0, 10), amount: 0, currency: (state.data.memory || {}).display_currency || 'AUD', description: '', category: 'other'}, tbody.children.length));
     },
   },
 };
@@ -223,19 +347,33 @@ async function submitReview(include) {
   await reload();
 }
 
-async function parseQuick() {
-  const text = ui.quick.trim();
-  const box = document.getElementById('quick-preview');
-  if (!text) { ui.preview = null; if (box) { box.classList.remove('on'); box.innerHTML = `<small class="muted">${t('spend.quick_hint')}</small>`; } syncQuick(); return; }
-  try { ui.preview = await api('/expenses/parse', 'POST', {text}); }
-  catch (e) { ui.preview = null; if (box) { box.classList.remove('on'); box.innerHTML = `<small class="muted">${esc(e.message)}</small>`; } syncQuick(); return; }
-  if (box) { box.classList.add('on'); box.innerHTML = previewCard(ui.preview); }
+let parseSeq = 0;
+async function parseQuick(ai = false) {
+  const text = ui.quick.trim(), seq = ++parseSeq;
+  const preview = () => document.getElementById('quick-preview');  // looked up each time: a refresh may rebuild the page meanwhile
+  const say = html => { const box = preview(); if (box) { box.classList.remove('on'); box.innerHTML = html; } };
+  if (!text) { ui.preview = null; say(`<small class="muted">${t('spend.quick_hint')}</small>`); syncQuick(); return; }
+  if (ai) say(`<span class="thinking"><span class="think-orb"><i></i></span><span class="think-text">${t('spend.ai_reading')}</span></span>`);
+  let r;
+  try { r = await api('/expenses/parse', 'POST', {text, ai}); }
+  catch (e) { if (seq !== parseSeq) return; ui.preview = null; say(`<small class="muted">${esc(e.message)}</small>`); syncQuick(); return; }
+  if (seq !== parseSeq) return;
+  if (r.needs_ai) {  // the rules found no amount; offer the AI instead of a dead end
+    ui.preview = null;
+    say(`<small class="muted">${t('spend.rules_miss')}</small> <button type="button" class="link sm" data-action="quick-ai">${t('spend.ai_read')} ${icons.arrow}</button>`);
+    syncQuick(); return;
+  }
+  ui.preview = r;
+  const box = preview();
+  if (box) { box.classList.add('on'); box.innerHTML = previewCard(r); box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop'); }
   syncQuick();
 }
 
 function syncQuick() {
   const btn = document.querySelector('#quick-form button.primary');
   if (btn) btn.disabled = !ui.preview || !isOwner();
+  const ai = document.querySelector('#quick-form .quick-ai');
+  if (ai) ai.disabled = !ui.quick.trim() || !isOwner();
 }
 
 function voice(button) {
@@ -281,11 +419,16 @@ async function importCsv(file) {
   finally { drop?.classList.remove('busy'); }
 }
 
-/** Downscale on the device before upload: faster, cheaper, and no full-resolution photo leaves the phone. */
-async function shrink(file, max = 1600) {
+
+
+
+/** Downscale on the device before upload: faster, cheaper, and no full-resolution photo leaves the phone. Tall phone
+ *  screenshots keep enough height for their text to stay readable. */
+async function shrink(file) {
   const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
   const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-  const k = Math.min(1, max / Math.max(img.width, img.height));
+  const tall = img.height > img.width * 1.6;
+  const k = Math.min(1, (tall ? 2400 : 1800) / Math.max(img.width, img.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(img.width * k); canvas.height = Math.round(img.height * k);
   const ctx = canvas.getContext('2d');
@@ -294,22 +437,38 @@ async function shrink(file, max = 1600) {
   return canvas.toDataURL('image/jpeg', 0.85);
 }
 
-async function scanReceipt(file) {
-  let image;
-  try { image = await shrink(file); } catch { toast(t('err.receipt_invalid'), 'bad'); return; }
-  modal(t('spend.scan'), `<div class="receipt-scan"><div class="receipt-img"><img src="${image}" alt=""><span class="scan-line"></span></div><div class="receipt-fields"><div class="thinking"><span class="think-orb"><i></i></span><span class="think-text">${t('spend.reading')}</span></div></div></div>`, 'RECEIPT / CHECK BEFORE SAVING', {wide: true});
+function scanRow(x, i) {
+  const cur = x.currency || 'AUD';
+  return `<tr data-row data-in="${x.amount > 0 ? 1 : 0}"><td><input type="checkbox" name="pick" checked aria-label="${t('spend.select_all')}"></td>
+    <td><input type="date" name="date" value="${esc(x.date)}" required></td>
+    <td><input name="description" value="${esc(x.description)}" maxlength="200" required></td>
+    <td><input name="amount" inputmode="decimal" value="${x.amount ? esc(plain(Math.abs(x.amount), cur)) : ''}" required class="num"></td>
+    <td><input name="currency" value="${esc(cur)}" maxlength="3" required class="cur"></td>
+    <td><select name="category">${catOptions(x.category || 'other')}</select></td></tr>`;
+}
+
+/** Receipts and banking screenshots: up to four images, read by the AI model together, checked as a list before saving. */
+async function scanImages(files) {
+  files = files.slice(0, 4);
+  if (files.some(f => /\.(heic|heif)$/i.test(f.name) || /heic|heif/i.test(f.type))) {
+    // Most browsers cannot decode HEIC; Safari can, so try first and explain if it fails.
+  }
+  let images;
+  try { images = await Promise.all(files.map(shrink)); }
+  catch { toast(t('err.receipt_heic'), 'bad'); return; }
+  scanned = images;
+  modal(t('spend.scan'), `<div class="receipt-scan multi"><div class="receipt-imgs">${images.map(src => `<div class="receipt-img"><img src="${src}" alt=""><span class="scan-line"></span></div>`).join('')}</div>
+    <div class="receipt-fields"><div class="thinking"><span class="think-orb"><i></i></span><span class="think-text">${t('spend.reading')}</span></div></div></div>`, 'RECEIPT / CHECK BEFORE SAVING', {wide: true});
   let r;
-  try { r = await api('/expenses/receipt', 'POST', {image}); } catch (e) { r = {available: false, reason: e.message}; }
-  const cur = r.currency || (state.data.memory || {}).display_currency || 'AUD';
+  try { r = await api('/expenses/receipt', 'POST', {images}); } catch (e) { r = {available: false, items: [], reason: e.message}; }
   const fields = document.querySelector('.receipt-fields');
-  if (!fields) return;
+  if (!fields || scanned !== images) return;
   document.querySelector('.receipt-scan')?.classList.add('done');
+  const list = r.items?.length ? r.items : [{date: new Date().toISOString().slice(0, 10), amount: 0, currency: (state.data.memory || {}).display_currency || 'AUD', description: '', category: 'other'}];
   fields.innerHTML = `<form id="receipt-form" class="form-block">
-    <p class="${r.available ? 'fine' : 'note warn'}">${r.available ? t('spend.check_note') : t('spend.manual_note') + (r.reason ? ' · ' + esc(r.reason) : '')}</p>
-    <div class="field"><label for="rc-desc">${t('spend.merchant')}</label><input id="rc-desc" name="description" required maxlength="200" value="${esc(r.description || '')}"></div>
-    <div class="grid-2"><div class="field"><label for="rc-amount">${t('spend.amount')}</label><input id="rc-amount" name="amount" inputmode="decimal" required value="${r.amount ? esc(plain(-r.amount, cur)) : ''}"></div>
-    <div class="field"><label for="rc-cur">${t('plans.currency')}</label><input id="rc-cur" name="currency" required maxlength="3" value="${esc(cur)}"></div></div>
-    <div class="grid-2"><div class="field"><label for="rc-date">${t('spend.date')}</label><input id="rc-date" name="date" type="date" required value="${esc(r.date || new Date().toISOString().slice(0, 10))}"></div>
-    <div class="field"><label for="rc-cat">${t('spend.category')}</label><select id="rc-cat" name="category">${catOptions(r.category || 'other')}</select></div></div>
-    <div class="form-error"></div><div class="modal-actions"><button class="button primary">${icons.check}${t('spend.save')}</button></div></form>`;
+    <p class="${r.available ? 'fine' : 'note warn'}">${r.available ? t(r.kind === 'transactions' || r.kind === 'statement' ? 'spend.check_list' : 'spend.check_note', {n: r.items.length}) : t('spend.manual_note') + (r.reason ? ' · ' + esc(r.reason) : '')}</p>
+    <div class="table-wrap"><table class="table scan-table"><thead><tr><th></th><th>${t('spend.date')}</th><th>${t('spend.merchant')}</th><th>${t('spend.amount')}</th><th>${t('plans.currency')}</th><th>${t('spend.category')}</th></tr></thead>
+      <tbody>${list.map(scanRow).join('')}</tbody></table></div>
+    <button type="button" class="link sm" data-action="receipt-add-row">${icons.plus}${t('spend.add_row')}</button>
+    <div class="form-error"></div><div class="modal-actions"><button class="button primary">${icons.check}${t('spend.save_selected')}</button></div></form>`;
 }

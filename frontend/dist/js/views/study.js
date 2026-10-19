@@ -3,12 +3,13 @@ import {esc, amt, panel, field, options, icons, empty, tag} from '../ui.js';
 import {money, day, lang} from '../i18n.js';
 import {gauge, animateGauges} from '../charts.js';
 
+
 const CURRENCIES = ['AUD', 'USD', 'CNY', 'GBP', 'EUR', 'CAD', 'NZD', 'JPY', 'KRW', 'VND', 'HKD', 'SGD'];
 const STAGES = ['researching', 'preparing', 'submitted', 'interview', 'awarded', 'rejected'];
 const KINDS = ['scholarship', 'grant', 'bursary', 'prize'];
 const DOCS = ['transcript', 'cv', 'statement', 'references', 'enrolment', 'id', 'financial', 'portfolio'];
 const ui = {currency: null, afford: null, form: {amount: '', currency: '', date: '', label: ''}};
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };  // local date
 const owner = () => isOwner() ? '' : 'disabled';
 
 function currencies() {
@@ -165,8 +166,23 @@ function scholarshipsPanel() {
       <div class="form-error"></div><button class="button primary" ${owner()}>${icons.plus}${t('study.track')}</button></form></details>`, {cls: 'sch-panel'});
 }
 
-/* ---------- email reports ---------- */
-function emailPanel() {
+/* ---------- extra income, costs and the safety buffer for the term plan (formerly "budget" on the goals page) ---------- */
+function budgetPanel() {
+  const list = (state.data.budget || []).filter(b => b.kind !== 'holding');  // what you hold is the overview's balances now
+  const owner = isOwner() ? '' : 'disabled';
+  return panel(t('study.budget'), `<p class="fine">${t('study.budget_d')}</p>
+    ${list.length ? `<ul class="list">${list.map(b => `<li class="row"><span class="kind-dot b-${esc(b.kind)}"></span><div><b>${esc(b.label)}</b><small>${esc(t('budget.' + b.kind))}${b.date ? ' · ' + day(b.date) : ''}</small></div>${amt(b.amount, b.currency)}${isOwner() ? `<button class="x" data-action="budget-delete" data-id="${esc(b.id)}" aria-label="${t('common.delete')}">×</button>` : ''}</li>`).join('')}</ul>` : `<p class="fine">${t('plans.budget_empty')}</p>`}
+    <form id="budget-form" class="inline-form"><div class="grid-3">
+      ${field('b-kind', t('plans.kind'), `<select id="b-kind" name="kind" ${owner}>${options(['income', 'expense', 'buffer'].map(k => [k, t('budget.' + k)]), 'buffer')}</select>`)}
+      ${field('b-label', t('plans.label'), `<input id="b-label" name="label" required maxlength="100" ${owner}>`)}
+      ${field('b-currency', t('plans.currency'), `<select id="b-currency" name="currency" ${owner}>${options(['AUD', 'USD', 'CNY', 'EUR', 'GBP', 'VND', 'PHP'].map(c => [c, c]), 'AUD')}</select>`)}</div>
+      <div class="grid-2">${field('b-amount', t('plans.amount'), `<input id="b-amount" name="amount" inputmode="decimal" required ${owner}>`)}
+      ${field('b-date', t('plans.date'), `<input id="b-date" name="date" type="date" ${owner}>`)}</div>
+      <div class="form-error"></div><button class="button" ${owner}>${icons.plus}${t('plans.add_entry')}</button></form>`, {cls: 'budget-panel'});
+}
+
+/* ---------- email reports (shown in Settings) ---------- */
+export function emailPanel() {
   if (!isOwner()) return '';
   const e = state.data.email;
   if (!e) return panel(t('email.title'), empty(state.errors.email || t('common.loading')));
@@ -174,10 +190,14 @@ function emailPanel() {
     <p class="note ${e.configured ? '' : 'warn'}">${e.configured ? t('email.ready') : t('email.unconfigured')}</p>
     <form id="email-form" class="form-block">
       ${field('em-address', t('email.address'), `<input id="em-address" name="address" type="email" maxlength="254" value="${esc(e.address)}" placeholder="you@university.edu">`)}
-      <div class="grid-2">${field('em-digest', t('email.digest'), `<select id="em-digest" name="digest">${options(['off', 'weekly', 'monthly'].map(x => [x, t('email.d.' + x)]), e.digest)}</select>`)}
-      <label class="check-label em-rem"><input type="checkbox" name="reminders" ${e.reminders ? 'checked' : ''}> ${t('email.reminders')}</label></div>
+      <div class="grid-2">${field('em-digest', t('email.digest'), `<select id="em-digest" name="digest">${options(['off', 'daily', 'weekly', 'monthly'].map(x => [x, t('email.d.' + x)]), e.digest)}</select>`)}
+        ${field('em-weekday', t('email.weekday'), `<select id="em-weekday" name="weekday" ${e.digest === 'weekly' ? '' : 'disabled'}>${options([0, 1, 2, 3, 4, 5, 6].map(n => [n, t('email.wd.' + n)]), e.weekday ?? 0)}</select>`)}</div>
+      <label class="check-label em-rem"><input type="checkbox" name="reminders" ${e.reminders ? 'checked' : ''}> ${t('email.reminders')}</label>
+      <small class="fine">${t('email.reminders_d')}</small>
+      <label class="check-label"><input type="checkbox" name="skip_quiet" ${e.skip_quiet !== false ? 'checked' : ''}> ${t('email.skip_quiet')}</label>
       <div class="form-error"></div>
       <div class="row-actions"><button class="button">${t('common.save')}</button>
+        <button type="button" class="button ghost" data-action="email-preview" data-period="day">${t('email.preview_day')}</button>
         <button type="button" class="button ghost" data-action="email-preview" data-period="week">${t('email.preview_week')}</button>
         <button type="button" class="button ghost" data-action="email-preview" data-period="month">${t('email.preview_month')}</button>
         <button type="button" class="button primary" data-action="email-send" ${e.configured && e.address ? '' : 'disabled'}>${t('email.send_now')}</button></div>
@@ -199,10 +219,11 @@ export const view = {
   render() {
     return `${affordPanel()}
       <div class="split wide-left">${cashflowPanel()}${termsPanel()}</div>
-      ${scholarshipsPanel()}${emailPanel()}`;
+      <div class="split">${budgetPanel()}${scholarshipsPanel()}</div>`;
   },
   mount(root) {
     animateGauges(root);
+    root.querySelector('#em-digest')?.addEventListener('change', e => { const wd = root.querySelector('#em-weekday'); if (wd) wd.disabled = e.target.value !== 'weekly'; });
     root.querySelectorAll('.bar-fill[data-ratio]').forEach(el => el.style.setProperty('--ratio', el.dataset.ratio));
     root.querySelector('#afford-form')?.addEventListener('input', e => { if (e.target.name) ui.form[e.target.name] = e.target.value; });
     root.querySelector('#cf-currency')?.addEventListener('change', async e => { ui.currency = e.target.value; await view.load(); rerender(); });
@@ -221,6 +242,7 @@ export const view = {
     });
   },
   actions: {
+    async 'budget-delete'(el) { await api('/budget/' + encodeURIComponent(el.dataset.id), 'DELETE'); invalidate(['budget']); await reload(); },
     async 'term-delete'(el) { await api('/terms/' + encodeURIComponent(el.dataset.id), 'DELETE'); await reload(); },
     async 'sch-delete'(el) { await api('/scholarships/' + encodeURIComponent(el.dataset.id), 'DELETE'); await reload(); },
     async 'email-preview'(el) {
@@ -228,7 +250,7 @@ export const view = {
       modal(r.subject, `<pre class="email-preview">${esc(r.text)}</pre>`, 'EMAIL / PREVIEW', {wide: true});
     },
     async 'email-send'() {
-      const r = await api('/email/send', 'POST', {period: state.data.email?.digest === 'monthly' ? 'month' : 'week'});
+      const r = await api('/email/send', 'POST', {period: {daily: 'day', monthly: 'month'}[state.data.email?.digest] || 'week'});
       toast(t('email.sent_to', {to: r.to}), 'good'); await reload();
     },
   },
@@ -253,9 +275,17 @@ export const view = {
         currency: value(f, 'currency'), deadline: value(f, 'deadline') || null, url: value(f, 'url'), notes: value(f, 'notes'), documents: docs});
       toast(t('study.sch_saved'), 'good'); await reload();
     },
+    async 'budget-form'(f) {
+      await api('/budget', 'POST', {kind: value(f, 'kind'), label: value(f, 'label'), currency: value(f, 'currency'), amount: value(f, 'amount'), date: value(f, 'date') || null});
+      invalidate(['budget']); toast(t('plans.entry_added'), 'good'); await reload();
+    },
     async 'email-form'(f) {
-      await api('/email', 'PUT', {address: value(f, 'address'), digest: value(f, 'digest'), reminders: f.reminders.checked, language: lang});
-      toast(t('email.saved'), 'good'); await reload();
+      await api('/email', 'PUT', {address: value(f, 'address'), digest: value(f, 'digest'), reminders: f.reminders.checked, language: lang,
+        weekday: Number(value(f, 'weekday') || state.data.email?.weekday || 0), skip_quiet: f.skip_quiet.checked});
+      toast(t('email.saved'), 'good');
+      state.data.email = await api('/email');
+      const box = document.querySelector('.email-sec');  // it lives in the Settings dialog now
+      if (box) box.innerHTML = emailPanel();
     },
   },
 };

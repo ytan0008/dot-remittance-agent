@@ -10,7 +10,7 @@ import re
 import uuid
 from datetime import date, datetime, timedelta
 from . import mailer
-from .domain import Denied, canonical, now, units, decimals, from_minor, mask
+from .domain import Denied, canonical, digest, now, units, decimals, from_minor, mask
 from .expenses import merchant_key
 from .student_i18n import TIPS, EMAIL, REMINDERS, CATEGORIES, lang_of
 
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS email_log (id INTEGER PRIMARY KEY AUTOINCREMENT, kind
 STAGES = ("researching", "preparing", "submitted", "interview", "awarded", "rejected")
 OPEN_STAGES = ("researching", "preparing")
 KINDS = ("scholarship", "grant", "bursary", "prize")
-DIGESTS = ("off", "weekly", "monthly")
+DIGESTS = ("off", "daily", "weekly", "monthly")
 NOT_SPENDING = ("transfer", "income", "tuition")  # tuition is planned per term, not day-to-day spending
 SEVERITY = {"alert": 0, "warn": 1, "info": 2, "good": 3}
 WINDOW = 60  # days after a purchase that must stay covered
@@ -294,7 +294,8 @@ class StudentMixin:
         by_day = {}
         for p in points:
             by_day[p["date"]] = by_day.get(p["date"], 0) + p["amount"]
-        opening = ledger + holdings
+        cash = self.cash_balances().get(currency)  # a real balance you entered or imported beats simulated funds
+        opening = cash["amount"] if cash else ledger + holdings
         balance, daily, rows, lowest, first_negative = opening, [], {}, None, None
         used_baseline = False
         d = today
@@ -328,10 +329,10 @@ class StudentMixin:
             if balance < 0 and first_negative is None:
                 first_negative = str(d)
             d += timedelta(days=1)
-        notes = ["ledger_simulated"] + (["holdings_unverified"] if holdings else []) + (["baseline_used"] if used_baseline else [])
+        notes = (["cash_balance"] if cash else ["ledger_simulated"] + (["holdings_unverified"] if holdings else [])) + (["baseline_used"] if used_baseline else [])
         if not terms:
             notes.append("no_terms")
-        return dict(currency=currency, start=str(today), end=str(end), opening=dict(ledger=ledger, holdings=holdings, total=opening),
+        return dict(currency=currency, start=str(today), end=str(end), opening=dict(ledger=ledger, holdings=holdings, cash=cash["amount"] if cash else None, cash_as_of=cash["as_of"] if cash else None, total=opening),
                     buffer=buffer, baseline_monthly=baseline, months=list(rows.values()), daily=daily,
                     events=sorted(points, key=lambda p: p["date"]), lowest=dict(date=lowest[0], amount=lowest[1]),
                     first_negative=first_negative, below_buffer=lowest[1] < buffer, terms=[t["name"] for t in terms],
@@ -356,7 +357,7 @@ class StudentMixin:
         price = units(str(amount), decimals(currency))
         today = date.today()
         when = _day(day) if day else today
-        if not today <= when <= today + timedelta(days=365):
+        if not today - timedelta(days=1) <= when <= today + timedelta(days=365):  # one day of slack for time zones
             raise Denied("choose a date from today up to a year ahead", "date_invalid")
         months = max(3, (when + timedelta(days=WINDOW) - today).days // 30 + 2)
         plan = self.cashflow(currency, months)
@@ -419,9 +420,18 @@ class StudentMixin:
             raise Denied("period must be week or month", "student_invalid", field="period")
         L = lang_of(language)
         T, cats = TIPS[L], CATEGORIES[L]
-        days = 7 if period == "week" else 30
         today = date.today()
-        start, prev_start, base_start = today - timedelta(days=days - 1), today - timedelta(days=2 * days - 1), today - timedelta(days=4 * days - 1)
+        if period == "week":
+            # The calendar week: Monday until today, live every day, starting fresh each Monday. It is compared with the
+            # same days of earlier weeks, so Wednesday is never measured against a whole week.
+            start = today - timedelta(days=today.weekday())
+            days = (today - start).days + 1
+            windows = [(start - timedelta(days=7 * k), start - timedelta(days=7 * k - days + 1)) for k in (1, 2, 3)]
+        else:
+            days = 30
+            start = today - timedelta(days=days - 1)
+            windows = [(start - timedelta(days=30 * k), start - timedelta(days=30 * k - days + 1)) for k in (1, 2, 3)]
+        (prev_start, prev_end), base_start = windows[0], windows[-1][0]
         with self.store.read() as c:
             spent = [dict(r) for r in c.execute("SELECT * FROM expenses WHERE status='confirmed' AND amount<0 AND date BETWEEN ? AND ?",
                                                 (str(base_start), str(today))) if r["category"] not in NOT_SPENDING]
@@ -440,13 +450,14 @@ class StudentMixin:
         def total(rows, a, b, cat=None):
             return -sum(e["amount"] for e in rows if str(a) <= e["date"] <= str(b) and (cat is None or e["category"] == cat))
         now_total = total(mine, start, today)
-        prev_total = total(mine, prev_start, start - timedelta(days=1))
-        base_avg = total(mine, base_start, start - timedelta(days=1)) // 3
+        prev_total = total(mine, prev_start, prev_end)
+        base = lambda cat=None: sum(total(mine, a, b, cat) for a, b in windows) // 3  # noqa: E731
+        base_avg = base()
         fmt = lambda m: money(m, currency)  # noqa: E731
         categories = []
         for cat in sorted({e["category"] for e in mine}):
-            categories.append(dict(category=cat, amount=total(mine, start, today, cat), previous=total(mine, prev_start, start - timedelta(days=1), cat),
-                                   baseline=total(mine, base_start, start - timedelta(days=1), cat) // 3))
+            categories.append(dict(category=cat, amount=total(mine, start, today, cat), previous=total(mine, prev_start, prev_end, cat),
+                                   baseline=base(cat)))
         categories = sorted([c for c in categories if c["amount"] or c["previous"]], key=lambda c: -c["amount"])
         merchants = {}
         for e in mine:
@@ -558,38 +569,71 @@ class StudentMixin:
         with self.store.read() as c:
             log = [dict(r) for r in c.execute("SELECT id,kind,recipient,subject,status,error,created FROM email_log ORDER BY id DESC LIMIT 10")]
         return dict(configured=mailer.configured(), address=s.get("address", ""), digest=s.get("digest", "off"),
+                    weekday=int(s.get("weekday", 0)), skip_quiet=bool(s.get("skip_quiet", True)),
                     reminders=bool(s.get("reminders")), language=s.get("language", "en"), last_digest=s.get("last_digest"), log=log)
 
-    def set_email(self, actor, address="", digest="off", reminders=False, language="en"):
+    def set_email(self, actor, address="", digest="off", reminders=False, language="en", weekday=0, skip_quiet=True):
         self.owner(actor)
         address = (address or "").strip()
         if address and not mailer.valid_address(address):
             raise Denied("enter a valid email address", "email_invalid")
         if digest not in DIGESTS:
-            raise Denied("digest must be off, weekly or monthly", "email_invalid")
+            raise Denied("digest must be off, daily, weekly or monthly", "email_invalid")
+        if weekday not in range(7):
+            raise Denied("weekday must be 0 (Monday) to 6 (Sunday)", "email_invalid")
         s = self._setting("email", {})
         with self.store.tx() as c:
             if reminders and not s.get("reminders"):
                 # Start from now: switching reminders on never mails the backlog.
                 s["last_reminder_id"] = c.execute("SELECT COALESCE(MAX(id),0) FROM reminders").fetchone()[0]
-            s.update(address=address, digest=digest if address else "off", reminders=bool(reminders and address), language=lang_of(language))
+            s.update(address=address, digest=digest if address else "off", reminders=bool(reminders and address), language=lang_of(language),
+                     weekday=int(weekday), skip_quiet=bool(skip_quiet))
             self._put_setting(c, "email", s)
             self.store.event(c, actor, "email.settings", "ok", None, address=mask(address, 3) if address else "", digest=s["digest"],
                              reminders=s["reminders"])
         return self.email_settings()
 
+    def _money_section(self, E):
+        """Balances, gaps, plans and timing: the part of every digest that is about exchanging."""
+        sections, fingerprint = [], []
+        pos = self.cash_position()
+        if pos["currencies"]:
+            sections.append((E["assets"], [f"{c['currency']} {money(c['amount'], c['currency'])}" for c in pos["currencies"]]))
+            fingerprint += [(c["currency"], c["amount"]) for c in pos["currencies"]]
+        gaps = [g for g in self.currency_gaps()["gaps"] if g["known"] and g["gap_after"]]
+        sections.append((E["gaps"], [E["gap_item"].format(cur=g["currency"], amount=money(g["gap_after"], g["currency"]),
+                                                          due=f" · {g['due']}" if g["due"] else "",
+                                                          stressed=money(g["gap_stressed"], g["currency"])) for g in gaps] or [E["no_gaps"]]))
+        fingerprint += [(g["currency"], g["gap_after"]) for g in gaps]
+        plans = self.exchange_plans()
+        sections.append((E["plans"], [E["plan_item"].format(pair=f"{p['source']}→{p['target']}" + (f" · {p['purpose']}" if p["purpose"] else ""),
+                                                            amount=money(p["amount"], p["amount_currency"]), due=p["due"] or "—") for p in plans[:8]]
+                         or [E["no_plans"]]))
+        fingerprint += [(p["id"], p["amount"], p["due"]) for p in plans]
+        timing = []
+        for pair in {(p["source"], p["target"]) for p in plans}:
+            try:
+                adv = self.exchange_advice(*pair, use_model=False)
+                timing.append(f"{pair[0]}→{pair[1]} {adv['signals']['rate']} · {E.get('v_' + adv['verdict'], adv['verdict'])}" + (f" — {adv['explanation']}" if adv.get("explanation") else ""))
+            except (Denied, KeyError, ValueError, ArithmeticError):  # timing is a bonus; the digest goes out without it
+                continue
+        if timing:
+            sections.append((E["timing"], sorted(timing)))
+        return sections, digest(fingerprint)
+
     def report(self, period="week", language=None):
         language = lang_of(language or self._setting("email", {}).get("language") or self.memory().get("language"))
         E, R = EMAIL[language], REMINDERS[language]
-        ins = self.spending_insights(period, language)
+        daily = period == "day"
+        ins = self.spending_insights("week" if daily else period, language)
         cur, cats = ins["currency"], CATEGORIES[language]
         today = date.today()
         subject = E["subject_" + period].format(date=str(today))
-        lines = [E["title"], E["period_" + period].format(start=ins["start"], end=ins["end"]), ""]
+        lines = [E["title"], (E["period_day"].format(date=str(today)) if daily else E["period_" + period].format(start=ins["start"], end=ins["end"])), ""]
         change = (E["change"].format(sign="+" if ins["change_pct"] > 0 else "", pct=ins["change_pct"])
                   if ins["change_pct"] is not None else E["no_previous"])
         lines.append(E["spent"].format(total=money(ins["total"], cur)) + " · " + change)
-        sections = []
+        sections, money_print = self._money_section(E)
         if ins["categories"]:
             sections.append((E["categories"], [f"{cats.get(c['category'], c['category'])}: {money(c['amount'], cur)}"
                                                for c in ins["categories"][:6] if c["amount"]]))
@@ -610,7 +654,8 @@ class StudentMixin:
         for title, items in sections:
             lines += ["", title] + ["· " + i for i in items]
         lines += ["", E["footer"]]
-        return dict(subject=subject, text="\n".join(lines), html=self._html(E["title"], lines[1], lines[3], sections, E["footer"]))
+        return dict(subject=subject, text="\n".join(lines), html=self._html(E["title"], lines[1], lines[3], sections, E["footer"]),
+                    fingerprint=digest([money_print, [r["id"] for r in active]]))
 
     @staticmethod
     def _html(title, period, headline, sections, footer):
@@ -640,7 +685,7 @@ class StudentMixin:
             last = c.execute("SELECT MAX(created) FROM email_log WHERE kind<>'reminders'").fetchone()[0]
         if last and now() - last < 60:
             raise Denied("wait a minute before sending another report", "email_rate")
-        r = self.report(period if period in ("week", "month") else "week")
+        r = self.report(period if period in ("day", "week", "month") else "week")
         try:
             mailer.send(s["address"], r["subject"], r["text"], r["html"])
         except Denied as exc:
@@ -656,15 +701,25 @@ class StudentMixin:
             return []
         sent, today = [], date.today()
         last = s.get("last_digest")
-        if s.get("digest") == "weekly":
-            due = (now() - last >= 7 * 86400 - 3600) if last else today.weekday() == 0
+        if s.get("digest") == "daily":
+            due = datetime.fromtimestamp(last).date() != today if last else True
+        elif s.get("digest") == "weekly":
+            day = int(s.get("weekday", 0))
+            # On the chosen weekday; or right away when a week has gone by without one (the app was not running that day).
+            due = (today.weekday() == day and (not last or now() - last >= 6 * 86400)) or bool(last and now() - last >= 7 * 86400 + 3600)
         elif s.get("digest") == "monthly":
             due = datetime.fromtimestamp(last).strftime("%Y-%m") != today.strftime("%Y-%m") if last else today.day == 1
         else:
             due = False
         if due:
-            period = "week" if s["digest"] == "weekly" else "month"
+            period = {"daily": "day", "weekly": "week"}.get(s["digest"], "month")
             r = self.report(period)
+            quiet = s.get("skip_quiet", True) and r["fingerprint"] == s.get("last_fingerprint")
+            if quiet:  # nothing changed since the last digest: skip it rather than send the same email again
+                s["last_digest"] = now()
+                due = False
+        if due:
+            s["last_fingerprint"] = r["fingerprint"]
             try:
                 mailer.send(s["address"], r["subject"], r["text"], r["html"])
                 self._log_email("digest", s["address"], r["subject"], "sent")

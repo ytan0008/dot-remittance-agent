@@ -2,24 +2,109 @@ import {state, t, api, toast, isOwner, canPrepare, invalidate, newId, $, rerende
 import {esc, amt, tag, panel, field, options, segmented, icons, empty} from '../ui.js';
 import {money, num, day, pct, region, decimalsOf, phrase, when, lang} from '../i18n.js';
 import {renderDetail} from './payments.js';
+import {view as templatesView} from './templates.js';
+import {recipientsPanels} from './wallets.js';
+import {modal, need, bus} from '../core.js';
+import {loadBanks, banksFor, pricingLine, ensureBank} from './banks.js';
+
+const onTemplates = () => state.send.tab === 'templates';
+const onRecipients = () => state.send.tab === 'recipients';
+/** A confirmed bank transfer template linked to this recipient, if any. */
+const templateFor = id => id ? (state.data.ttemplates || []).find(x => x.recipient_id === id && x.confirmed) : null;
+const tplHint = id => { const x = templateFor(id); return x ? `${icons.check}${t('send.tpl_hint', {name: x.name})} <button type="button" class="link sm" data-action="send-tab" data-v="templates">${t('send.tpl_open')} ${icons.arrow}</button>` : ''; };
+
+function tabs() {
+  const tab = onTemplates() ? 'templates' : onRecipients() ? 'recipients' : 'compare';
+  const icon = {compare: icons.send, recipients: icons.wallets, templates: icons.templates};
+  return `<div class="page-tabs" role="tablist">${[['compare', t('send.tab_compare')], ['recipients', t('send.tab_recipients')], ['templates', t('send.tab_templates')]].map(([v, l]) =>
+    `<button type="button" role="tab" aria-selected="${v === tab}" class="${v === tab ? 'on' : ''}" data-action="send-tab" data-v="${v}">${icon[v]}${esc(l)}</button>`).join('')}</div>`;
+}
 
 let timer = 0, seq = 0;
 const insight = {};  // pair -> {latest, history, forecast} used by the reminder step
 
-const routeOf = id => (state.data.routes || []).find(r => r.id === id);
+const PAIR_CURRENCIES = ['AUD', 'CNY', 'USD', 'EUR', 'GBP', 'JPY', 'KRW', 'HKD', 'SGD', 'NZD', 'CAD', 'VND', 'PHP', 'MXN', 'TWD', 'MYR', 'THB', 'IDR', 'INR'];
+const HOME = {AUD: 'AU', CNY: 'CN', USD: 'US', JPY: 'JP', KRW: 'KR', HKD: 'HK', SGD: 'SG', NZD: 'NZ', CAD: 'CA', VND: 'VN', PHP: 'PH', MXN: 'MX', TWD: 'TW', MYR: 'MY', THB: 'TH', IDR: 'ID', GBP: 'GB', INR: 'IN'};
+/** The route for a currency pair: a configured one when it exists (it may be payable in the sandbox), else a plan-only pair. */
+const routeOf = id => (state.data.routes || []).find(r => r.id === id) || (String(id || '').startsWith('pair:') ? virtualRoute(...id.slice(5).split('-')) : undefined);
+const virtualRoute = (source, target) => ({id: `pair:${source}-${target}`, source, target, send: HOME[source] || source, receive: HOME[target] || target,
+  enabled: true, capabilities: {sandbox_payment: false}});
+const routeFor = (source, target) => (state.data.routes || []).filter(r => r.enabled && r.source === source && r.target === target)
+  .sort((a, b) => b.capabilities.sandbox_payment - a.capabilities.sandbox_payment)[0] || virtualRoute(source, target);
 
-function routeChips() {
-  const routes = (state.data.routes || []).filter(r => r.enabled);
-  const sorted = [...routes].sort((a, b) => b.capabilities.sandbox_payment - a.capabilities.sandbox_payment);
-  return `<div class="route-chips hscroll">${sorted.map(r => `<button class="route-chip ${state.send.route === r.id ? 'on' : ''} ${r.capabilities.sandbox_payment ? '' : 'analysis'}" data-action="pick-route" data-value="${esc(r.id)}">
-      <span class="route-line"><i></i><s></s><i></i></span><b>${esc(r.send)} → ${esc(r.receive)}</b><small>${esc(r.source)}/${esc(r.target)} · ${r.capabilities.sandbox_payment ? t('send.payable') : t('send.analysis_only')}</small></button>`).join('')}
-    <button class="route-chip ghost" data-action="go" data-view="routes">${icons.plus}<b>${t('send.more_routes')}</b><small>APEC</small></button></div>`;
+function pairCard(route) {
+  const s = state.send, banks = banksFor(route.source, route.target) || [];
+  const senders = banks.filter(b => b.currencies.includes(route.source)), receivers = banks.filter(b => b.currencies.includes(route.target));
+  const pick = (id, list) => list.find(b => b.id === id);
+  return `<div class="pair-card reveal">
+    <div class="pair-sides">
+      <label class="pair-select"><span>${t('send.you_pay')}</span><select id="pair-source" data-pair="source">${options(PAIR_CURRENCIES.map(c => [c, c]), route.source)}</select><small>${esc(region(route.send) || route.source)}</small></label>
+      <button class="swap" type="button" data-action="pair-swap" aria-label="${t('markets.swap')}">${icons.swap}</button>
+      <label class="pair-select"><span>${t('send.they_receive')}</span><select id="pair-target" data-pair="target">${options(PAIR_CURRENCIES.map(c => [c, c]), route.target)}</select><small>${esc(region(route.receive) || route.target)}</small></label>
+      <span class="pair-cap">${route.capabilities.sandbox_payment ? `<span class="tag k-sandbox_quote">${t('send.payable')}</span>` : ''}
+        <button type="button" class="link sm" data-action="routes-open">${t('send.more_routes')}</button></span>
+    </div>
+    <div class="pair-banks">
+      <div class="field"><label for="bank-send">${t('send.bank_send')} <small class="muted">${t('tf.optional')}</small></label>
+        <select id="bank-send" data-bank-pick="send_bank"><option value="">${t('send.bank_any')}</option>${options(senders.map(b => [b.id, b.name]), s.send_bank)}</select>
+        <small class="bank-line">${s.send_bank ? pricingLine(pick(s.send_bank, senders)) + bankButtons(pick(s.send_bank, senders), route) : t('send.bank_hint')}</small></div>
+      <div class="field"><label for="bank-recv">${t('send.bank_receive')} <small class="muted">${t('tf.optional')}</small></label>
+        <select id="bank-recv" data-bank-pick="receive_bank"><option value="">${t('send.bank_any')}</option>${options(receivers.map(b => [b.id, b.name]), s.receive_bank)}</select>
+        <small class="bank-line">${s.receive_bank ? pricingLine(pick(s.receive_bank, receivers)) + bankButtons(pick(s.receive_bank, receivers), route) : t('send.bank_hint')}</small></div>
+    </div></div>`;
+}
+
+const bankButtons = (b, route) => !b || !isOwner() ? '' : ` <button type="button" class="link sm" data-action="bank-refresh" data-bank="${esc(b.id)}" data-s="${esc(route.source)}" data-t="${esc(route.target)}">${icons.agent}${t('bank.read')}</button>
+  ${!b.pricing || b.pricing.status !== 'ok' ? `<button type="button" class="link sm" data-action="bank-edit" data-bank="${esc(b.id)}" data-s="${esc(route.source)}" data-t="${esc(route.target)}">${t('bank.edit')}</button>` : ''}`;
+
+/* ---------- step 3: exchange scenarios through real banks ---------- */
+function scenariosHtml(route) {
+  const r = state.send.scen;
+  if (!r) return `<p class="fine">${t('scen.hint')}</p>`;
+  if (r.error) return `<p class="note warn">${esc(r.error)}</p>`;
+  if (!r.scenarios.length) return `<p class="fine">${t('scen.none')}</p>`;
+  const name = id => (banksFor(route.source, route.target) || []).find(b => b.id === id)?.name || t('send.bank_any');
+  const unit = r.mode === 'send' ? r.target : r.source;
+  return `<ol class="scenarios">${r.scenarios.map(x => `<li class="scen-card ${x.rank === 1 ? 'best' : ''}">
+      <div class="scen-head"><span class="scen-rank">${String(x.rank).padStart(2, '0')}</span>
+        <div><b>${esc(x.convert_at === 'receive_bank' ? t('scen.at_receive', {b: name(x.receive_bank)}) : x.convert_at === 'send_bank' ? t('scen.at_send', {b: name(x.send_bank)}) : t('scen.at_reference'))}</b>
+          <small>${esc(name(x.send_bank))} → ${esc(name(x.receive_bank))} · ${x.timing === 'split' ? t('scen.split', {d: day(r.later)}) : t('scen.once')}</small></div>
+        ${x.rank === 1 ? `<span class="tag">${t('scen.best')}</span>` : ''}</div>
+      <ul class="scen-legs">${x.legs.map(l => `<li><span>${day(l.date)}</span><span>−${esc(money(l.spend, r.source))} ${esc(r.source)}</span><span>${icons.arrow}</span><b>${esc(money(l.receive, r.target))} ${esc(r.target)}</b><small>${t('detail.rate')} ${num(l.rate, 4)}</small></li>`).join('')}</ul>
+      <div class="scen-foot"><div>${amt(r.mode === 'send' ? x.total_receive : x.total_spend, unit, 'lg')}<small>${t(r.mode === 'send' ? 'send.they_get' : 'send.you_pay')}</small></div>
+        <small>${t('scen.fees')} ${esc(money(x.total_fees, r.source))} ${esc(r.source)}${x.rate_source === 'reference' ? ' · ' + t('scen.ref_rate') : x.rate_source === 'estimate' ? ' · ' + t('scen.est_rate') : ''}${x.estimated ? ' · ' + t('scen.est_fees') : ''}</small>
+        ${x.unknown.length ? `<small class="scen-unknown">${t('scen.unknown')}: ${x.unknown.map(u => t('scen.u.' + u)).join(', ')}</small>` : ''}
+        <span class="row-actions"><button class="button sm" data-action="scen-plan" data-id="${esc(x.id)}" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('scen.to_plan')}</button>
+          <button class="button sm ghost" data-action="scen-sandbox" data-id="${esc(x.id)}">${t('scen.to_sandbox')} ${icons.arrow}</button></span></div></li>`).join('')}</ol>
+    ${r.forecast ? `<p class="fine">${t('scen.split_note', {d: day(r.later)})}</p>` : `<p class="fine">${t('scen.no_forecast')}</p>`}
+    <p class="fine">${t('scen.note')}</p>`;
+}
+
+let scenTimer = 0, scenSeq = 0;
+function scheduleScenarios(delay = 600) { clearTimeout(scenTimer); scenTimer = setTimeout(runScenarios, delay); }
+async function runScenarios() {
+  const s = state.send, route = routeOf(s.route);
+  const amount = s.mode === 'send' ? s.amount : s.receive;
+  if (!route || !amount || !(Number(amount) > 0)) { s.scen = null; paintScenarios(route); return; }
+  const mine = ++scenSeq;
+  try {
+    const r = await api('/exchange-scenarios', 'POST', {source: route.source, target: route.target, amount, mode: s.mode,
+      send_bank: s.send_bank || null, receive_bank: s.receive_bank || null, due: s.arrival || null});
+    if (mine === scenSeq) s.scen = r;
+  } catch (e) { if (mine === scenSeq) s.scen = {error: e.message}; }
+  if (mine === scenSeq) paintScenarios(route);
+}
+function paintScenarios(route) {
+  const box = document.getElementById('scenarios');
+  if (box && route) { box.innerHTML = scenariosHtml(route); box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop'); }
 }
 
 function form(route) {
   const s = state.send;
   const recipients = (state.data.recipients || []).filter(r => r.enabled && r.rail === 'sandbox' && r.currency === route.target);
-  const goals = (state.data.goals || []).filter(g => g.status === 'active' && g.source === route.source && g.target === route.target);
+  // A payment can count toward one of your exchange plans for this pair (it shows as that plan's progress).
+  const goals = (state.data.sendPlans || []).filter(g => g.source === route.source && g.target === route.target)
+    .map(g => ({id: g.id, title: `${g.purpose || g.source + '→' + g.target} · ${money(g.total ?? g.amount, g.amount_currency)} ${g.amount_currency}`}));
   const currency = s.mode === 'send' ? route.source : route.target;
   return `<form id="send-form" class="send-form" autocomplete="off">
     <p class="direction-line">${t('send.direction', {s: route.source, t: route.target})}</p>
@@ -29,6 +114,7 @@ function form(route) {
       <small>${t('send.decimals', {n: decimalsOf(currency)})}</small></div>
     ${field('send-recipient', t('send.recipient'), `<select id="send-recipient" name="recipient" required><option value="">${t('send.choose_recipient')}</option>${options(recipients.map(r => [r.id, `${r.name} · ${r.id}`]), s.recipient)}</select>`,
       recipients.length ? '' : `${t('send.no_recipient', {c: route.target})} <button type="button" class="link" data-action="new-recipient" data-currency="${esc(route.target)}" data-country="${esc(route.receive || '')}">${t('action.add_recipient')}</button>`)}
+    <p class="fine tpl-hint" id="tpl-hint">${tplHint(s.recipient)}</p>
     ${field('send-purpose', t('send.purpose'), `<input id="send-purpose" name="purpose" maxlength="200" required placeholder="${t('send.purpose_ph')}" value="${esc(s.purpose)}">`)}
     <div class="grid-2">
       ${field('send-arrival', t('send.arrival'), `<input id="send-arrival" name="arrival" type="date" value="${esc(s.arrival)}">`)}
@@ -44,21 +130,25 @@ function comparison(result) {
   if (!result) return `<div class="compare-empty"><span class="empty-orb"><i></i></span><p>${t('send.enter_amount')}</p></div>`;
   if (result.error) return `<div class="rate-error">${esc(result.error)}</div>`;
   const r = result, unit = r.mode === 'send' ? r.target : r.source;
+  // The sandbox quote is not shown here (drafts come from the form); the remaining options are ranked among themselves.
+  const shown = r.options.filter(o => o.kind !== 'sandbox_quote');
+  const order = shown.filter(o => o.rank).sort((a, b) => a.rank - b.rank);
+  const rankOf = o => o.rank ? order.indexOf(o) + 1 : 0;
   const ref = r.reference;
   return `<div class="compare-head">
       ${ref ? `<div><span class="eyebrow">${tag('reference')}</span><b>${num(ref.rate, 6)}</b> <small>${esc(r.target)}/${esc(r.source)}</small><small class="muted block">${esc(ref.provider)} · ${day(ref.observed)} · ${esc(phrase(ref.frequency || ''))}${ref.derived ? ' · ' + t('rates.derived') : ''}</small></div>` : `<div class="note warn">${t('send.no_reference')}</div>`}
       ${segmented('rank', [['receive', t(r.mode === 'send' ? 'send.rank_receive' : 'send.rank_cost')], ['speed', t('send.rank_speed')]], state.send.rank, 'send-rank')}
     </div>
     <p class="fine basis">${t('send.basis')}: ${esc(t('basis.' + r.rank + '.' + r.mode))}</p>
-    <ol class="options">${r.options.map(o => `<li class="option k-${esc(o.kind)} ${o.rank === 1 ? 'best' : ''} reveal in">
-      <div class="option-rank">${o.rank ? String(o.rank).padStart(2, '0') : '—'}</div>
+    <ol class="options">${shown.map(o => `<li class="option k-${esc(o.kind)} ${rankOf(o) === 1 ? 'best' : ''} reveal in">
+      <div class="option-rank">${rankOf(o) ? String(rankOf(o)).padStart(2, '0') : '—'}</div>
       <div class="option-main"><div class="option-title">${tag(o.kind)}<b>${esc(t('option.' + o.id))}</b></div>
         <div class="option-facts"><span>${t('detail.fee')} ${o.fee ? esc(money(o.fee, r.source)) + ' ' + esc(r.source) : '0'}</span><span>${t('detail.rate')} ${num(o.applied_rate, 6)}</span><span>${t('detail.spread')} ${num(o.spread_pct, 2)}%</span>${o.eta ? `<span>${t('detail.eta')} ${esc(t('eta.' + o.id))}</span>` : ''}${o.cost_vs_reference_pct ? `<span>${t('send.vs_ref')} −${num(o.cost_vs_reference_pct, 2)}%</span>` : ''}</div>
         ${o.unknown_charges ? `<small class="muted">${t('send.unknown')}: ${esc(phrase(o.unknown_charges))}</small>` : ''}
       </div>
       <div class="option-amt">${amt(r.mode === 'send' ? o.receive : o.send, unit, 'lg')}<small>${t(r.mode === 'send' ? 'send.they_get' : 'send.you_pay')}</small>
         ${o.kind === 'sandbox_quote' && o.executable ? `<button class="button sm primary" data-action="submit-send">${t('send.prepare_short')}</button>` : ''}
-        ${o.rank === 1 && isOwner() ? `<button class="link sm" data-action="accept-rec" data-id="${esc(o.id)}">${t('send.accept')}</button>` : ''}</div>
+        ${rankOf(o) === 1 && isOwner() ? `<button class="link sm" data-action="accept-rec" data-id="${esc(o.id)}">${t('send.accept')}</button>` : ''}</div>
     </li>`).join('')}</ol>
     ${r.notes?.length ? `<div class="notes">${r.notes.map(n => `<p class="fine">· ${esc(phrase(n))}</p>`).join('')}</div>` : ''}
     <p class="fine">${t('send.disclaimer')}</p>`;
@@ -90,7 +180,7 @@ function reminderStep(route) {
       <div class="form-error"></div>
       <button class="button primary" ${isOwner() ? '' : 'disabled'}>${icons.check}${t('rem.create')}</button>
     </form>${list}</details>`;
-  return panel(`<span class="step-n">3</span>${t('rem.title')}`, `${aiCard(route, info, plan)}${needsForm(route, info)}${custom}`,
+  return panel(`<span class="step-n">4</span>${t('rem.title')}`, `${aiCard(route, info, plan)}${needsForm(route, info)}${custom}`,
     {cls: 'reminder-step', id: 'reminder-step'});
 }
 
@@ -113,13 +203,14 @@ function aiCard(route, info, plan) {
 
 function needsForm(route, info) {
   const n = info?.advice?.needs || {}, s = state.send;
-  const amount = n.amount ? money(n.amount, route.target).replace(/,/g, '') : (s.mode === 'receive' ? s.receive : '');
-  return `<form id="needs-form" class="needs-form"><div><span class="eyebrow">${t('watch.needs')}</span><p class="fine">${t('watch.needs_d')}</p></div>
+  const amount = s.mode === 'receive' ? s.receive : '';  // each save adds a plan; existing plans are listed on the overview
+  const planned = n.plans ? `<p class="fine">${t('watch.planned', {n: n.plans, a: n.amount ? money(n.amount, route.target) + ' ' + route.target : '—'})} <button type="button" class="link sm" data-action="go" data-view="overview">${t('nav.overview')} ${icons.arrow}</button></p>` : '';
+  return `<form id="needs-form" class="needs-form"><div><span class="eyebrow">${t('watch.needs')}</span><p class="fine">${t('watch.needs_d')}</p>${planned}</div>
     <div class="needs-grid">
       ${field('nd-amount', t('watch.amount', {c: route.target}), `<input id="nd-amount" name="amount" inputmode="decimal" value="${esc(amount)}" placeholder="0">`)}
-      ${field('nd-deadline', t('watch.deadline'), `<input id="nd-deadline" name="deadline" type="date" value="${esc(n.deadline || s.arrival || '')}">`)}
+      ${field('nd-deadline', t('watch.deadline'), `<input id="nd-deadline" name="deadline" type="date" value="${esc(s.arrival || '')}">`)}
       ${field('nd-rate', t('watch.min_rate'), `<input id="nd-rate" name="min_rate" inputmode="decimal" value="${esc(n.min_rate || '')}" placeholder="${esc(info?.latest?.rate ? num(info.latest.rate * 0.99, 4) : '')}">`)}
-      ${field('nd-note', t('watch.note_field'), `<input id="nd-note" name="note" maxlength="200" value="${esc(n.note || '')}">`)}
+      ${field('nd-note', t('watch.note_field'), `<input id="nd-note" name="note" maxlength="120" value="${esc(s.purpose || '')}">`)}
     </div><div class="form-error"></div><button class="button sm" ${isOwner() ? '' : 'disabled'}>${icons.check}${t('watch.save')}</button></form>`;
 }
 
@@ -169,35 +260,92 @@ async function loadInsight(route) {
 
 export const view = {
   id: 'send',
-  needs: ['routes', 'recipients', 'goals', 'balances', 'alerts'],
+  needs: ['routes', 'recipients', 'balances', 'alerts'],
+  async load() {
+    if (onTemplates()) { await templatesView.load(); return; }
+    if (onRecipients()) { await need(['settings']); return; }
+    try { state.data.ttemplates = await api('/transfer-templates'); } catch { /* the recipient hint is optional */ }
+    try { state.data.sendPlans = await api('/exchange-plans'); } catch { state.data.sendPlans = []; }
+    const route = routeOf(state.send.route) || routeFor('AUD', 'CNY');
+    await loadBanks(route.source, route.target);
+  },
   render() {
+    if (onTemplates()) return tabs() + (state.data.tformats ? templatesView.render() : empty(t('common.loading')));
+    if (onRecipients()) return tabs() + recipientsPanels();
     let route = routeOf(state.send.route);
-    if (!route) { route = (state.data.routes || []).find(r => r.capabilities.sandbox_payment) || (state.data.routes || [])[0]; if (route) state.send.route = route.id; }
-    if (!route) return empty(t('common.loading'));
+    if (!route) { route = (state.data.routes || []).find(r => r.enabled && r.capabilities.sandbox_payment) || routeFor('AUD', 'CNY'); state.send.route = route.id; }
     const balance = (state.data.balances || []).find(b => b.currency === route.source);
-    return `${routeChips()}
+    return `${tabs()}${pairCard(route)}
       <div class="send-layout">
         ${panel(`<span class="step-n">1</span>${esc(region(route.send))} <span class="muted">→</span> ${esc(region(route.receive))}`, form(route),
           {sub: balance ? `${t('wallets.available')} ${esc(money(balance.available, balance.currency))} ${esc(balance.currency)}` : '', cls: 'send-panel'})}
         ${panel(`<span class="step-n">2</span>${t('send.compare')}`, `<div id="compare">${comparison(state.send.result)}</div>`, {cls: 'compare-panel', sub: t('send.live')})}
       </div>
+      ${panel(`<span class="step-n">3</span>${t('scen.title')}`, `<div id="scenarios">${scenariosHtml(route)}</div>`, {cls: 'scen-panel', sub: t('scen.sub'),
+        actions: `<button class="button sm" data-action="scen-run">${icons.reset}${t('scen.run')}</button>`})}
       ${reminderStep(route)}`;
   },
   mount(root) {
+    if (state.send.openRoutes) { state.send.openRoutes = false; routesDialog(); }
+    if (onTemplates()) { templatesView.mount(root); return; }
+    if (onRecipients()) return;
     const route = routeOf(state.send.route);
     root.querySelector('#send-form')?.addEventListener('input', e => {
       const s = state.send, name = e.target.name;
-      if (name === 'amount') { if (s.mode === 'send') s.amount = e.target.value; else s.receive = e.target.value; schedule(); }
-      if (name === 'recipient') s.recipient = e.target.value;
+      if (name === 'amount') { if (s.mode === 'send') s.amount = e.target.value; else s.receive = e.target.value; schedule(); scheduleScenarios(); }
+      if (name === 'recipient') { s.recipient = e.target.value; const hint = root.querySelector('#tpl-hint'); if (hint) hint.innerHTML = tplHint(s.recipient); }
       if (name === 'purpose') s.purpose = e.target.value;
       if (name === 'arrival') s.arrival = e.target.value;
       if (name === 'goal') s.goal = e.target.value;
     });
     if (route) loadInsight(route);
     if (!state.send.result && (state.send.amount || state.send.receive)) schedule(0);
+    if (!state.send.scen && (state.send.amount || state.send.receive)) scheduleScenarios(0);
+    root.querySelectorAll('select[data-pair]').forEach(sel => sel.addEventListener('change', () => {
+      const cur = routeOf(state.send.route), source = sel.dataset.pair === 'source' ? sel.value : cur.source, target = sel.dataset.pair === 'target' ? sel.value : cur.target;
+      if (source === target) { toast(t('err.pair_invalid'), 'bad'); sel.value = sel.dataset.pair === 'source' ? cur.source : cur.target; return; }
+      pickPair(source, target);
+    }));
+    root.querySelectorAll('select[data-bank-pick]').forEach(sel => sel.addEventListener('change', async () => {
+      state.send[sel.dataset.bankPick] = sel.value; state.send.scen = null;
+      const r = routeOf(state.send.route);
+      if (sel.value && !banksFor(r.source, r.target)?.find(b => b.id === sel.value)?.pricing) {
+        sel.closest('.field')?.querySelector('.bank-line')?.replaceChildren(document.createTextNode(t('bank.reading')));
+        await ensureBank(sel.value, r.source, r.target);  // pages first, then the AI's knowledge; a hand entry only if both fail
+      }
+      (bus.repaint || rerender)(); scheduleScenarios(0);  // the select keeps focus: a plain render would wait for it to blur
+    }));
   },
   actions: {
+    async 'send-tab'(el) {
+      state.send.tab = ['templates', 'recipients'].includes(el.dataset.v) ? el.dataset.v : 'compare';
+      await view.load();
+      rerender();
+      scrollTo({top: 0, behavior: 'smooth'});
+    },
+    async 'routes-open'() { await need(['economies']); routesDialog(); },
+    async 'rt-toggle'(el) {
+      await api('/routes/' + encodeURIComponent(el.dataset.id), 'PATCH', {[el.dataset.field]: el.dataset.value === '1'});
+      invalidate(['routes']); await need(['routes']); routesDialog(); rerender();
+    },
     'pick-route'(el) { state.send.route = el.dataset.value; state.send.result = null; state.send.recipient = ''; rerender(); schedule(0); },
+    'pair-swap'() { const r = routeOf(state.send.route); pickPair(r.target, r.source); },
+    'scen-run'() { runScenarios(); },
+    async 'scen-plan'(el) {
+      const r = state.send.scen, x = r.scenarios.find(y => y.id === el.dataset.id);
+      for (const l of x.legs) {
+        await api('/exchange-plans', 'POST', {source: r.source, target: r.target, amount: money(l.receive, r.target).replace(/,/g, ''), side: 'receive', due: l.date,
+          purpose: state.send.purpose || t('scen.plan_purpose'), kind: 'custom'});
+      }
+      invalidate(['money']); toast(t('scen.planned', {n: x.legs.length}), 'good');
+    },
+    'scen-sandbox'(el) {
+      const r = state.send.scen, x = r.scenarios.find(y => y.id === el.dataset.id);
+      const name = id => (banksFor(r.source, r.target) || []).find(b => b.id === id)?.name || '';
+      state.sandboxScenario = {source: r.source, target: r.target, label: [name(x.send_bank), name(x.receive_bank)].filter(Boolean).join(' → ') || t('scen.at_reference'),
+        timing: x.timing, legs: x.legs.map(l => ({date: l.date, spend: l.spend, receive: l.receive}))};
+      location.hash = 'sandbox';
+    },
     'send-mode'(el) { state.send.mode = el.dataset.value; state.send.result = null; rerender(); schedule(0); },
     'send-rank'(el) { state.send.rank = el.dataset.value; schedule(0); },
     async 'watch-toggle'() {
@@ -219,6 +367,10 @@ export const view = {
     },
   },
   submit: {
+    async 'rt-form'(f) {
+      await api('/routes', 'POST', {send: f.querySelector('[name=send]').value, receive: f.querySelector('[name=receive]').value});
+      invalidate(['routes']); await need(['routes']); toast(t('routes.added'), 'good'); routesDialog(); rerender();
+    },
     async 'send-form'() {
       const s = state.send, route = routeOf(s.route);
       const amount = s.mode === 'send' ? s.amount : null;
@@ -228,13 +380,20 @@ export const view = {
       s.key = newId();
       invalidate();
       renderDetail(result);
-      toast(t('send.drafted'), 'good');
+      const tpl = templateFor(s.recipient);
+      toast(tpl ? `${t('send.drafted')} ${t('send.tpl_after', {name: tpl.name})}` : t('send.drafted'), 'good');
     },
     async 'needs-form'(f) {
       const route = routeOf(state.send.route), v = Object.fromEntries(new FormData(f));
-      await api('/watches', 'PUT', {source: route.source, target: route.target, amount: String(v.amount || '').replace(',', '.') || null,
-        deadline: v.deadline || null, min_rate: String(v.min_rate || '').replace(',', '.') || null, note: v.note || '', active: true});
-      toast(t('watch.saved'), 'good');
+      const amount = String(v.amount || '').replace(/,/g, '').trim(), floor = String(v.min_rate || '').replace(',', '.') || null;
+      if (amount) {  // a need with an amount is an exchange plan: it shows on the overview, in the sandbox and in gaps
+        await api('/exchange-plans', 'POST', {source: route.source, target: route.target, amount, side: 'receive', due: v.deadline || null,
+          purpose: v.note || '', kind: 'custom', min_rate: floor});
+        invalidate(['money']);
+      } else {
+        await api('/watches', 'PUT', {source: route.source, target: route.target, amount: null, deadline: v.deadline || null, min_rate: floor, note: v.note || '', active: true});
+      }
+      toast(t(amount ? 'watch.saved_plan' : 'watch.saved'), 'good');
       await refreshAdvice(route);
     },
     async 'reminder-form'(f) {
@@ -292,4 +451,26 @@ async function compare() {
   }
   const target = document.getElementById('compare');
   if (target) { target.classList.remove('loading'); target.innerHTML = comparison(s.result); }
+}
+
+/* ---------- the route manager: which corridors appear above (formerly its own page) ---------- */
+function routesDialog() {
+  const routes = state.data.routes || [], economies = state.data.economies || [], owner = isOwner();
+  const econ = economies.map(e => [e.code, region(e.code) + ' · ' + e.currency]);
+  modal(t('routes.title'), `<p class="fine">${t('routes.note')}</p>
+    <ul class="list rt-list">${routes.map(r => `<li class="row ${r.enabled ? '' : 'disabled'}"><div><b>${esc(region(r.send))} → ${esc(region(r.receive))}</b>
+      <small>${esc(r.source)}/${esc(r.target)} · ${r.capabilities.sandbox_payment ? t('send.payable') : t('send.analysis_only')}</small></div>
+      <button class="pill sm ${r.enabled ? 'on' : ''}" data-action="rt-toggle" data-id="${esc(r.id)}" data-field="enabled" data-value="${r.enabled ? 0 : 1}" ${owner ? '' : 'disabled'}>${t(r.enabled ? 'routes.enabled' : 'routes.disabled')}</button></li>`).join('')}</ul>
+    ${econ.length ? `<form id="rt-form" class="form-block rt-add"><div class="grid-2">
+      ${field('rt-send', t('routes.send'), `<select id="rt-send" name="send">${options(econ, 'AU')}</select>`)}
+      ${field('rt-recv', t('routes.receive'), `<select id="rt-recv" name="receive">${options(econ, 'VN')}</select>`)}</div>
+      <p class="fine">${t('routes.add_note')}</p><div class="form-error"></div>
+      <div class="modal-actions"><button class="button" ${owner ? '' : 'disabled'}>${icons.plus}${t('routes.add_btn')}</button></div></form>` : ''}`, 'ROUTES / CORRIDORS', {wide: true});
+}
+
+async function pickPair(source, target) {
+  const route = routeFor(source, target);
+  Object.assign(state.send, {route: route.id, result: null, scen: null, recipient: '', send_bank: '', receive_bank: ''});
+  await loadBanks(source, target);
+  rerender(); schedule(0); scheduleScenarios(0);
 }
