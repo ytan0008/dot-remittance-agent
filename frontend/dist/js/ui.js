@@ -35,6 +35,7 @@ export const icons = {
   habits: I('<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16"/><circle cx="9" cy="14.5" r="1.1" class="fill"/><circle cx="13" cy="14.5" r="1.1" class="fill"/><circle cx="17" cy="14.5" r="1.1"/>'),
   wallets: I('<rect x="3.5" y="6" width="17" height="13" rx="3"/><path d="M15 12.5h5.5"/><circle cx="16.5" cy="12.5" r="1.2" class="fill"/><path d="M6 6l9-3 1 3"/>'),
   autonomy: I('<circle cx="12" cy="12" r="8.5" stroke-dasharray="2 2.6"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.6" class="fill"/>'),
+  memory: I('<path d="M12 4a6 6 0 0 0-6 6c0 2 1 3.3 2 4.3V18h8v-3.7c1-1 2-2.3 2-4.3a6 6 0 0 0-6-6z"/><path d="M10 21h4"/><circle cx="12" cy="10" r="1.6" class="fill"/>'),
   routes: I('<circle cx="5.5" cy="17" r="2"/><circle cx="18.5" cy="7" r="2"/><path d="M7.3 15.8C11 13 9 9 16.7 8" stroke-dasharray="2 2"/>'),
   audit: I('<path d="M8 4v16" stroke-dasharray="1.5 2.2"/><circle cx="8" cy="7" r="1.6" class="fill"/><circle cx="8" cy="12" r="1.6"/><circle cx="8" cy="17" r="1.6" class="fill"/><path d="M12 7h8M12 12h6M12 17h7"/>'),
   more: I('<circle cx="6" cy="12" r="1.5" class="fill"/><circle cx="12" cy="12" r="1.5" class="fill"/><circle cx="18" cy="12" r="1.5" class="fill"/>'),

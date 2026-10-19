@@ -174,6 +174,11 @@ class Decide(Model):
     note: str = ""
 
 
+class Note(Model):
+    text: str = Field(min_length=1, max_length=300)
+    kind: str = "fact"
+
+
 class Recommendation(Model):
     subject: str
     detail: dict
@@ -549,6 +554,23 @@ def create_app(finance=None, agent=None, background=None):
     def audit(q: str | None = None, outcome: str | None = None, actor_filter: str | None = None, limit: int = 300,
               actor=Depends(role)):
         return service().audit(actor, q, outcome, actor_filter, limit)
+
+    # ---------- agent memory ----------
+    @app.get("/agent/memory")
+    def agent_memory(actor=Depends(role)):
+        mem = app.state.agent.memory
+        return {"notes": mem.notes(), "episodes": mem.episodes(limit=40), "preferences": service().memory(),
+                "layers": {"conversation_turns": 12, "notes_limit": 200}}
+
+    @app.post("/agent/memory")
+    def add_note(body: Note, actor=Depends(role)):
+        service().owner(actor)
+        return app.state.agent.memory.remember(actor, body.text, body.kind)
+
+    @app.delete("/agent/memory/{note_id}")
+    def forget_note(note_id: int, actor=Depends(role)):
+        service().owner(actor)
+        return app.state.agent.memory.forget(actor, note_id)
 
     # ---------- agent ----------
     @app.post("/chat")

@@ -61,7 +61,23 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 ![权限](docs/screenshots/permissions.png)
 
-### 5. 黑白点线圆 · 会动的极简
+### 5. 工具与记忆
+
+**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 26 个工具，包括 `remember_note`、`recall_memory`、`forget_note`——并且刻意没有“批准支付”“授予预授权”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
+
+**记忆**在 [`finance/memory.py`](finance/memory.py)，分三层：
+
+| 层 | 内容 | 用法 |
+| --- | --- | --- |
+| 对话 | 每个会话最近 12 轮 | 每次请求一并发送，便于理解追问 |
+| 笔记 | 你让它长期记住的事实：人物、习惯、偏好 | 每轮把最相关的笔记作为**数据**注入；Agent 用 `remember_note` 保存，你可以在「记忆」页查看和删除 |
+| 经历 | 每轮一条：请求、意图、调用（及被阻止）的工具、涉及的支付、结果 | 可用 `recall_memory` 检索；最近经历让 Agent 保持连续性 |
+
+检索支持多语言（拉丁文字按词、中日韩按字符二元组）。记忆拒绝保存密码、密钥和完整账号/卡号，从不授予权限，也从不作为余额或支付的证据。
+
+![记忆](docs/screenshots/memory.png)
+
+### 6. 黑白点线圆 · 会动的极简
 
 | 拉近推远 · 景深模糊 | 深色模式 |
 | --- | --- |
@@ -73,7 +89,7 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 - 弹窗从点击处缩放展开、背景模糊；滚动揭示、3D 卡片倾斜、磁吸按钮、数字滚动、绘线动画
 - 尊重 `prefers-reduced-motion`；零外部依赖，严格 CSP（仅 `'self'`）
 
-### 6. 六种语言
+### 7. 六种语言
 
 English · 简体中文 · 繁體中文 · Tiếng Việt · 日本語 · 한국어 —— 数字、日期、地区名均用 `Intl` 本地化，后端错误码由前端翻译。
 
@@ -102,7 +118,10 @@ flowchart LR
 
 | 模块 | 文件 |
 | --- | --- |
-| Agent（模型循环 + 离线规则规划器） | `finance/agent.py`, `finance/agent_rules.py` |
+| Agent 编排（模型循环、流式事件、经历记录） | `finance/agent.py` |
+| **工具注册表**——每个工具的参数、权限等级与实现 | `finance/tools.py` |
+| **记忆**——对话、笔记、经历、检索 | `finance/memory.py` |
+| 离线规则规划器 | `finance/agent_rules.py` |
 | 支付核心、风控、授权、预授权、路线 | `finance/service.py` |
 | 比较、情景、目标预算、建议与提案 | `finance/planning.py` |
 | 付款习惯、提醒去重、汇率提醒 | `finance/habits.py` |

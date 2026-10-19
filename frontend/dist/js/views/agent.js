@@ -1,12 +1,12 @@
 import {state, t, toast, isOwner, canPrepare, invalidate, $, go} from '../core.js';
 import {stream} from '../api.js';
 import {esc, chip, amt, tag, mono, short, icons, panel} from '../ui.js';
-import {lang, money, num, day, pct, has} from '../i18n.js';
+import {lang, money, num, day, pct, has, when} from '../i18n.js';
 import {sparkline} from '../charts.js';
 import {envLabel} from './payments.js';
 
 const TIERS = {view: 1, prepare: 2, submit: 3};
-const TOOL_TIER = {prepare_payment: 'prepare', modify_payment: 'prepare', reconcile_payment: 'prepare', propose_change: 'prepare', execute_payment: 'submit'};
+const TOOL_TIER = {remember_note: 'prepare', forget_note: 'prepare', prepare_payment: 'prepare', modify_payment: 'prepare', reconcile_payment: 'prepare', propose_change: 'prepare', execute_payment: 'submit'};
 
 export const suggestions = () => [t('agent.s1'), t('agent.s2'), t('agent.s3'), t('agent.s4')];
 
@@ -32,6 +32,12 @@ function card(step) {
       const cta = r.status === 'draft' ? (isOwner() ? t('agent.review_authorize') : t('agent.view')) : t('agent.view');
       return `<div class="rcard draft"><div class="kv"><span class="env env-${esc(b.rail)}"><i></i>${esc(envLabel(b))}</span>${chip(r.status)}</div><div class="flow-amt">${amt(b.value, b.source, 'lg')}<span>${icons.arrow}</span>${amt(b.receive, b.target, 'lg')}</div><small class="muted">${esc(b.recipient.name)} · ${esc(b.purpose)} · ${t('detail.fee')} ${esc(money(b.fee, b.source))} ${esc(b.source)}</small><button class="button primary sm" data-action="detail" data-id="${esc(r.id)}">${cta} ${icons.arrow}</button></div>`;
     }
+    case 'remember_note':
+      return `<div class="rcard"><span class="eyebrow">${t('memory.saved')}</span><p>“${esc(r.text)}”</p><small class="muted">${esc(t('memory.kind.' + r.kind))}</small><button class="link" data-action="go" data-view="memory">${t('nav.memory')} ${icons.arrow}</button></div>`;
+    case 'forget_note':
+      return `<div class="rcard"><span class="eyebrow">${t('memory.forgotten')}</span><button class="link" data-action="go" data-view="memory">${t('nav.memory')} ${icons.arrow}</button></div>`;
+    case 'recall_memory':
+      return `<div class="rcard"><span class="eyebrow">${t('memory.recall_card')}</span>${r.notes.length || r.episodes.length ? r.notes.map(n => `<p>· ${esc(n.text)}</p>`).join('') + r.episodes.slice(0, 3).map(e => `<small class="muted">${when(e.time)} — “${esc(e.request.slice(0, 80))}”</small>`).join('') : `<p>${t('memory.empty')}</p>`}</div>`;
     case 'propose_change':
       return `<div class="rcard"><span class="eyebrow">${t('agent.proposal')}</span><p>${esc(t('proposal.kind.' + r.kind))} · ${chip(r.status, 'proposal.status')}</p><button class="link" data-action="go" data-view="autonomy">${t('agent.review_proposal')} ${icons.arrow}</button></div>`;
     case 'wallet_info':

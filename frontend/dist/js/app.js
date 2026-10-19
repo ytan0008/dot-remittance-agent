@@ -13,10 +13,11 @@ import {view as wallets, recipientForm} from './views/wallets.js';
 import {view as autonomy} from './views/autonomy.js';
 import {view as routes} from './views/routes.js';
 import {view as audit} from './views/audit.js';
+import {view as memory} from './views/memory.js';
 
-const VIEWS = [overview, agent, sendView, payments, markets, plans, habits, wallets, autonomy, routes, audit];
+const VIEWS = [overview, agent, sendView, payments, markets, plans, habits, wallets, autonomy, memory, routes, audit];
 const BY_ID = Object.fromEntries(VIEWS.map(v => [v.id, v]));
-const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'payments']], ['nav.g_insight', ['markets', 'plans', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'routes', 'audit']]];
+const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'payments']], ['nav.g_insight', ['markets', 'plans', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
 const DOCK = ['overview', 'agent', 'send', 'payments'];
 const ORDER = GROUPS.flatMap(g => g[1]);
 let pendingPaint = false, refreshTimer = 0, events = null;

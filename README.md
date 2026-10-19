@@ -61,7 +61,23 @@ On first start the backend creates an **encrypted keystore** for the agent. The 
 
 ![Permissions](docs/screenshots/permissions.png)
 
-### 5. Black & white · dots, lines, circles · in motion
+### 5. Tools and memory
+
+**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 26 tools, including `remember_note`, `recall_memory` and `forget_note` — and deliberately none that approve payments, grant mandates, raise limits or change recipients. Adding a tool is one decorated function.
+
+**Memory** lives in [`finance/memory.py`](finance/memory.py), in three layers:
+
+| Layer | What it holds | How it is used |
+| --- | --- | --- |
+| Conversation | The last 12 turns of each session | Sent with every request so follow-ups make sense |
+| Notes | Durable facts you ask it to keep — people, routines, preferences | The most relevant notes are injected each turn as *data*; the agent saves them with `remember_note`, you review and delete them on the **Memory** page |
+| Episodes | One record per turn: request, intent, tools run (and blocked), payments touched, outcome | Searchable with `recall_memory`; recent episodes give the agent continuity |
+
+Recall works across languages (word matching for Latin scripts, character bigrams for CJK). Memory refuses passwords, keys and full account or card numbers, never grants permissions, and is never treated as proof of a balance or payment.
+
+![Memory](docs/screenshots/memory.png)
+
+### 6. Black & white · dots, lines, circles · in motion
 
 | Pull close · depth-of-field blur | Dark mode |
 | --- | --- |
@@ -73,7 +89,7 @@ On first start the backend creates an **encrypted keystore** for the agent. The 
 - Modals zoom out of the click point over a blurred backdrop; scroll reveal, 3D card tilt, magnetic buttons, count-up numbers, line-drawing animations
 - Respects `prefers-reduced-motion`; zero external dependencies under a strict `'self'` CSP
 
-### 6. Six languages
+### 7. Six languages
 
 English · 简体中文 · 繁體中文 · Tiếng Việt · 日本語 · 한국어 — numbers, dates and region names localized with `Intl`; backend errors arrive as stable codes and are translated in the UI.
 
@@ -102,7 +118,10 @@ flowchart LR
 
 | Module | Files |
 | --- | --- |
-| Agent (model loop + offline rule planner) | `finance/agent.py`, `finance/agent_rules.py` |
+| Agent orchestration (model loop, streaming, episodes) | `finance/agent.py` |
+| **Tool registry** — every tool's schema, tier and implementation | `finance/tools.py` |
+| **Memory** — conversation, notes, episodes, recall | `finance/memory.py` |
+| Offline rule planner | `finance/agent_rules.py` |
 | Payments core, guardrails, approvals, mandates, routes | `finance/service.py` |
 | Comparison, scenarios, goals & budget, decisions & proposals | `finance/planning.py` |
 | Payment habits, deduplicated reminders, rate alerts | `finance/habits.py` |

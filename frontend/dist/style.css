@@ -599,6 +599,18 @@ pre{font:11px/1.5 var(--mono);background:var(--soft);border-radius:8px;padding:1
 .proposal-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}.proposal-head b{font-size:13.5px}.proposal-head small{font-size:11px;color:var(--muted);margin-left:auto}
 details.history{margin-top:12px}
 
+/* ---------- memory ---------- */
+.grid-note{display:grid;grid-template-columns:1fr 150px;gap:12px}
+.note-kind{font:600 9.5px var(--mono);letter-spacing:.6px;text-transform:uppercase;padding:4px 8px;border-radius:6px;border:1px solid var(--line-2);flex-shrink:0}
+.note-kind.k-person{border-radius:999px}.note-kind.k-routine{border-style:dashed}.note-kind.k-preference{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.episodes{display:grid;gap:4px;max-height:640px;overflow-y:auto;padding-right:4px}
+.episode{display:grid;grid-template-columns:14px 1fr;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line);position:relative}
+.episode .dot{width:9px;height:9px;border-radius:50%;border:1.4px solid var(--ink);margin-top:5px}
+.episode-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.episode-request{font-size:13px;margin:6px 0}.episode-tools{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px}
+.episode-tools .pill{cursor:default}.episode-tools .pill.blocked{border-style:dashed;color:var(--muted)}
+.memory-rule{margin-top:14px;padding:12px 14px;border:1px dashed var(--line-2);border-radius:12px}
+@media (max-width:560px){.grid-note{grid-template-columns:1fr}}
 /* ---------- routes ---------- */
 .apec-map{position:relative;aspect-ratio:16/10;border-radius:12px;background:var(--paper-2);border:1px solid var(--line);overflow:hidden}
 .apec-map svg{position:absolute;inset:0;width:100%;height:100%}
