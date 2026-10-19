@@ -94,6 +94,20 @@ def forget_note(ctx, note_id):
     return ctx.memory.forget("agent", note_id)
 
 
+# ---------- ask the owner for details through a form ----------
+
+@tool("request_recipient_details", "When a payment needs a recipient who is not registered, call this instead of asking in text. "
+      "The app slides out a recipient form next to the chat, prefilled with what you know; the owner fills it in and the "
+      "conversation continues. Pass empty strings for unknown fields. Changes nothing by itself.",
+      {"name": S, "currency": {"type": "string", "description": "ISO code the recipient receives, e.g. AUD"},
+       "country": {"type": "string", "description": "ISO economy code, e.g. AU"}, "reason": S})
+def request_recipient_details(ctx, name, currency, country, reason):
+    existing = [r["id"] for r in ctx.finance.recipients()]
+    return dict(form="recipient", prefill=dict(name=name.strip()[:100], currency=up(currency.strip())[:3], country=up(country.strip())[:2]),
+                reason=reason[:200], existing=existing,
+                note="Form shown to the owner. Do not ask for these details again in text; wait for their next message.")
+
+
 # ---------- read-only facts (T1) ----------
 
 @tool("get_balances", "Ledger balances per currency: total, reserved, available. Sandbox is simulated test funds.")

@@ -108,3 +108,13 @@ def test_memory_api_is_owner_controlled(local, monkeypatch):
         assert client.delete(f"/agent/memory/{note['id']}", headers=owner).status_code == 200
         bad = client.post("/agent/memory", headers=owner, json={"text": "card 4111 1111 1111 1111"})
         assert bad.status_code == 409 and bad.json()["code"] == "memory_sensitive"
+
+
+def test_unknown_recipient_opens_form(local):
+    from finance.agent import Agent
+    agent = Agent(local)
+    form = agent.tool("request_recipient_details", {"name": "Yx", "currency": "aud", "country": "", "reason": "new payee"})
+    assert form["form"] == "recipient" and form["prefill"] == {"name": "Yx", "currency": "AUD", "country": ""}
+    assert local.recipients()[0]["id"] in form["existing"] and len(local.recipients()) == 1  # nothing was created
+    reply = agent.chat("Send 100 AUD for rent", "rf", "en")
+    assert reply["trace"][-1]["tool"] == "request_recipient_details"

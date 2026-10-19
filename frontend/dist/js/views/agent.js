@@ -1,12 +1,16 @@
 import {state, t, toast, isOwner, canPrepare, invalidate, api, bus} from '../core.js';
 import {stream} from '../api.js';
 import {esc, chip, amt, tag, mono, short, icons, panel} from '../ui.js';
-import {lang, money, num, day, pct, has, when} from '../i18n.js';
+import {lang, money, num, day, pct, has, when, region} from '../i18n.js';
 import {sparkline} from '../charts.js';
 import {envLabel} from './payments.js';
 
 const TIERS = {view: 1, prepare: 2, submit: 3};
 const NEED_TIER = {view: 1, prepare: 2, submit: 3};
+const CUR_TO_ECON = {AUD: 'AU', CNY: 'CN', VND: 'VN', USD: 'US', PHP: 'PH', MXN: 'MX', JPY: 'JP', KRW: 'KR', HKD: 'HK', TWD: 'TW',
+  SGD: 'SG', NZD: 'NZ', CAD: 'CA', MYR: 'MY', THB: 'TH', IDR: 'ID', CLP: 'CL', PEN: 'PE', RUB: 'RU', BND: 'BN', PGK: 'PG'};
+const FORM_CURRENCIES = ['AUD', 'CNY', 'USD', 'VND', 'PHP', 'MXN', 'JPY', 'KRW', 'HKD', 'TWD', 'SGD', 'NZD', 'CAD', 'MYR', 'THB', 'IDR'];
+const slug = name => (name || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 let keySeq = 0;
 const TOOL_TIER = {remember_note: 'prepare', forget_note: 'prepare', prepare_payment: 'prepare', modify_payment: 'prepare', reconcile_payment: 'prepare', propose_change: 'prepare', execute_payment: 'submit'};
 
@@ -61,6 +65,8 @@ function card(step) {
       return `<div class="rcard"><span class="eyebrow">${t('memory.forgotten')}</span><button class="link" data-action="go" data-view="memory">${t('nav.memory')} ${icons.arrow}</button></div>`;
     case 'recall_memory':
       return `<div class="rcard"><span class="eyebrow">${t('memory.recall_card')}</span>${r.notes.length || r.episodes.length ? r.notes.map(n => `<p>· ${esc(n.text)}</p>`).join('') + r.episodes.slice(0, 3).map(e => `<small class="muted">${when(e.time)} — “${esc(e.request.slice(0, 80))}”</small>`).join('') : `<p>${t('memory.empty')}</p>`}</div>`;
+    case 'request_recipient_details':
+      return `<div class="rcard form-card"><span class="eyebrow">${t('agent.form_title')}</span><p>${t('agent.form_card')}</p>${state.chat.form ? `<button class="button sm" data-action="open-side-form">${t('agent.form_open')} ${icons.arrow}</button>` : `<small class="muted">${t('agent.form_done')}</small>`}</div>`;
     case 'propose_change': {
       const rows = Object.entries(r.payload || {}).map(([k, v]) => `<div><dt>${esc(has('field.' + k) ? t('field.' + k) : k)}</dt><dd>${esc(v)}</dd></div>`).join('');
       const act = r.status === 'pending' && isOwner()
@@ -135,8 +141,36 @@ export function pipeline() {
 
 export const view = {
   id: 'agent',
+  submit: {
+    async 'side-recipient-form'(form) {
+      const v = Object.fromEntries(new FormData(form));
+      const f = state.chat.form || {};
+      if ((state.data.recipients || []).some(r => r.id === v.recipient_id)) throw new Error(t('wallets.r_exists'));
+      const body = {recipient_id: v.recipient_id.trim(), name: v.name.trim(), currency: v.currency, country: v.country || '',
+        account: (v.account || '').replace(/\s+/g, ''), kind: 'individual', address: '', enabled: true};
+      const proposal = f.proposalId;
+      const same = proposal && f.prefill && ['name', 'currency'].every(k => (f.prefill[k] || '') === body[k]) && (f.prefill.recipient_id || body.recipient_id) === body.recipient_id;
+      if (same) await api(`/proposals/${encodeURIComponent(proposal)}/decide`, 'POST', {accept: true});
+      else {
+        if (proposal) await api(`/proposals/${encodeURIComponent(proposal)}/decide`, 'POST', {accept: false, note: 'replaced by owner-entered details'});
+        await api('/recipients', 'POST', body);
+      }
+      let raised = false;
+      if (v.raise) { await api('/settings/tier', 'PUT', {tier: 2}); raised = true; }
+      for (const m of state.chat.messages) for (const st of m.steps || []) if (proposal && st.result?.id === proposal) st.result = {...st.result, status: same ? 'confirmed' : 'rejected'};
+      state.chat.form = null;
+      paintSideForm();
+      invalidate(['recipients', 'settings', 'proposals']);
+      toast(t('wallets.saved'), 'good');
+      send(t('agent.form_done_msg', {name: body.name, id: body.recipient_id, currency: body.currency}) + (raised ? ' ' + t('agent.after_tier', {n: 2}) : ''));
+    },
+  },
   needs: ['settings', 'mandates', 'recipients'],
-  mount(root) { root.querySelectorAll('#chat-log').forEach(log => { log.scrollTop = log.scrollHeight; }); },
+  mount(root) {
+    root.querySelectorAll('#chat-log').forEach(log => { log.scrollTop = log.scrollHeight; });
+    const host = root.querySelector('#side-form-host');
+    if (host && state.chat.form) { host.innerHTML = ''; paintSideForm(); }
+  },
   actions: {
     /* One-click owner decisions inside the chat; the agent then continues on its own. */
     async 'chat-decide'(el) {
@@ -147,6 +181,13 @@ export const view = {
       toast(t(accept ? 'autonomy.confirmed' : 'autonomy.rejected'), accept ? 'good' : '');
       if (accept) send(t('agent.after_confirm'));
     },
+    'open-side-form'() {
+      if (state.view !== 'agent') { location.hash = 'agent'; return; }
+      const host = document.getElementById('side-form-host');
+      host?.classList.remove('nudge'); void host?.offsetWidth; host?.classList.add('nudge');
+      host?.scrollIntoView({behavior: 'smooth', block: 'start'});
+    },
+    'close-side-form'() { state.chat.form = null; paintSideForm(); paint(); },
     async 'chat-tier'(el) {
       const n = Number(el.dataset.tier);
       await api('/settings/tier', 'PUT', {tier: n});
@@ -159,6 +200,7 @@ export const view = {
     return `<div class="agent-layout">
       ${panel(`<span class="agent-orb"><i></i></span>${t('agent.title')}`, `<div class="chat-log" id="chat-log">${chatLog()}</div>${composer()}<p class="fine">${t('agent.disclaimer')}</p>`, {cls: 'chat-panel', sub: state.model ? `${t('agent.mode.model')}${state.modelName ? ' · ' + esc(state.modelName) : ''}` : t('agent.mode.rules')})}
       <div class="agent-side">
+        <div id="side-form-host" class="side-form-host">${sideForm()}</div>
         ${panel(t('agent.pipeline'), `<div class="pipeline-wrap" id="pipeline">${pipeline()}</div><ol class="legend"><li><b>01</b>${t('agent.understand_d')}</li><li><b>02</b>${t('agent.plan_d')}</li><li><b>03</b>${t('agent.act_d')}</li></ol>`, {cls: 'tilt'})}
         ${panel(t('agent.boundary'), `<div class="tier-meter">${[1, 2, 3].map(n => `<span class="${n <= tier ? 'on' : ''}"><b>T${n}</b>${t('tier.' + n)}</span>`).join('')}</div><p class="fine">${t('agent.boundary_d')}</p><button class="link" data-action="go" data-view="autonomy">${t('agent.manage_boundary')} ${icons.arrow}</button>`)}
       </div></div>`;
@@ -188,6 +230,9 @@ export async function send(text) {
         const s = m.steps.find(x => x.tool === e.tool && x.status === 'running') || {};
         Object.assign(s, {status: e.ok ? 'ok' : 'fail', result: e.result, error: e.error, code: e.code, params: e.params});
         if (['prepare_payment', 'modify_payment', 'execute_payment', 'reconcile_payment', 'propose_change'].includes(e.tool)) invalidate();
+        if (e.ok && e.tool === 'request_recipient_details') openForm(e.result.prefill, {reason: ''});
+        if (e.ok && e.tool === 'propose_change' && e.result.kind === 'recipient' && e.result.status === 'pending' && isOwner())
+          openForm(e.result.payload, {proposalId: e.result.id});
       }
       if (e.type === 'message') m.text = e.text || (e.code ? t('err.' + e.code) : '');
       if (e.type === 'done') m.done = true;
@@ -237,4 +282,62 @@ export function paint() {
   }
   const p = document.getElementById('pipeline');
   if (p) { const next = p.cloneNode(false); next.innerHTML = pipeline(); morph(p, next); }
+}
+
+
+/* ---------- recipient form that slides out beside the chat ---------- */
+export function sideForm() {
+  const f = state.chat.form;
+  if (!f) return '';
+  const p = f.prefill || {};
+  const currency = FORM_CURRENCIES.includes(p.currency) ? p.currency : 'CNY';
+  const country = p.country || CUR_TO_ECON[currency] || '';
+  const tier = state.data.settings?.agent_tier ?? 3;
+  const owner = isOwner();
+  const econ = Object.keys(CUR_TO_ECON).map(c => CUR_TO_ECON[c]);
+  return `<div class="side-form" data-key="${f.key}">
+    <div class="side-form-head"><span class="side-form-orb"><i></i></span><div><b>${t('agent.form_title')}</b><small>${t('agent.form_intro')}</small></div>
+      <button type="button" class="x" data-action="close-side-form" aria-label="${t('common.close')}">×</button></div>
+    ${f.reason ? `<p class="fine">${esc(f.reason)}</p>` : ''}
+    <form id="side-recipient-form" class="form-block" data-key="${f.key}">
+      <div class="field"><label for="sf-name">${t('wallets.r_name')}</label><input id="sf-name" name="name" required maxlength="100" value="${esc(p.name || '')}" ${owner ? '' : 'disabled'}></div>
+      <div class="field"><label for="sf-id">${t('wallets.r_id')}</label><input id="sf-id" name="recipient_id" required pattern="[A-Za-z0-9_\\-]{1,64}" maxlength="64" value="${esc(p.recipient_id || slug(p.name) || '')}" ${owner ? '' : 'disabled'}><small>${t('wallets.r_id_hint')}</small></div>
+      <div class="grid-2"><div class="field"><label for="sf-currency">${t('wallets.r_currency')}</label><select id="sf-currency" name="currency" ${owner ? '' : 'disabled'}>${FORM_CURRENCIES.map(c => `<option ${c === currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+      <div class="field"><label for="sf-country">${t('wallets.r_country')}</label><select id="sf-country" name="country" ${owner ? '' : 'disabled'}><option value="">—</option>${[...new Set(econ)].map(c => `<option value="${c}" ${c === country ? 'selected' : ''}>${esc(region(c))}</option>`).join('')}</select></div></div>
+      <div class="field"><label for="sf-account">${t('wallets.r_account')}</label><input id="sf-account" name="account" maxlength="34" placeholder="${t('wallets.r_account_ph')}" ${owner ? '' : 'disabled'}><small>${t('wallets.r_account_hint')}</small></div>
+      ${owner && tier < 2 ? `<label class="check-label"><input type="checkbox" name="raise" checked> ${t('agent.form_allow_t2')}</label>` : ''}
+      ${owner ? '' : `<p class="note warn">${t('agent.form_owner_only')}</p>`}
+      <div class="form-error"></div>
+      <div class="row-actions"><button class="button primary" ${owner ? '' : 'disabled'}>${icons.check}${t('agent.form_submit')}</button><button type="button" class="button ghost" data-action="close-side-form">${t('agent.form_cancel')}</button></div>
+    </form></div>`;
+}
+
+let formSeq = 0;
+function openForm(prefill, extra = {}) {
+  state.chat.form = {key: ++formSeq, prefill, ...extra};
+  paintSideForm();
+}
+
+/** Slides the form in or out without touching anything the user is typing. */
+export function paintSideForm() {
+  const host = document.getElementById('side-form-host');
+  if (!host) return;
+  const f = state.chat.form;
+  const shown = host.firstElementChild;
+  if (f && shown?.dataset.key === String(f.key)) return;
+  if (!f) {
+    if (shown) { shown.classList.add('leaving'); setTimeout(() => { if (!state.chat.form) host.innerHTML = ''; }, 380); }
+    return;
+  }
+  host.innerHTML = sideForm();
+  const form = host.querySelector('#side-recipient-form');
+  const name = form.querySelector('#sf-name'), id = form.querySelector('#sf-id');
+  let touched = false;
+  id.addEventListener('input', () => { touched = true; });
+  name.addEventListener('input', () => { if (!touched) id.value = slug(name.value) || id.value; });
+  form.querySelector('#sf-currency').addEventListener('change', e => {
+    const c = CUR_TO_ECON[e.target.value]; if (c) form.querySelector('#sf-country').value = c;
+  });
+  if (matchMedia('(max-width: 1280px)').matches) host.scrollIntoView({behavior: 'smooth', block: 'start'});
+  setTimeout(() => (name.value ? id : name).focus({preventScroll: true}), 420);
 }

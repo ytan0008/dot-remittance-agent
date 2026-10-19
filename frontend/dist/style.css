@@ -760,3 +760,20 @@ dialog#modal.closing::backdrop{animation:fade .22s reverse forwards}
 .answer.md{white-space:normal}.answer.md p{margin:0 0 6px}.answer.md ul{margin:4px 0 8px;padding-left:2px;display:grid;gap:3px}
 .answer.md li{position:relative;padding-left:16px}.answer.md li::before{content:"";position:absolute;left:3px;top:.62em;width:5px;height:5px;border-radius:50%;border:1.2px solid var(--ink)}
 .answer.md b{font-weight:650}.answer.md code{padding:1px 5px;border-radius:5px;background:var(--soft);font-size:.86em}
+
+/* recipient form that slides out beside the chat */
+.side-form-host:empty{display:none}
+.side-form{position:relative;background:var(--paper);border:1px solid var(--ink);border-radius:var(--radius);padding:18px;box-shadow:0 24px 50px -30px rgba(0,0,0,.45);
+  animation:side-in .6s var(--ease) both;transform-origin:0 0}
+.side-form.leaving{animation:side-out .36s var(--ease-in) forwards}
+@keyframes side-in{from{opacity:0;transform:translateX(56px) scale(.96);filter:blur(12px)}}
+@keyframes side-out{to{opacity:0;transform:translateX(56px) scale(.97);filter:blur(10px)}}
+.side-form-head{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;margin-bottom:12px}
+.side-form-head b{font-size:15px;display:block}.side-form-head small{font-size:11.5px;color:var(--muted);line-height:1.5}
+.side-form-orb{width:30px;height:30px;border-radius:50%;border:1px solid var(--ink);display:grid;place-items:center;position:relative;animation:think-breathe 2.4s ease-in-out infinite}
+.side-form-orb i{width:8px;height:8px;border-radius:50%;background:var(--ink)}
+.side-form-orb::after{content:"";position:absolute;inset:-7px;border-radius:50%;border:1px dashed var(--line-2);animation:spin 9s linear infinite}
+.side-form .field{margin-bottom:11px}
+.side-form-host.nudge .side-form{animation:side-nudge .7s var(--ease)}
+@keyframes side-nudge{30%{transform:translateX(-8px);box-shadow:0 0 0 6px color-mix(in srgb,var(--ink) 10%,transparent)}}
+.form-card{border-style:dashed}
