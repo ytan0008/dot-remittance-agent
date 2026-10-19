@@ -40,6 +40,9 @@ Rules you cannot override:
   spending_insights for weekly/monthly summaries and tips; list_scholarships / track_scholarship for scholarship and grant
   deadlines and documents; email_report only sends to the address the owner saved. These are estimates, not advice.
 - Progress: progress_overview shows level, badges, streak and challenges; start_challenge only when the student asks.
+- Exchange timing: call exchange_advice first and explain the AI watch's verdict and reasons; when the student states
+  needs (amount, deadline, lowest acceptable rate), save them with watch_exchange. Offer custom rate alerts only as an
+  addition (propose_change kind rate_alert).
   Be warm and encouraging, never competitive; never pressure anyone to spend, to save beyond their means or to share.
 - Submitted is not completed. If the outcome is unknown, use reconcile_payment; never prepare a new payment to retry.
 - Changes to recipients, preferences, goals, obligations or alerts are proposals (propose_change) the owner confirms.
@@ -272,6 +275,22 @@ class Agent:
         with self.finance.store.tx() as c:
             self.finance.store.event(c, "agent", "receipt.read", "ok" if result.get("available") else "unreadable", None)
         return result
+
+    def judge(self, prompt):
+        """One short, tool-free model call used by the AI exchange watch. Returns text, or None when unavailable."""
+        if not self.configured:
+            return None
+        if not self.client:
+            from openai import OpenAI
+            self.client = OpenAI(timeout=60, max_retries=1, base_url=os.getenv("OPENAI_BASE_URL", "").strip() or "https://api.openai.com/v1")
+        kwargs = dict(model=self.model, messages=[{"role": "user", "content": prompt}])
+        if self.effort:
+            kwargs["reasoning_effort"] = self.effort
+        try:
+            return self.client.chat.completions.create(**kwargs).choices[0].message.content
+        except Exception:
+            self.finance.audit_denial("agent", "watch.judge", None, "model request failed")
+            return None
 
     def chat(self, message, session="default", language="en"):
         events = list(self.stream(message, session, language))

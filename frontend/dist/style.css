@@ -1072,3 +1072,35 @@ input.mini-input{width:96px!important}input[type=date].mini-input{width:auto!imp
 @keyframes cel-out{to{opacity:0;filter:blur(8px)}}
 @media (max-width:700px){.level-hero{grid-template-columns:1fr;justify-items:center;text-align:center}.level-ladder{justify-content:center}}
 @media (prefers-reduced-motion:reduce){.cel-card,.cel-burst i,.celebrate,.medal .m-core,.medal.on .m-inner,.rhythm .week i.on{animation:none}.cel-burst{display:none}}
+
+/* ---------- AI exchange watch (send step 3) ---------- */
+.ai-watch{display:grid;gap:12px;padding:18px;border:1px solid var(--ink);border-radius:var(--radius);background:var(--paper-2);animation:pv-in .45s var(--ease)}
+.ai-watch.loading{border-style:dashed;border-color:var(--line-2)}
+.ai-head{display:flex;gap:14px;align-items:center}
+.ai-head>div{flex:1;min-width:0}
+.ai-head h3{font-size:clamp(17px,2.2vw,21px);font-weight:540;letter-spacing:-.015em;margin:3px 0 0;line-height:1.3}
+.ai-orb{position:relative;width:38px;height:38px;flex-shrink:0;border-radius:50%;border:1.4px solid var(--ink);display:grid;place-items:center}
+.ai-orb i{width:10px;height:10px;border-radius:50%;background:var(--ink)}
+.ai-orb b{position:absolute;inset:-6px;border-radius:50%;border:1px dashed var(--line-2);animation:spin 14s linear infinite}
+.ai-watch.loading .ai-orb i{animation:ping-dot 1.4s infinite}
+.v-good_time .ai-orb{background:var(--ink)}.v-good_time .ai-orb i{background:var(--paper)}
+.v-deadline .ai-orb i{animation:ping-dot 1.2s infinite}
+.v-below_floor .ai-orb,.v-wait .ai-orb{border-style:dashed}.v-wait .ai-orb i{background:transparent;border:1.4px solid var(--ink)}
+.ai-why{margin:0;padding:10px 14px;border-left:2px solid var(--ink);background:var(--paper);border-radius:0 10px 10px 0;font-size:14px;line-height:1.6}
+.ai-reasons{display:flex;flex-wrap:wrap;gap:6px}
+.ai-reasons li{font-size:12px;padding:5px 10px;border:1px solid var(--line-2);border-radius:999px;background:var(--paper)}
+.ai-reasons li.r-below_floor,.ai-reasons li.r-deadline{border-color:var(--ink);font-weight:600}
+.ai-watch .plan-read{margin-bottom:0}
+.needs-form{display:grid;gap:10px;margin-top:16px;padding-top:14px;border-top:1px dashed var(--line)}
+.needs-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.needs-form>.button{justify-self:start}
+.custom-rules{margin-top:16px;border-top:1px dashed var(--line);padding-top:12px}
+.custom-rules summary{cursor:pointer;display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;list-style:none}
+.custom-rules summary::-webkit-details-marker{display:none}.custom-rules summary::marker{content:''}
+.custom-rules summary svg{width:16px;height:16px;transition:transform .35s var(--ease)}
+.custom-rules[open] summary svg{transform:rotate(45deg)}
+.custom-rules[open] form{animation:pv-in .45s var(--ease)}
+@media (max-width:900px){.needs-grid{grid-template-columns:1fr 1fr}}
+@media (max-width:520px){.needs-grid{grid-template-columns:1fr}.ai-head{flex-wrap:wrap}}
+@media (prefers-reduced-motion:reduce){.ai-orb b,.ai-orb i,.ai-watch{animation:none}}
+.add-block summary::before,.custom-rules summary::before{display:none}

@@ -254,6 +254,8 @@ async function settingsModal() {
   }});
 }
 
+export const reminderText = r => t('reminder.' + r.kind, r.data) + (r.data?.why ? ' — ' + r.data.why : '');
+
 /* Browser notifications for reminders that appeared since the last look (opt-in, per browser). */
 function notifyNew(list) {
   if (!Array.isArray(list)) return;
@@ -266,15 +268,15 @@ function notifyNew(list) {
   try { on = localStorage.getItem('dot.notify') === '1' && 'Notification' in window && Notification.permission === 'granted'; } catch { /* ignore */ }
   if (!on) return;
   for (const r of list.filter(x => !seen.includes(x.id)).slice(0, 3)) {
-    try { const n = new Notification('DOT · ' + t('shell.reminders'), {body: t('reminder.' + r.kind, r.data), tag: 'dot-' + r.id}); n.onclick = () => { window.focus(); location.hash = REMINDER_VIEW[r.kind] || 'overview'; }; } catch { /* unsupported */ }
+    try { const n = new Notification('DOT · ' + t('shell.reminders'), {body: reminderText(r), tag: 'dot-' + r.id}); n.onclick = () => { window.focus(); location.hash = REMINDER_VIEW[r.kind] || 'overview'; }; } catch { /* unsupported */ }
   }
 }
-const REMINDER_VIEW = {rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', scholarship_due: 'study', tuition_due: 'study', challenge_ending: 'progress', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
+const REMINDER_VIEW = {ai_good_time: 'send', ai_deadline: 'send', rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', scholarship_due: 'study', tuition_due: 'study', challenge_ending: 'progress', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
 
 function drawer() {
   const list = state.data.reminders || [];
   $('#drawer-panel').innerHTML = `<header><span class="eyebrow">${t('shell.reminders')}</span><button class="icon-button" data-action="close-drawer" aria-label="${t('common.close')}">×</button></header>
-    ${list.length ? `<ul class="reminders">${list.map(r => `<li class="sev-${esc(r.severity)}"><span class="pulse"></span><div><p>${esc(t('reminder.' + r.kind, r.data))}</p><small>${when(r.created)}</small></div>
+    ${list.length ? `<ul class="reminders">${list.map(r => `<li class="sev-${esc(r.severity)}"><span class="pulse"></span><div><p>${esc(reminderText(r))}</p><small>${when(r.created)}</small></div>
       <div class="row-actions">${['quote_expired', 'quote_expiring', 'unresolved', 'insufficient_funds'].includes(r.kind) ? `<button class="link sm" data-action="detail" data-id="${esc(r.ref)}">${t('agent.view')}</button>` : r.kind.startsWith('goal') ? `<button class="link sm" data-action="go" data-view="plans">${t('common.open')}</button>` : r.kind.startsWith('obligation') ? `<button class="link sm" data-action="go" data-view="habits">${t('common.open')}</button>` : REMINDER_VIEW[r.kind] ? `<button class="link sm" data-action="go" data-view="${REMINDER_VIEW[r.kind]}">${t('common.open')}</button>` : ''}
       <button class="x" data-action="dismiss" data-id="${r.id}" aria-label="${t('common.dismiss')}">×</button></div></li>`).join('')}</ul>` : empty(t('reminder.none'))}
     <p class="fine">${t('reminder.note')}</p>`;

@@ -6,7 +6,7 @@
 
 **一个会「理解 · 规划 · 安全执行」的金融 Agent —— 比较方案、预测汇率、提醒你何时换汇，并把日常开销理清楚。**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-146%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-151%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![总览](docs/screenshots/overview.png)
 
@@ -58,9 +58,11 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 授权屏显示环境标签、精确金额、费率来源、报价倒计时、状态时间线和逐项风控检查。勾选确认后需要**长按圆环**才能授权；授权绑定详情摘要（SHA-256），任何改动都会使其失效。
 
-### 4. 规划换汇时机，到点提醒
+### 4. AI 替你盯汇率
 
-「汇款」页新增第三步：**换汇时机与提醒**。它展示今天的参考汇率、90 天位置和实验性 7 天预测区间，然后让你设置提醒——目标汇率（默认取预测区间上沿）、有利水平，以及到账截止前几天的最晚换汇日。后台每十分钟检查一次；提醒出现在铃铛里，你允许的话还会弹出浏览器通知。我们不假装知道哪天最好——只是替你盯着汇率。
+「汇款」页第 ③ 步首先是 **AI 盯盘**。对你用到的每个币种对（进行中的目标和最近的汇款会自动加入），AI 会自行判断现在是否适合换汇：它综合 90 天位置、与 90 天均值的差距、近期走势、实验性 7 天预测（以及预测是否在回测中优于基线），还有你的截止日期。结论分为“好时机 / 可以再等等 / 截止临近，尽快换 / 低于你可接受的汇率 / 暂无明显信号”，附带把握程度和理由标签；配置了模型时，还会有模型用你的语言写的一段简短解释。后台每十分钟复查一次，判断变为“好时机”或“截止临近”时提醒你（铃铛、浏览器通知，开启的话还有邮件）。
+
+**你可以辅助它。** 在“你的需求”里（或直接告诉 AI 助手）填写需要收到的金额、最晚日期和最低可接受汇率。这些是硬性限制：低于你的底线时绝不会说“好时机”，截止临近时绝不会建议再等。没有配置模型时，由一套透明的规则引擎做同样的判断。目标汇率、有利水平、最晚换汇日等固定规则仍然保留，作为可选补充。系统永远不会自动替你换汇。
 
 ### 5. 看得清的开销
 
@@ -92,7 +94,7 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 ### 8. 工具与记忆
 
-**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 35 个工具，包括 `progress_overview`、`start_challenge`、 `afford_check`、`cashflow_plan`、`spending_insights`、`track_scholarship`、`log_expense`、`remember_note`——并且刻意没有“批准支付”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
+**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 37 个工具，包括 `exchange_advice`、`watch_exchange`、`progress_overview`、`start_challenge`、 `afford_check`、`cashflow_plan`、`spending_insights`、`track_scholarship`、`log_expense`、`remember_note`——并且刻意没有“批准支付”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
 
 **记忆**在 [`finance/memory.py`](finance/memory.py)，分三层：
 
@@ -153,6 +155,7 @@ flowchart LR
 | 支付核心、风控、授权、路线 | `finance/service.py` |
 | 比较、情景、目标预算、建议与提案 | `finance/planning.py` |
 | 付款习惯、提醒去重、汇率提醒 | `finance/habits.py` |
+| AI 盯盘：信号计算、模型判断（规则兜底）、你的需求作为硬性限制 | `finance/watch.py` |
 | 参考汇率、历史分析、回测预测 | `finance/rates.py` |
 | 沙盒提供方 | `finance/providers.py` |
 | 记账：CSV 导入、分类、去重、审核、周期、快速记账 | `finance/expenses.py` |
@@ -213,7 +216,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 
 ### 试试新功能
 
-1. 「汇款」→ 输入金额 → 在第 ③ 步勾选“目标汇率”和/或“有利水平”→ **设置提醒**
+1. 「汇款」→ 输入金额 → 第 ③ 步查看 AI 盯盘的判断；在“你的需求”里填最晚日期和最低可接受汇率，或展开“添加自定义规则”
 2. 「记账」→ 拖入银行 CSV → 审核待确认的行（疑似重复默认不勾选）→ **确认**
 3. 「学生理财」→ 添加学期 → 输入价格问“我买得起吗？”；跟踪一个奖学金并勾选材料
 4. 「记账」→ 输入 `午饭 35元`（或点麦克风）→ **保存**；或 **扫描小票**（需要支持图像的模型，否则手动填写）
@@ -266,7 +269,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 ## 🧪 测试
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 146 项：服务、风控、记账、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
+.\.venv\Scripts\python -m pytest -q        # 151 项：服务、风控、记账、AI 盯盘、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
 .\.venv\Scripts\python -m finance.demo     # 离线演示：未授权被拒 → 授权 → 执行 → 幂等 → 超时恢复
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .

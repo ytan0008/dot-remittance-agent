@@ -301,6 +301,16 @@ class SeenIn(Model):
     ids: list[int] = Field(max_length=50)
 
 
+class WatchIn(Model):
+    source: str
+    target: str
+    amount: str | None = None
+    deadline: str | None = None
+    min_rate: str | None = None
+    note: str = Field(default="", max_length=200)
+    active: bool = True
+
+
 class Recommendation(Model):
     subject: str
     detail: dict
@@ -339,6 +349,7 @@ def create_app(finance=None, agent=None, background=None):
             raise RuntimeError("VIEWER_TOKEN must be distinct and at least 24 characters")
         app.state.finance = finance or Finance()
         app.state.agent = agent or Agent(app.state.finance)
+        app.state.finance.exchange_judge = app.state.agent.judge
         app.state.sessions = {}
         stop = asyncio.Event()
         run_worker = background if background is not None else os.getenv("ENABLE_WORKER", "true") == "true"
@@ -794,6 +805,20 @@ def create_app(finance=None, agent=None, background=None):
     def email_send(body: EmailSend, actor=Depends(role)):
         service().owner(actor)
         return service().send_report(actor, body.period)
+
+    # ---------- AI exchange watch ----------
+    @app.get("/exchange-advice")
+    def exchange_advice(source: str, target: str, lang: str | None = None, actor=Depends(role)):
+        return service().exchange_advice(source, target, lang)
+
+    @app.get("/watches")
+    def watches(actor=Depends(role)):
+        service().sync_watches()
+        return service().watches()
+
+    @app.put("/watches")
+    def set_watch(body: WatchIn, actor=Depends(role)):
+        return service().set_watch(actor, body.source, body.target, body.amount, body.deadline, body.min_rate, body.note, body.active)
 
     # ---------- motivation ----------
     @app.get("/motivation")

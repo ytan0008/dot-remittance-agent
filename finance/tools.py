@@ -173,6 +173,23 @@ def email_report(ctx, period):
     return ctx.finance.send_report(ctx.actor, period)
 
 
+# ---------- AI exchange watch ----------
+
+@tool("exchange_advice", "AI judgment on whether now is a good time to exchange source→target: verdict good_time | wait | "
+      "deadline | below_floor | neutral, with reasons from the 90-day position, trend, experimental forecast, and the "
+      "student's own deadline and acceptable rate. Not a quote or a promise.", PAIR)
+def exchange_advice(ctx, source, target):
+    return ctx.finance.exchange_advice(up(source), up(target), _lang(ctx))
+
+
+@tool("watch_exchange", "Record the student's own exchange needs so the AI watch respects them and reminds at the right "
+      "time: amount they need to receive (normal units), deadline YYYY-MM-DD, the lowest acceptable rate, a note. "
+      "Empty strings for unknown fields.", {**PAIR, "amount": S, "deadline": S, "min_rate": S, "note": S}, ["source", "target"],
+      tier="prepare")
+def watch_exchange(ctx, source, target, amount="", deadline="", min_rate="", note=""):
+    return ctx.finance.set_watch(ctx.actor, up(source), up(target), amount or None, deadline or None, min_rate or None, note)
+
+
 # ---------- motivation ----------
 
 @tool("progress_overview", "The student's encouraging progress: money-skill level and criteria for the next one, badges, the "

@@ -15,6 +15,7 @@ from .habits import HabitsMixin
 from .expenses import ExpensesMixin
 from .student import StudentMixin
 from .motivation import MotivationMixin
+from .watch import WatchMixin
 
 ACTIVE = ("pending", "unknown")
 FINAL = ("completed", "failed", "cancelled", "superseded")
@@ -37,7 +38,7 @@ def audited(method):
     return wrapped
 
 
-class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, MotivationMixin):
+class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, MotivationMixin, WatchMixin):
     """Single-tenant service. Authorization is derived by the server, never taken from model input."""
 
     def __init__(self, config=None, provider=None, rates=None):
@@ -46,6 +47,7 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
         self._expenses_schema()
         self._student_schema()
         self._motivation_schema()
+        self._watch_schema()
         self.rates = rates or Rates()
         self.sandbox = SandboxProvider(self.store, self.rates, self.config.sandbox_settle_seconds)
         self.evm, self.evm_error = provider, None

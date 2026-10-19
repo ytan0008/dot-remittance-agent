@@ -74,6 +74,11 @@ def money(minor, currency):
     return f"{from_minor(minor, currency):,.{places}f} {currency}"
 
 
+def reminder_text(templates, r):
+    text = templates.get(r["kind"], r["kind"]).format_map(_Safe(r["data"]))
+    return text + (" — " + r["data"]["why"] if r["data"].get("why") else "")
+
+
 class _Safe(dict):
     def __missing__(self, key):
         return "{" + key + "}"
@@ -601,7 +606,7 @@ class StudentMixin:
             sections.append((E["upcoming"], upcoming))
         active = [r for r in self.reminders() if r["severity"] in ("warn", "alert")][:8]
         if active:
-            sections.append((E["reminders"], [R.get(r["kind"], r["kind"]).format_map(_Safe(r["data"])) for r in active]))
+            sections.append((E["reminders"], [reminder_text(R, r) for r in active]))
         for title, items in sections:
             lines += ["", title] + ["· " + i for i in items]
         lines += ["", E["footer"]]
@@ -669,11 +674,11 @@ class StudentMixin:
             s["last_digest"] = now()  # one attempt per period; failures are visible in the log
         if s.get("reminders"):
             fresh = [r for r in self.reminders() if r["id"] > s.get("last_reminder_id", 0) and
-                     (r["severity"] in ("warn", "alert") or r["kind"] in ("rate_target", "rate_favorable", "exchange_due"))]
+                     (r["severity"] in ("warn", "alert") or r["kind"] in ("rate_target", "rate_favorable", "exchange_due", "ai_good_time", "ai_deadline"))]
             if fresh:
                 L = lang_of(s.get("language"))
                 E, R = EMAIL[L], REMINDERS[L]
-                items = [R.get(r["kind"], r["kind"]).format_map(_Safe(r["data"])) for r in fresh[:12]]
+                items = [reminder_text(R, r) for r in fresh[:12]]
                 subject = E["subject_reminders"].format(n=len(fresh))
                 text = "\n".join([E["title"], "", E["reminders_intro"], *["· " + i for i in items], "", E["footer"]])
                 try:

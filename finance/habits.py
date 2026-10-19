@@ -5,6 +5,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from .domain import Denied, canonical, now, units, decimals, from_minor
+from .watch import EVENT_KINDS
 
 CATEGORIES = ("rent", "tuition", "utility", "loan", "family", "subscription", "other")
 
@@ -266,7 +267,9 @@ class HabitsMixin:
             for fingerprint, kind, ref, severity, data in current:
                 created += self._remind(c, fingerprint, kind, ref, severity, data)
             live = {x[0] for x in current}
-            for r in c.execute("SELECT id,fingerprint,kind FROM reminders WHERE resolved=0 AND kind<>'rate_target'").fetchall():
+            for r in c.execute("SELECT id,fingerprint,kind FROM reminders WHERE resolved=0").fetchall():
+                if r["kind"] in EVENT_KINDS:
+                    continue
                 if r["fingerprint"] not in live:
                     c.execute("UPDATE reminders SET resolved=1 WHERE id=?", (r["id"],))
         return created

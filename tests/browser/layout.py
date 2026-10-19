@@ -9,7 +9,7 @@ out = Path(os.getenv('ARTIFACTS', '/artifacts'))
 out.mkdir(exist_ok=True)
 views = ['overview', 'agent', 'send', 'spending', 'payments', 'markets', 'plans', 'study', 'progress', 'habits', 'wallets', 'autonomy', 'memory', 'routes', 'audit']
 langs = ['en', 'zh-CN', 'zh-TW', 'vi', 'ja', 'ko']
-raw_key = re.compile(r'\b(?:nav|page|status|check|err|send|detail|markets|wallets|autonomy|agent|plans|habits|routes|audit|memory|spend|rem|cat|study|afford|insight|email|sch|doc|prog|badge|level|cel|group)\.[a-z_]+\b')
+raw_key = re.compile(r'\b(?:nav|page|status|check|err|send|detail|markets|wallets|autonomy|agent|plans|habits|routes|audit|memory|spend|rem|cat|study|afford|insight|email|sch|doc|prog|badge|level|cel|group|watch)\.[a-z_]+\b')
 problems = []
 with sync_playwright() as p:
     browser = p.chromium.launch()

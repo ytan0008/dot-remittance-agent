@@ -1,6 +1,6 @@
 import {state, t, api, toast, isOwner, canPrepare, invalidate, newId, $, rerender} from '../core.js';
 import {esc, amt, tag, panel, field, options, segmented, icons, empty} from '../ui.js';
-import {money, num, day, pct, region, decimalsOf, phrase, when} from '../i18n.js';
+import {money, num, day, pct, region, decimalsOf, phrase, when, lang} from '../i18n.js';
 import {renderDetail} from './payments.js';
 
 let timer = 0, seq = 0;
@@ -81,7 +81,7 @@ function reminderStep(route) {
     </div><p class="fine">${t('rem.plan_note', {s: route.source, t: route.target})}</p>` : `<p class="fine">${t('common.loading')}</p>`;
   const list = alerts.length ? `<ul class="list alert-list">${alerts.map(a => `<li class="row"><span class="state-dot ${a.active ? '' : 'off'}"></span><div><b>${esc(alertText(a))}</b><small>${a.triggered_at ? t('markets.triggered', {at: when(a.triggered_at)}) : a.active ? t('markets.armed') : '—'}${a.note ? ' · ' + esc(a.note) : ''}</small></div>
       <button class="pill sm ${a.active ? 'on' : ''}" data-action="toggle-alert" data-id="${esc(a.id)}" data-active="${a.active ? 0 : 1}" ${isOwner() ? '' : 'disabled'}>${a.active ? t('markets.armed') : t('markets.rearm')}</button></li>`).join('')}</ul>` : '';
-  return panel(`<span class="step-n">3</span>${t('rem.title')}`, `${plan}
+  const custom = `<details class="custom-rules" ${alerts.length ? 'open' : ''}><summary>${icons.plus}${t('watch.custom')}</summary><p class="fine">${t('watch.custom_d')}</p>
     <form id="reminder-form" class="reminder-options">
       <label class="rem-opt"><input type="checkbox" name="target" ${r.target ? 'checked' : ''}><span><b>${t('rem.target')}</b><span class="rem-line">${t('rem.target_line', {s: route.source, t: route.target})} <input name="threshold" inputmode="decimal" value="${esc(r.threshold || (suggested ? Number(suggested).toFixed(4) : ''))}" class="mini-input"> ${esc(route.target)}</span></span></label>
       <label class="rem-opt"><input type="checkbox" name="favorable" ${r.favorable ? 'checked' : ''}><span><b>${t('rem.favorable')}</b><span class="rem-line">${t('rem.favorable_line')} <select name="top" class="mini-input">${options([['20', '20%'], ['10', '10%'], ['30', '30%']], r.top)}</select></span></span></label>
@@ -89,7 +89,38 @@ function reminderStep(route) {
       <label class="check-label notify-opt"><input type="checkbox" name="notify" ${(r.notify ?? notifyOn()) ? 'checked' : ''}> ${t('rem.notify')}</label>
       <div class="form-error"></div>
       <button class="button primary" ${isOwner() ? '' : 'disabled'}>${icons.check}${t('rem.create')}</button>
-    </form>${list}`, {cls: 'reminder-step', id: 'reminder-step'});
+    </form>${list}</details>`;
+  return panel(`<span class="step-n">3</span>${t('rem.title')}`, `${aiCard(route, info, plan)}${needsForm(route, info)}${custom}`,
+    {cls: 'reminder-step', id: 'reminder-step'});
+}
+
+const signed = x => (Number(x) > 0 ? '+' : '') + num(x, 2) + '%';
+
+function aiCard(route, info, plan) {
+  const a = info?.advice, pair = `${route.source}→${route.target}`;
+  if (!a) return `<div class="ai-watch loading"><div class="ai-head"><span class="ai-orb"><i></i><b></b></span><div><span class="eyebrow">${t('watch.title')}</span>
+    <h3>${info?.adviceError ? esc(info.adviceError) : t('watch.loading')}</h3></div></div>${plan}</div>`;
+  const reason = r => t('watch.r.' + r.code, {p: num(r.p ?? 0, 0), pct: signed(r.pct ?? 0), days: r.days, rate: r.rate});
+  return `<div class="ai-watch v-${esc(a.verdict)}">
+    <div class="ai-head"><span class="ai-orb"><i></i><b></b></span>
+      <div><span class="eyebrow">${t('watch.title')} · ${t('watch.by_' + a.judged_by)} · ${t('watch.conf.' + a.confidence)}</span><h3>${esc(t('watch.v.' + a.verdict, {pair}))}</h3></div>
+      <button class="pill ${a.watching ? 'on' : ''}" data-action="watch-toggle" ${isOwner() ? '' : 'disabled'}>${a.watching ? t('watch.on') : t('watch.off')}</button></div>
+    ${a.explanation ? `<p class="ai-why">${esc(a.explanation)}</p>` : ''}
+    <ul class="ai-reasons">${a.reasons.map(r => `<li class="r-${esc(r.code)}">${esc(reason(r))}</li>`).join('')}</ul>
+    ${plan}
+    <p class="fine">${t('watch.note')}</p></div>`;
+}
+
+function needsForm(route, info) {
+  const n = info?.advice?.needs || {}, s = state.send;
+  const amount = n.amount ? money(n.amount, route.target).replace(/,/g, '') : (s.mode === 'receive' ? s.receive : '');
+  return `<form id="needs-form" class="needs-form"><div><span class="eyebrow">${t('watch.needs')}</span><p class="fine">${t('watch.needs_d')}</p></div>
+    <div class="needs-grid">
+      ${field('nd-amount', t('watch.amount', {c: route.target}), `<input id="nd-amount" name="amount" inputmode="decimal" value="${esc(amount)}" placeholder="0">`)}
+      ${field('nd-deadline', t('watch.deadline'), `<input id="nd-deadline" name="deadline" type="date" value="${esc(n.deadline || s.arrival || '')}">`)}
+      ${field('nd-rate', t('watch.min_rate'), `<input id="nd-rate" name="min_rate" inputmode="decimal" value="${esc(n.min_rate || '')}" placeholder="${esc(info?.latest?.rate ? num(info.latest.rate * 0.99, 4) : '')}">`)}
+      ${field('nd-note', t('watch.note_field'), `<input id="nd-note" name="note" maxlength="200" value="${esc(n.note || '')}">`)}
+    </div><div class="form-error"></div><button class="button sm" ${isOwner() ? '' : 'disabled'}>${icons.check}${t('watch.save')}</button></form>`;
 }
 
 function notifyOn() { try { return localStorage.getItem('dot.notify') === '1'; } catch { return false; } }
@@ -109,15 +140,31 @@ export function alertText(a) {
   return t(a.condition === 'above' ? 'rem.when_above' : 'rem.when_below', {s: a.source, t: a.target, r: num(a.threshold, 4)});
 }
 
+/** Replace step 3 in place; the new panel is already on screen, so it must not wait for the reveal animation. */
+function swapStep(route) {
+  const box = document.getElementById('reminder-step');
+  if (!box || state.view !== 'send' || state.send.route !== route.id) return;
+  box.outerHTML = reminderStep(route);
+  document.getElementById('reminder-step')?.classList.add('in');
+}
+
+const adviceFor = route => api(`/exchange-advice?source=${route.source}&target=${route.target}&lang=${encodeURIComponent(lang)}`);
+
+async function refreshAdvice(route) {
+  const info = insight[route.source + '-' + route.target] || {};
+  try { info.advice = await adviceFor(route); delete info.adviceError; } catch (e) { info.adviceError = e.message; }
+  insight[route.source + '-' + route.target] = info;
+  swapStep(route);
+}
+
 async function loadInsight(route) {
   const key = route.source + '-' + route.target;
   if (insight[key]) return;
-  const [latest, history, forecast] = await Promise.allSettled([
+  const [latest, history, forecast, advice] = await Promise.allSettled([
     api(`/rates/latest?source=${route.source}&target=${route.target}`), api(`/rates?source=${route.source}&target=${route.target}&days=90`),
-    api(`/rates/forecast?source=${route.source}&target=${route.target}`)]);
-  insight[key] = {latest: latest.value, history: history.value, forecast: forecast.value};
-  const box = document.getElementById('reminder-step');
-  if (box && state.view === 'send' && state.send.route === route.id) box.outerHTML = reminderStep(route);
+    api(`/rates/forecast?source=${route.source}&target=${route.target}`), adviceFor(route)]);
+  insight[key] = {latest: latest.value, history: history.value, forecast: forecast.value, advice: advice.value, adviceError: advice.reason?.message};
+  swapStep(route);
 }
 
 export const view = {
@@ -153,6 +200,14 @@ export const view = {
     'pick-route'(el) { state.send.route = el.dataset.value; state.send.result = null; state.send.recipient = ''; rerender(); schedule(0); },
     'send-mode'(el) { state.send.mode = el.dataset.value; state.send.result = null; rerender(); schedule(0); },
     'send-rank'(el) { state.send.rank = el.dataset.value; schedule(0); },
+    async 'watch-toggle'() {
+      const route = routeOf(state.send.route), a = insight[route.source + '-' + route.target]?.advice;
+      const n = a?.needs || {};
+      await api('/watches', 'PUT', {source: route.source, target: route.target, amount: n.amount ? money(n.amount, route.target).replace(/,/g, '') : null,
+        deadline: n.deadline || null, min_rate: n.min_rate || null, note: n.note || '', active: !a?.watching});
+      toast(t(a?.watching ? 'watch.toggled_off' : 'watch.toggled_on', {pair: `${route.source}→${route.target}`}), 'good');
+      await refreshAdvice(route);
+    },
     async 'toggle-alert'(el) { await api('/rate-alerts/' + encodeURIComponent(el.dataset.id), 'PATCH', {active: el.dataset.active === '1'}); invalidate(['alerts']); rerender(); },
     'submit-send'() { $('#send-form')?.requestSubmit(); },
     async 'accept-rec'(el) {
@@ -174,6 +229,13 @@ export const view = {
       invalidate();
       renderDetail(result);
       toast(t('send.drafted'), 'good');
+    },
+    async 'needs-form'(f) {
+      const route = routeOf(state.send.route), v = Object.fromEntries(new FormData(f));
+      await api('/watches', 'PUT', {source: route.source, target: route.target, amount: String(v.amount || '').replace(',', '.') || null,
+        deadline: v.deadline || null, min_rate: String(v.min_rate || '').replace(',', '.') || null, note: v.note || '', active: true});
+      toast(t('watch.saved'), 'good');
+      await refreshAdvice(route);
     },
     async 'reminder-form'(f) {
       const route = routeOf(state.send.route), v = Object.fromEntries(new FormData(f));

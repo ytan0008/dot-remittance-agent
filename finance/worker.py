@@ -16,6 +16,7 @@ async def run(finance, stop, interval=3):
                 await asyncio.to_thread(finance.evm.info, 10)  # keep the wallet view warm; RPC calls are slow
             if tick % 200 == 0:  # ~10 minutes; reference data itself is daily and cached
                 await asyncio.to_thread(finance.check_rate_alerts)
+                await asyncio.to_thread(finance.check_watches)
                 await asyncio.to_thread(finance.materialize_recurring)
                 await asyncio.to_thread(finance.email_tick)
                 if finance.motivation_settings()["enabled"]:

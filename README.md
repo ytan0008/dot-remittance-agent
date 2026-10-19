@@ -6,7 +6,7 @@
 
 **A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-146%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-151%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -58,9 +58,11 @@ Live comparison as you type: a reference-rate benchmark, three simulated options
 
 The authorization screen shows the environment label, exact amounts, rate source, a live quote countdown, the status timeline and every guardrail check. After ticking the confirmation you must **press and hold** the ring. The approval is bound to a SHA-256 digest of the exact details — any change voids it.
 
-### 4. Plan the timing, get reminded
+### 4. AI watches the exchange rate for you
 
-The Send page has a third step: **exchange timing & reminders**. It shows today's reference rate, its 90-day position and the experimental 7-day forecast range, then lets you arm reminders — a target rate (prefilled from the forecast's upper bound), a favorable level, and an exchange-by date a few days before the arrival deadline. The background worker checks them every ten minutes; reminders appear under the bell and, if you allow it, as browser notifications. We never claim to know the best day — we watch the rate for you.
+Step ③ on the Send page starts with the **AI watch**. For every pair you use (active goals and recent transfers are picked up automatically), the AI judges by itself whether now is a good time: it reads the 90-day position, the gap to the 90-day average, the recent trend, the experimental 7-day forecast (and whether it beat the baseline), plus your deadline. The verdict is *good time / waiting looks reasonable / exchange soon — deadline / below your acceptable rate / no strong signal*, with a confidence level, the reasons as chips and — when a model is configured — a short explanation written by the model in your language. The worker re-checks every ten minutes and reminds you (bell, browser notification, email if enabled) when the judgment turns to “good time” or “deadline”.
+
+**You can guide it.** Under *Your needs* (or simply by telling the assistant) give the amount you need to receive, the date you need it by and the lowest rate you accept. These are hard limits: a rate below your floor is never called a good time, and a close deadline is never told to wait. Without a model, a transparent rule engine makes the same kind of judgment. Fixed rules — a target rate, a favorable level, an exchange-by date — remain available as an optional extra. Nothing is ever exchanged automatically.
 
 ### 5. Spending you can trust
 
@@ -92,7 +94,7 @@ Everything comes from your own activity, nothing is compared or shared, and both
 
 ### 8. Tools and memory
 
-**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 35 tools, including `progress_overview`, `start_challenge`, `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
+**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 37 tools, including `exchange_advice`, `watch_exchange`, `progress_overview`, `start_challenge`, `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
 
 **Memory** lives in [`finance/memory.py`](finance/memory.py), in three layers:
 
@@ -153,6 +155,7 @@ flowchart LR
 | Payments core, guardrails, approvals, routes | `finance/service.py` |
 | Comparison, scenarios, goals & budget, decisions & proposals | `finance/planning.py` |
 | Payment habits, deduplicated reminders, exchange alerts (rate / favorable level / date) | `finance/habits.py` |
+| AI exchange watch: signals, model judgment with rule fallback, your needs as hard limits | `finance/watch.py` |
 | Spending: CSV import, categories, duplicates, review, recurring, quick-add | `finance/expenses.py` |
 | Student money: scholarships, terms, cash flow, afford check, insights, email reports | `finance/student.py`, `finance/student_i18n.py`, `finance/mailer.py` |
 | Progress: badges, forgiving streak, challenges, levels, celebrations | `finance/motivation.py` |
@@ -213,7 +216,7 @@ Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP
 
 ### Try the new features
 
-1. **Send** → enter an amount → in step ③ tick “Target rate” and/or “Favorable level” → **Set reminders**
+1. **Send** → enter an amount → step ③ shows the AI watch's verdict; add your deadline and lowest acceptable rate under *Your needs*, or open *Add your own rule*
 2. **Spending** → drop a bank CSV → review the pending rows (duplicates are left unticked) → **Confirm**
 3. **Student money** → add a term → ask “Can I afford this?” for a price; track a scholarship and tick its documents
 4. **Spending** → type `lunch 12.50` (or press the mic) → **Save**; or **Scan a receipt** (needs a vision-capable model, otherwise fill the form yourself)
@@ -266,7 +269,7 @@ Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP
 ## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 146 tests: service, guardrails, spending, student money, progress, email, reminders, API, rule planner, 6 languages
+.\.venv\Scripts\python -m pytest -q        # 151 tests: service, guardrails, spending, AI exchange watch, student money, progress, email, reminders, API, rule planner, 6 languages
 .\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
