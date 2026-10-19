@@ -16,7 +16,7 @@ class Standalone:
             return await self.api(scope, receive, send)
         path = scope.get("path", "")
         if path == "/api" or path.startswith("/api/"):
-            scope = dict(scope, path=path[4:] or "/", raw_path=None)
+            scope = dict(scope, root_path="/api")  # docs and OpenAPI then resolve under /api
             return await self.api(scope, receive, send)
         if scope["type"] == "http" and not (DIST / path.lstrip("/")).is_file():
             scope = dict(scope, path="/")  # single-page fallback
