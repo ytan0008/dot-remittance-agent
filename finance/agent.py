@@ -58,6 +58,7 @@ class Agent:
         self.finance = finance
         self.client = client
         self.model = model or os.getenv("OPENAI_MODEL")
+        self.effort = os.getenv("OPENAI_REASONING_EFFORT", "").strip() or None
         self.rules = RulePlanner(self)
         self.memory = Memory(finance.store)
 
@@ -180,6 +181,8 @@ class Agent:
         for round_ in range(8):
             # No token cap: newer models reject max_tokens and many compatible providers reject max_completion_tokens.
             kwargs = dict(model=self.model, messages=messages, tools=tools)
+            if self.effort:  # GPT-6 models only allow function calling in Chat Completions with reasoning_effort=none
+                kwargs["reasoning_effort"] = self.effort
             if round_ == 0:
                 kwargs["tool_choice"] = {"type": "function", "function": {"name": "record_plan"}}
             try:

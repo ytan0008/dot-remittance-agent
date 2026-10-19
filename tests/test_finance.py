@@ -532,3 +532,15 @@ def test_model_denials_become_data(local):
 def test_secrets_rejected_in_chat(local):
     with pytest.raises(Denied):
         Agent(local).chat("my key is 0x" + "ab" * 32, "s", "en")
+
+
+def test_reasoning_effort_is_sent_for_gpt6(local, monkeypatch):
+    monkeypatch.setenv("OPENAI_REASONING_EFFORT", "none")
+    plan = {"intent": "information", "summary": "x", "missing": [], "steps": []}
+    client, seen = fake_client([[("record_plan", plan)], "ok"])
+    Agent(local, client=client, model="gpt-6-luna").chat("hi", "g6", "en")
+    assert all(call["reasoning_effort"] == "none" and call["model"] == "gpt-6-luna" for call in seen)
+    monkeypatch.delenv("OPENAI_REASONING_EFFORT")
+    client, seen = fake_client([[("record_plan", plan)], "ok"])
+    Agent(local, client=client, model="other").chat("hi", "g7", "en")
+    assert "reasoning_effort" not in seen[0]

@@ -8,7 +8,8 @@ defaults = {
     "AGENT_TOKEN": lambda: secrets.token_urlsafe(32),
     "ENABLE_DEMO_LOGIN": lambda: "true",
     "OPENAI_API_KEY": lambda: "",
-    "OPENAI_MODEL": lambda: "",
+    "OPENAI_MODEL": lambda: "gpt-6-luna",
+    "OPENAI_REASONING_EFFORT": lambda: "none",
     "OPENAI_BASE_URL": lambda: "",
     # The agent's own wallet on the Sepolia test network. Remove EVM_RPC_URL to run the sandbox only.
     "EVM_RPC_URL": lambda: "https://ethereum-sepolia-rpc.publicnode.com",
