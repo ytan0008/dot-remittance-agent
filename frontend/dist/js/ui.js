@@ -30,6 +30,7 @@ export const icons = {
   agent: I('<circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9" ry="4.2"/><circle cx="20.2" cy="10.4" r="1.3" class="fill"/>'),
   send: I('<circle cx="12" cy="12" r="8.5"/><path d="M9 15l6-6M10 9h5v5"/>'),
   spending: I('<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/><circle cx="16" cy="16" r="1.3" class="fill"/>'),
+  study: I('<path d="M3 9.5L12 5l9 4.5-9 4.5z"/><path d="M7 11.6V16c1.4 1.3 3 2 5 2s3.6-.7 5-2v-4.4"/><circle cx="20" cy="15" r="1.3" class="fill"/>'),
   payments: I('<path d="M5 7h14M5 12h14M5 17h9"/><circle cx="18" cy="17" r="1.4" class="fill"/>'),
   markets: I('<path d="M4 17l4.5-5 3.5 3 7-8"/><circle cx="19" cy="7" r="1.4" class="fill"/>'),
   plans: I('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.2" class="fill"/>'),

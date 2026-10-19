@@ -15,10 +15,11 @@ import {view as routes} from './views/routes.js';
 import {view as audit} from './views/audit.js';
 import {view as memory} from './views/memory.js';
 import {view as spending} from './views/spending.js';
+import {view as study} from './views/study.js';
 
-const VIEWS = [overview, agent, sendView, spending, payments, markets, plans, habits, wallets, autonomy, memory, routes, audit];
+const VIEWS = [overview, agent, sendView, spending, payments, markets, plans, study, habits, wallets, autonomy, memory, routes, audit];
 const BY_ID = Object.fromEntries(VIEWS.map(v => [v.id, v]));
-const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'spending', 'payments']], ['nav.g_insight', ['markets', 'plans', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
+const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'spending', 'payments']], ['nav.g_insight', ['markets', 'plans', 'study', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
 const DOCK = ['overview', 'agent', 'send', 'payments'];
 const ORDER = GROUPS.flatMap(g => g[1]);
 let pendingPaint = false, refreshTimer = 0, events = null;
@@ -207,7 +208,7 @@ function notifyNew(list) {
     try { const n = new Notification('DOT · ' + t('shell.reminders'), {body: t('reminder.' + r.kind, r.data), tag: 'dot-' + r.id}); n.onclick = () => { window.focus(); location.hash = REMINDER_VIEW[r.kind] || 'overview'; }; } catch { /* unsupported */ }
   }
 }
-const REMINDER_VIEW = {rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
+const REMINDER_VIEW = {rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', scholarship_due: 'study', tuition_due: 'study', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
 
 function drawer() {
   const list = state.data.reminders || [];

@@ -259,6 +259,7 @@ class HabitsMixin:
                 current.append((f"obligation:{o['id']}:{o['state']}", "obligation_" + o["state"], o["id"],
                                 "alert" if o["state"] == "overdue" else "warn",
                                 dict(title=o["title"], due_date=o["due_date"], amount=str(o["amount"]), currency=o["currency"])))
+        current.extend(self.student_reminders())
         created = 0
         with self.store.tx() as c:
             for fingerprint, kind, ref, severity, data in current:

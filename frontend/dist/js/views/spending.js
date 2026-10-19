@@ -1,11 +1,11 @@
 import {state, t, api, toast, isOwner, invalidate, rerender, modal, closeModal, formError, bus} from '../core.js';
-import {esc, amt, panel, icons, empty, options} from '../ui.js';
+import {esc, amt, panel, icons, empty, options, segmented} from '../ui.js';
 import {money, day, lang, decimalsOf, plain} from '../i18n.js';
 
 const CATEGORIES = ['rent', 'groceries', 'dining', 'transport', 'utilities', 'phone', 'subscriptions', 'tuition', 'shopping',
   'health', 'entertainment', 'travel', 'transfer', 'fees', 'income', 'other'];
 const SPEECH = {en: 'en-US', 'zh-CN': 'zh-CN', 'zh-TW': 'zh-TW', vi: 'vi-VN', ja: 'ja-JP', ko: 'ko-KR'};
-const ui = {month: new Date().toISOString().slice(0, 7), quick: '', preview: null, repeat: '', selected: new Set(), lastImport: null};
+const ui = {month: new Date().toISOString().slice(0, 7), quick: '', preview: null, repeat: '', selected: new Set(), lastImport: null, period: 'week'};
 let parseTimer = 0, recognizer = null;
 
 const catOptions = selected => options(CATEGORIES.map(c => [c, t('cat.' + c)]), selected);
@@ -74,6 +74,22 @@ function reviewTable() {
     </tbody></table></div>`, {cls: 'review-panel', sub: 'REVIEW'});
 }
 
+function insightsPanel() {
+  const r = state.data.spendInsights;
+  if (!r) return '';
+  const cur = r.currency;
+  const change = r.change_pct === null ? t('insight.no_prev') : t(r.change_pct > 0 ? 'insight.up' : 'insight.down', {p: Math.abs(r.change_pct)});
+  return panel(t('insight.title'), `<div class="insight-head">
+      <div><span class="eyebrow">${t('insight.period_' + r.period)} · ${day(r.start)} – ${day(r.end)}</span>${amt(r.total, cur, 'xl')}<small class="${r.change_pct > 0 ? 'warn' : ''}">${change}</small></div>
+      <div><span class="eyebrow">${t('insight.daily')}</span>${amt(r.daily_avg, cur)}</div>
+      ${r.budget ? `<div><span class="eyebrow">${t('insight.budget')}</span>${amt(r.budget, cur)}</div>` : ''}
+    </div>
+    <ul class="tips">${r.tips.map(x => `<li class="tip sev-${esc(x.severity)}"><span class="tip-dot"></span><p>${esc(x.text)}</p></li>`).join('')}</ul>
+    ${r.other_currencies.length ? `<p class="fine">${t('insight.other', {c: r.other_currencies.join(', ')})}</p>` : ''}
+    <p class="fine">${t('insight.note')}</p>`,
+    {cls: 'insight-panel', actions: segmented('period', [['week', t('insight.week')], ['month', t('insight.month')]], ui.period, 'insight-period')});
+}
+
 function recurringPanel() {
   const r = state.data.recurring || {active: [], candidates: []};
   const cand = r.candidates.length ? `<div class="cand-list">${r.candidates.map((c, i) => `<div class="cand"><span class="pulse"></span><div><b>${esc(c.description)}</b><small>${t('spend.looks', {cadence: t(c.cadence === 'weekly' ? 'spend.weekly' : 'habits.monthly'), n: c.occurrences})}</small></div>${amt(c.amount, c.currency)}<button class="button sm" data-action="spend-make-recurring" data-i="${i}" ${isOwner() ? '' : 'disabled'}>${t('spend.make_recurring')}</button></div>`).join('')}</div>` : '';
@@ -93,17 +109,18 @@ export const view = {
   id: 'spending',
   needs: [],
   async load() {
-    const [summ, month, pending, expected, recurring] = await Promise.all([
+    const [summ, month, pending, expected, recurring, insights] = await Promise.all([
       api('/expenses/summary?month=' + ui.month), api('/expenses?status=confirmed&month=' + ui.month),
-      api('/expenses?status=pending'), api('/expenses?status=expected'), api('/recurring')]);
-    Object.assign(state.data, {spendSummary: summ, spendMonth: month, spendPending: pending, spendExpected: expected, recurring});
+      api('/expenses?status=pending'), api('/expenses?status=expected'), api('/recurring'),
+      api(`/insights?period=${ui.period}&lang=${encodeURIComponent(lang)}`).catch(() => null)]);
+    Object.assign(state.data, {spendSummary: summ, spendMonth: month, spendPending: pending, spendExpected: expected, recurring, spendInsights: insights});
     // New rows start selected, except likely duplicates which the student must opt into.
     for (const r of [...pending, ...expected]) if (!ui.known?.has(r.id)) { if (!r.duplicate_of) ui.selected.add(r.id); }
     ui.known = new Set([...pending, ...expected].map(r => r.id));
     for (const id of [...ui.selected]) if (!ui.known.has(id)) ui.selected.delete(id);
   },
   render() {
-    return `${quickAdd()}${reviewTable()}<div class="split wide-left">${summary()}${recurringPanel()}</div>${recentList()}`;
+    return `${quickAdd()}${reviewTable()}${insightsPanel()}<div class="split wide-left">${summary()}${recurringPanel()}</div>${recentList()}`;
   },
   mount(root) {
     root.querySelectorAll('.bar-fill[data-ratio]').forEach(el => el.style.setProperty('--ratio', el.dataset.ratio));
@@ -143,6 +160,7 @@ export const view = {
     });
   },
   actions: {
+    async 'insight-period'(el) { ui.period = el.dataset.value; await reload(); },
     async 'spend-month'(el) { ui.month = shiftMonth(ui.month, Number(el.dataset.n)); await reload(); },
     async 'spend-confirm'() { await submitReview(true); },
     async 'spend-skip'() { await submitReview(false); },

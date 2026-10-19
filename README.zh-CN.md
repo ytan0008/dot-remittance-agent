@@ -6,7 +6,7 @@
 
 **一个会「理解 · 规划 · 安全执行」的金融 Agent —— 比较方案、预测汇率、提醒你何时换汇，并把日常开销理清楚。**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-128%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-138%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![总览](docs/screenshots/overview.png)
 
@@ -26,6 +26,7 @@ DOT 是一个自然语言 AI Agent，帮你：
 - 🛡️ **安全执行**：13 项风控检查 + 你的明确授权，Agent 永远不能批准自己的支付
 - ⏰ **挑好时机换汇**：比较之后设置提醒——目标汇率、“有利水平”（近 90 天最好的 10–30%）或最晚换汇日；可选浏览器通知
 - 🧾 **理清日常开销**：导入银行 CSV、扫描小票、文字或语音快速记账（“午饭 35元”）；自动建议分类、标记疑似重复、周期开销、一键批量审核
+- 🎓 **学生理财**：“我买得起吗？”判断、按学期的现金流规划（学费、生活费、收入）、奖学金与助学金跟踪（截止日期与材料清单）、带具体建议的周/月消费洞察，以及邮件报告
 - 🧾 **全程可追溯**：谁授权了什么、跑了哪些检查、之后发生了什么，一条审计轨迹全部回答
 
 > 本项目实现了课程/产品文档《AI Cross-Border Remittance Assistant》v4.0 中的全部功能模块（4.1–4.15），对照表见[下文](#-文档需求对照)。
@@ -64,9 +65,21 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 「记账」页为留学生设计：把银行导出的 CSV 拖进来（自动识别逗号/分号、支出/收入分列、日在前的日期和 GBK 编码），每一行都以**待审核**状态进入，附带建议分类和疑似重复标记（同商家同金额 ±2 天内，含重复导入的账单）。勾选、批量改分类、确认——你的修改会按商家学习。小票由视觉模型识别，保存前一定给你核对。快速记账能理解 `午饭 35元`、`bus pass 40`、`昨天 打车 23元` 和语音输入。周期开销（房租、话费、订阅）会提前一周生成**预计**条目等你确认或调整。AI 助手也能记账（`log_expense`），但同样进入审核队列。
 
-### 6. 工具与记忆
+### 6. 学生理财
 
-**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 27 个工具，包括 `log_expense`、`spending_summary`、`remember_note`、`recall_memory`——并且刻意没有“批准支付”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
+「学生理财」页用你自己的数字规划整个学期：
+
+- **我买得起吗？**——输入价格，对照现有现金（账本 + 你填写的持有资金）、学期计划、即将到期的学费和其他支出、安全垫，以及本月预算剩余，给出“可以买 / 可以但偏紧 / 现在不建议”，附带数字、买前买后余额曲线和更稳妥的日期。
+- **学期现金流**——添加学期（起止日期、学费及截止日、每月生活费和收入）。每月金额按天平摊，学费按日期计入，已获得的奖学金按发放日计为收入，学期以外的月份按你已确认开销的平均值估算。结果包括期初现金、每月月末余额、最低点和首次缺口。
+- **奖学金与助学金**——从“了解中”到“已获得”的状态、截止倒计时、材料清单（成绩单、简历、个人陈述、推荐信……），材料未齐时在截止前 14/7/3/1 天提醒；学费截止日同样提醒。
+- **消费洞察**（在「记账」页）——最近 7 天或 30 天与上一期及平时水平对比，给出建议：哪类开销上升、频繁的小额消费、订阅总额、学期预算进度、即将到期的学费和计划缺口，并估算能省多少。
+- **邮件报告**——每周（周一）或每月（1 号）的报告和重要提醒，通过你自己的 SMTP 服务器只发给你保存的那一个地址；没配置 SMTP 也能预览。
+
+这里的一切都是基于你的计划和已确认开销的估算，不构成理财建议，也不会动用任何资金。
+
+### 7. 工具与记忆
+
+**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 33 个工具，包括 `afford_check`、`cashflow_plan`、`spending_insights`、`track_scholarship`、`log_expense`、`remember_note`——并且刻意没有“批准支付”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
 
 **记忆**在 [`finance/memory.py`](finance/memory.py)，分三层：
 
@@ -130,6 +143,7 @@ flowchart LR
 | 参考汇率、历史分析、回测预测 | `finance/rates.py` |
 | 沙盒提供方 | `finance/providers.py` |
 | 记账：CSV 导入、分类、去重、审核、周期、快速记账 | `finance/expenses.py` |
+| 学生理财：奖学金、学期、现金流、买得起判断、洞察、邮件报告 | `finance/student.py`、`finance/student_i18n.py`、`finance/mailer.py` |
 | API、SSE、独立服务 | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
 | 前端（原生 ES modules） | `frontend/dist/js/**` |
 
@@ -179,11 +193,16 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 
 在 `.env` 设置 `OPENAI_API_KEY`、`OPENAI_MODEL`，可选 `OPENAI_BASE_URL`（任意 OpenAI 兼容服务），然后 `docker compose up -d --force-recreate backend`。
 
+### 邮件报告（可选）
+
+在 `.env` 中填写 SMTP（`SMTP_HOST`、`SMTP_PORT`、`SMTP_SECURITY`、`SMTP_USER`、`SMTP_PASSWORD`、`SMTP_FROM`），然后运行 `docker compose up -d --force-recreate backend`，再到「学生理财 → 邮件报告」保存你的邮箱。Gmail / Outlook 请使用应用专用密码。
+
 ### 试试新功能
 
 1. 「汇款」→ 输入金额 → 在第 ③ 步勾选“目标汇率”和/或“有利水平”→ **设置提醒**
 2. 「记账」→ 拖入银行 CSV → 审核待确认的行（疑似重复默认不勾选）→ **确认**
-3. 「记账」→ 输入 `午饭 35元`（或点麦克风）→ **保存**；或 **扫描小票**（需要支持图像的模型，否则手动填写）
+3. 「学生理财」→ 添加学期 → 输入价格问“我买得起吗？”；跟踪一个奖学金并勾选材料
+4. 「记账」→ 输入 `午饭 35元`（或点麦克风）→ **保存**；或 **扫描小票**（需要支持图像的模型，否则手动填写）
 
 ### 沙盒测试金额
 
@@ -213,7 +232,9 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 | 4.12 授权与历史 | 接受建议 / 确认修改 / 授权支付 三类独立记录；修改即作废旧授权 |
 | 4.13 审计 | 时间、执行者、动作、结果、关联 ID、请求 ID；拒绝也记录；敏感信息打码；触发器禁止改删 |
 | 4.14 信用习惯 | 应付项目与每月重复、按时/逾期、内部指标（显著标注“不是信用评分”）、信用知识 |
-| 4.15 提醒与回执 | 截止、报价过期、未决交易、资金不足、目标汇率；指纹去重；可打印回执 |
+| 4.15 提醒与回执 | 截止、报价过期、未决交易、资金不足、目标汇率、有利水平、换汇日、预计开销、奖学金与学费截止；指纹去重；浏览器通知与邮件；可打印回执 |
+| 扩展：记账 | 银行 CSV 导入（建议分类、重复检测、审核步骤）、小票扫描、文字/语音快速记账、周期开销、批量审核 |
+| 扩展：学生理财 | “我买得起吗？”、学期现金流规划、奖学金与助学金跟踪、带建议的周/月洞察、邮件报告与提醒 |
 
 ---
 
@@ -230,7 +251,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 ## 🧪 测试
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 128 项：服务、风控、记账、提醒、API、规则规划器、6 种语言
+.\.venv\Scripts\python -m pytest -q        # 138 项：服务、风控、记账、学生理财、邮件、提醒、API、规则规划器、6 种语言
 .\.venv\Scripts\python -m finance.demo     # 离线演示：未授权被拒 → 授权 → 执行 → 幂等 → 超时恢复
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .

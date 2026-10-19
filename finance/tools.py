@@ -124,6 +124,55 @@ def spending_summary(ctx, month):
     return ctx.finance.spending_summary(month or None)
 
 
+# ---------- student money ----------
+
+def _lang(ctx):
+    return ctx.finance.memory().get("language") or "en"
+
+
+@tool("afford_check", "“Can I afford this?” — checks a purchase against cash, the term plan, upcoming costs (tuition, bills), the "
+      "safety buffer and this month's budget. Verdict yes/careful/no with reasons and the earliest safer date. date: YYYY-MM-DD or "
+      "empty for today. " + UNIT, {"amount": S, "currency": S, "date": S, "label": S}, ["amount", "currency"])
+def afford_check(ctx, amount, currency, date="", label=""):
+    r = ctx.finance.afford(ctx.actor, amount, up(currency) or None, date or None, label)
+    r.pop("series", None)
+    return r
+
+
+@tool("cashflow_plan", "Term-based cash-flow projection: opening cash, monthly income, living costs, tuition and extras, closing "
+      "balance per month, the lowest point and any shortfall. currency empty = the plan's currency.", {"currency": S}, [])
+def cashflow_plan(ctx, currency=""):
+    r = ctx.finance.cashflow(up(currency) or None)
+    r.pop("daily", None)
+    return r
+
+
+@tool("spending_insights", "Weekly or monthly spending summary with personalized, actionable suggestions (already written in the "
+      "user's language).", {"period": {"type": "string", "enum": ["week", "month"]}})
+def spending_insights(ctx, period):
+    return ctx.finance.spending_insights(period, _lang(ctx))
+
+
+@tool("list_scholarships", "Tracked scholarships and grants: status, deadline, days left and document checklist progress.")
+def list_scholarships(ctx):
+    return ctx.finance.scholarships()
+
+
+@tool("track_scholarship", "Start tracking a scholarship or grant application for the student. amount in normal units (may be "
+      "empty); deadline YYYY-MM-DD; documents: names of required documents.",
+      {"name": S, "provider": S, "amount": S, "currency": S, "deadline": S, "documents": {"type": "array", "items": S}},
+      ["name"], tier="prepare")
+def track_scholarship(ctx, name, provider="", amount="", currency="", deadline="", documents=None):
+    return ctx.finance.add_scholarship(ctx.actor, name=name, provider=provider, amount=amount, currency=up(currency) or None,
+                                       deadline=deadline or None, documents=documents or [])
+
+
+@tool("email_report", "Email the weekly or monthly money report to the address the owner saved in the app (never any other "
+      "address). Fails if email is not set up.", {"period": {"type": "string", "enum": ["week", "month"]}}, tier="prepare")
+def email_report(ctx, period):
+    return ctx.finance.send_report(ctx.actor, period)
+
+
 # ---------- read-only facts (T1) ----------
 
 @tool("get_balances", "Ledger balances per currency: total, reserved, available. Sandbox is simulated test funds.")

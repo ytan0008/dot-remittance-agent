@@ -6,7 +6,7 @@
 
 **A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-128%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-138%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -26,6 +26,7 @@ DOT is a natural-language AI agent that helps you:
 - 🛡️ **Execute safely** — 13 guardrail checks plus your explicit authorization; the agent can never approve its own payment
 - ⏰ **Exchange at a good moment** — after comparing, set reminders: a target rate, a “favorable level” (top 10–30% of the last 90 days) or an exchange-by date; optional browser notifications
 - 🧾 **Keep spending in order** — import a bank CSV, scan a receipt, or quick-add by text or voice (“lunch 12.50”); suggested categories, duplicate flags, recurring expenses and one-click batch review
+- 🎓 **Plan student money** — “Can I afford this?” checks, a term-based cash-flow planner for tuition, living costs and income, a scholarship & grant tracker with deadlines and document checklists, weekly/monthly insights with concrete suggestions, and email reports
 - 🧾 **Trace everything** — one audit trail answers who authorized what, which checks ran, and what happened next
 
 > Implements every functional module (4.1–4.15) of the product specification *AI Cross-Border Remittance Assistant* v4.0 — see the [requirements mapping](#-requirements-mapping).
@@ -64,9 +65,21 @@ The Send page has a third step: **exchange timing & reminders**. It shows today'
 
 The **Spending** page is built for students: drop the CSV your bank exports (comma/semicolon, debit/credit columns, day-first dates and GBK files are detected), and every row arrives **pending** with a suggested category and a duplicate flag (same merchant and amount within ±2 days, including re-imported statements). Select, recategorize in bulk and confirm — corrections are learned per merchant. Receipts are read by the vision model and always shown for checking before saving. Quick-add understands `lunch 12.50`, `bus pass 40`, `昨天 打车 23元` and voice input. Recurring expenses (rent, phone, subscriptions) create **expected** entries a week ahead to confirm or adjust. The assistant can log expenses too (`log_expense`), but they wait in the same review queue.
 
-### 6. Tools and memory
+### 6. Student money
 
-**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 27 tools, including `log_expense`, `spending_summary`, `remember_note` and `recall_memory` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
+The **Student money** page plans a whole term on your own figures:
+
+- **Can I afford this?** — enter a price; it is checked against cash now (ledger + holdings you entered), the term plan, upcoming tuition and extras, your safety buffer and what is left of this month's budget. The answer is *Yes / Possible, but tight / Not right now*, with the numbers, a before/after balance chart and the earliest safer date.
+- **Term cash flow** — add terms (dates, tuition and its due date, living costs and income per month). Monthly amounts are spread evenly per day, tuition lands on its date, awarded scholarships count as income on their payout date, and months outside a term use your average confirmed spending. You get the opening cash, monthly closing balances, the lowest point and the first shortfall.
+- **Scholarships & grants** — status from researching to awarded, deadline countdowns, a document checklist (transcript, CV, statement, references…), and reminders 14/7/3/1 days before a deadline while documents are missing. Tuition due dates are reminded too.
+- **Insights** (on the Spending page) — the last 7 or 30 days versus the period before and your usual level, with tips such as categories that rose, frequent small purchases, subscription totals, term-budget pace, upcoming tuition and plan shortfalls — each with an estimated saving.
+- **Email reports** — a weekly (Monday) or monthly (1st) report and important reminders, sent over your own SMTP server to the single address you save. Without SMTP you can still preview them.
+
+Everything here is an estimate from your plan and confirmed spending, never financial advice, and nothing moves money.
+
+### 7. Tools and memory
+
+**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 33 tools, including `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
 
 **Memory** lives in [`finance/memory.py`](finance/memory.py), in three layers:
 
@@ -128,6 +141,7 @@ flowchart LR
 | Comparison, scenarios, goals & budget, decisions & proposals | `finance/planning.py` |
 | Payment habits, deduplicated reminders, exchange alerts (rate / favorable level / date) | `finance/habits.py` |
 | Spending: CSV import, categories, duplicates, review, recurring, quick-add | `finance/expenses.py` |
+| Student money: scholarships, terms, cash flow, afford check, insights, email reports | `finance/student.py`, `finance/student_i18n.py`, `finance/mailer.py` |
 | Reference rates, historical analysis, backtested forecast | `finance/rates.py` |
 | Sandbox provider | `finance/providers.py` |
 | API, SSE, standalone server | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
@@ -179,11 +193,16 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 
 Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenAI-compatible service) in `.env`, then run `docker compose up -d --force-recreate backend`.
 
+### Email reports (optional)
+
+Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) and run `docker compose up -d --force-recreate backend`. Then save your address under **Student money → Email reports**. With Gmail or Outlook use an app password.
+
 ### Try the new features
 
 1. **Send** → enter an amount → in step ③ tick “Target rate” and/or “Favorable level” → **Set reminders**
 2. **Spending** → drop a bank CSV → review the pending rows (duplicates are left unticked) → **Confirm**
-3. **Spending** → type `lunch 12.50` (or press the mic) → **Save**; or **Scan a receipt** (needs a vision-capable model, otherwise fill the form yourself)
+3. **Student money** → add a term → ask “Can I afford this?” for a price; track a scholarship and tick its documents
+4. **Spending** → type `lunch 12.50` (or press the mic) → **Save**; or **Scan a receipt** (needs a vision-capable model, otherwise fill the form yourself)
 
 ### Sandbox test amounts
 
@@ -213,7 +232,8 @@ Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenA
 | 4.12 Approvals & history | Accepting a recommendation, confirming a change and authorizing a payment are recorded separately; any change voids the old approval |
 | 4.13 Audit log | Time, actor, action, outcome, correlation ID, request ID; denials recorded too; sensitive identifiers masked; triggers block edits and deletes |
 | 4.14 Credit-building support | Obligations with monthly recurrence, on-time / late history, an internal indicator clearly labeled “not a credit score”, credit education |
-| 4.15 Reminders & receipts | Deadlines, quote expiry, unresolved payments, insufficient funds, target rates, favorable levels, exchange-by dates, expected expenses; fingerprint deduplication; browser notifications; printable receipts |
+| 4.15 Reminders & receipts | Deadlines, quote expiry, unresolved payments, insufficient funds, target rates, favorable levels, exchange-by dates, expected expenses, scholarship and tuition deadlines; fingerprint deduplication; browser notifications and email; printable receipts |
+| Extra: student money | “Can I afford this?”, term cash-flow planner, scholarship & grant tracker, weekly/monthly insights with suggestions, email reports and reminders |
 | Extra: spending | Bank CSV import with suggested categories, duplicate detection and a review step; receipt scanning; text/voice quick-add; recurring expenses; batch review |
 
 ---
@@ -231,14 +251,14 @@ Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenA
 ## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 128 tests: service, guardrails, spending, reminders, API, rule planner, 6 languages
+.\.venv\Scripts\python -m pytest -q        # 138 tests: service, guardrails, spending, student money, email, reminders, API, rule planner, 6 languages
 .\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
 docker run --rm --network remittance-agent_default --mount "type=bind,source=$PWD/artifacts,target=/artifacts" remittance-agent-browser-test
 ```
 
-Browser acceptance covers the full payment flow plus a sweep of 13 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
+Browser acceptance covers the full payment flow plus a sweep of 14 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
 
 ---
 

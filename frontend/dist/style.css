@@ -901,3 +901,107 @@ input.mini-input{width:96px!important}input[type=date].mini-input{width:auto!imp
   .quick-preview{padding:0 6px}
 }
 @media (prefers-reduced-motion:reduce){.scan-line,.mic.listening::after,.cand .pulse{animation:none}}
+
+/* ---------- student money: can I afford this? ---------- */
+.afford-panel{margin-bottom:18px}
+.afford-form{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(140px,1fr) 170px auto;gap:10px;align-items:center}
+.afford-form .form-error{grid-column:1/-1}
+.afford-input{display:flex;align-items:center;border:1px solid var(--line-2);border-radius:12px;background:var(--paper-2);padding-right:4px;transition:border-color .2s,box-shadow .3s var(--ease)}
+.afford-input:focus-within{border-color:var(--ink);box-shadow:0 0 0 4px color-mix(in srgb,var(--ink) 7%,transparent)}
+.afford-input input{border:0!important;background:none!important;box-shadow:none!important;font:600 20px var(--mono)!important;height:46px!important}
+.afford-input select{width:auto!important;min-width:78px;flex-shrink:0;border:0!important;background:none!important;box-shadow:none!important;font-weight:600;height:40px!important;padding:0 6px!important}
+.afford-empty{display:flex;gap:14px;align-items:center;color:var(--muted);font-size:13px;padding:18px 4px 4px}
+.afford-result{margin-top:18px;display:grid;gap:14px}
+.afford-result.pop-in{animation:jelly-in .7s var(--ease)}
+@keyframes jelly-in{0%{opacity:0;transform:scale(.94);filter:blur(6px)}55%{opacity:1;transform:scale(1.015);filter:blur(0)}75%{transform:scale(.995)}100%{transform:scale(1)}}
+.verdict{display:flex;gap:16px;align-items:center}
+.verdict h3{font-size:clamp(22px,3vw,30px);font-weight:520;letter-spacing:-.02em;margin:4px 0 0}
+.verdict .wait{font-size:13px;margin-top:4px;font-weight:600}
+.verdict-mark{width:68px;height:68px;flex-shrink:0}
+.verdict-mark .ring{fill:none;stroke:var(--ink);stroke-width:1.6}
+.verdict-mark .fill{fill:var(--ink)}
+.verdict-mark path:not(.fill){stroke:var(--ink);stroke-width:2.4;stroke-linecap:round}
+.verdict-mark.v-no .ring{stroke-dasharray:4 4;animation:spin 30s linear infinite;transform-origin:40px 40px}
+.verdict-mark.v-yes .fill{animation:pop .5s var(--ease)}
+.afford-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.afford-facts>div{display:grid;gap:3px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-sm)}
+.afford-facts small{font-size:11px;color:var(--muted)}
+.v-no .afford-facts>div:nth-child(2){border-color:var(--ink);border-style:dashed}
+.afford-chart{width:100%;height:96px;display:block}
+.afford-chart polyline{fill:none;stroke:var(--ink);stroke-width:1.6;vector-effect:non-scaling-stroke}
+.afford-chart .before{stroke:var(--muted);stroke-dasharray:4 3}
+.afford-chart .zero{stroke:var(--line-2);stroke-width:1;vector-effect:non-scaling-stroke}
+.afford-chart .buffer{stroke:var(--ink);stroke-width:1;stroke-dasharray:1 3;vector-effect:non-scaling-stroke;opacity:.6}
+.lg-dash{border-top:1.6px dashed var(--muted)}.lg-buffer{border-top:1px dotted var(--ink)}
+.reasons{display:grid;gap:6px;font-size:13.5px;line-height:1.55}
+.reasons li{position:relative;padding-left:18px}
+.reasons li::before{content:"";position:absolute;left:2px;top:.62em;width:7px;height:7px;border-radius:50%;border:1.3px solid var(--ink)}
+.reasons li.r-negative::before,.reasons li.r-month_over::before,.reasons li.r-buffer::before{background:var(--ink)}
+/* ---------- term cash flow ---------- */
+.cash-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.cash-summary>div{display:grid;gap:3px}.cash-summary small{font-size:11px;color:var(--muted)}
+.cash-summary .bad b{text-decoration:underline dashed}
+.cash-chart{width:100%;height:auto;display:block}
+.cash-chart rect{fill:var(--ink);transform-origin:center bottom;animation:bar-rise .8s var(--ease) both}
+.cash-chart g:nth-child(3n) rect{animation-delay:.06s}.cash-chart g:nth-child(3n+1) rect{animation-delay:.12s}
+.cash-chart .low rect{fill:var(--muted)}
+.cash-chart .neg rect{fill:none;stroke:var(--ink);stroke-width:1.4;stroke-dasharray:3 2}
+.cash-chart .low-dot{fill:var(--paper);stroke:var(--ink);stroke-width:1.2}
+.cash-chart text{font:10px var(--mono);fill:var(--muted)}
+.cash-chart .zero{stroke:var(--line-2)}
+@keyframes bar-rise{from{transform:scaleY(.05);opacity:0}}
+.lg-bar{height:8px!important;width:10px!important;background:var(--ink);border-radius:2px;margin-right:-4px!important}
+.lg-dot{width:8px!important;height:8px!important;border-radius:50%;border:1.2px solid var(--ink);margin-right:-4px!important}
+.cash-table tr.neg td{font-weight:600}
+.cash-table td .amt{font-size:12.5px}
+.term-ring{width:12px;height:12px;border-radius:50%;border:1.4px solid var(--ink);flex-shrink:0;background:radial-gradient(circle,var(--ink) 2px,transparent 2.5px)}
+.add-block{margin-top:14px;border-top:1px dashed var(--line);padding-top:12px}
+.add-block summary{cursor:pointer;display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;list-style:none}
+.add-block summary::-webkit-details-marker{display:none}.add-block summary::marker{content:''}
+.add-block summary svg{width:16px;height:16px;transition:transform .35s var(--ease)}
+.add-block[open] summary svg{transform:rotate(45deg)}
+.add-block[open] form{animation:pv-in .45s var(--ease)}
+/* ---------- scholarships ---------- */
+.sch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.sch-card{display:grid;gap:10px;align-content:start;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);transition:transform .35s var(--ease),box-shadow .35s var(--ease),border-color .3s}
+.sch-card:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:var(--line-2)}
+.sch-card.urgent{border-color:var(--ink)}
+.sch-card.st-awarded{background:var(--paper-2)}.sch-card.st-rejected{opacity:.55}
+.sch-card header{display:flex;justify-content:space-between;gap:10px}
+.sch-card h3{font-size:16px;font-weight:560;margin:3px 0 2px;line-height:1.3}
+.sch-card header small{font-size:12px;color:var(--muted)}
+.sch-card .gauge{width:76px}
+.sch-card .inline-select select,.sch-card .inline-select input{height:32px!important;font-size:12.5px!important;padding:0 8px!important;width:auto!important}
+.docs{display:grid;gap:6px}.docs-head{display:flex;justify-content:space-between;align-items:center}.docs-head small{font:600 11px var(--mono)}
+.docs-bar{display:block;height:3px;background:var(--soft);border-radius:2px;overflow:hidden}
+.docs ul{display:grid;gap:4px}.docs .check-label{font-size:12.5px}
+.docs input:checked+span{text-decoration:line-through;color:var(--muted)}
+.sch-card footer{display:flex;justify-content:space-between;align-items:center;border-top:1px dashed var(--line);padding-top:8px}
+.doc-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.chip-check{position:relative;cursor:pointer}
+.chip-check input{position:absolute;opacity:0;pointer-events:none}
+.chip-check span{display:inline-block;padding:6px 11px;border:1px solid var(--line-2);border-radius:999px;font-size:12px;transition:background .2s,color .2s,border-color .2s}
+.chip-check input:checked+span{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.chip-check input:focus-visible+span{outline:1.5px solid var(--ink);outline-offset:2px}
+/* ---------- email reports ---------- */
+.em-rem{align-self:end;padding-bottom:12px}
+.email-log{margin-top:14px;border-top:1px dashed var(--line);padding-top:8px}
+.email-preview{white-space:pre-wrap;font:13px/1.65 var(--font);background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:16px;max-height:60vh;overflow:auto;margin:0}
+/* ---------- spending insights ---------- */
+.insight-head{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:flex-end;margin-bottom:14px}
+.insight-head>div{display:grid;gap:3px}.insight-head small{font-size:12px;color:var(--muted)}.insight-head small.warn{color:var(--ink);font-weight:600}
+.tips{display:grid;gap:8px}
+.tip{display:flex;gap:12px;align-items:flex-start;padding:11px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);font-size:13.5px;line-height:1.55;animation:pv-in .5s var(--ease) both}
+.tip:nth-child(2){animation-delay:.05s}.tip:nth-child(3){animation-delay:.1s}.tip:nth-child(4){animation-delay:.15s}.tip:nth-child(n+5){animation-delay:.2s}
+.tip-dot{width:9px;height:9px;border-radius:50%;border:1.4px solid var(--ink);margin-top:.45em;flex-shrink:0}
+.tip.sev-alert{border-color:var(--ink)}.tip.sev-alert .tip-dot{background:var(--ink);animation:ping-dot 1.6s infinite}
+.tip.sev-warn .tip-dot{background:linear-gradient(90deg,var(--ink) 50%,transparent 50%)}
+.tip.sev-good .tip-dot{background:radial-gradient(circle,var(--ink) 2px,transparent 2.5px)}
+@media (max-width:900px){
+  .afford-form{grid-template-columns:1fr 1fr}.afford-form .afford-input{grid-column:1/-1}
+  .afford-facts{grid-template-columns:1fr 1fr}
+}
+@media (max-width:560px){
+  .afford-form{grid-template-columns:1fr}.cash-summary{grid-template-columns:1fr 1fr}
+}
+@media (prefers-reduced-motion:reduce){.cash-chart rect,.tip,.afford-result.pop-in,.verdict-mark.v-no .ring{animation:none}}

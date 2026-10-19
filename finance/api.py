@@ -227,6 +227,65 @@ class RecurringIn(Model):
     last_date: str
 
 
+class ScholarshipIn(Model):
+    name: str
+    provider: str = ""
+    kind: str = "scholarship"
+    status: str = "researching"
+    amount: str = ""
+    currency: str | None = None
+    deadline: str | None = None
+    payout_date: str | None = None
+    url: str = ""
+    notes: str = ""
+    documents: list = Field(default_factory=list, max_length=20)
+
+
+class ScholarshipPatch(Model):
+    name: str | None = None
+    provider: str | None = None
+    kind: str | None = None
+    status: str | None = None
+    amount: str | None = None
+    currency: str | None = None
+    deadline: str | None = None
+    payout_date: str | None = None
+    url: str | None = None
+    notes: str | None = None
+    documents: list | None = Field(default=None, max_length=20)
+
+
+class TermIn(Model):
+    name: str
+    currency: str | None = None
+    start: str
+    end: str
+    tuition: str = ""
+    tuition_due: str | None = None
+    living: str = ""
+    income: str = ""
+    extras: list = Field(default_factory=list, max_length=12)
+
+
+class AffordIn(Model):
+    amount: str
+    currency: str | None = None
+    date: str | None = None
+    label: str = Field(default="", max_length=80)
+
+
+class EmailIn(Model):
+    address: str = Field(default="", max_length=254)
+    digest: str = "off"
+    reminders: bool = False
+    language: str = "en"
+
+
+class EmailSend(Model):
+    period: str = "week"
+    language: str | None = None
+
+
 class Recommendation(Model):
     subject: str
     detail: dict
@@ -655,6 +714,71 @@ def create_app(finance=None, agent=None, background=None):
     @app.delete("/recurring/{rid}")
     def stop_recurring(rid: str, actor=Depends(role)):
         return service().stop_recurring(actor, rid)
+
+    # ---------- student money ----------
+    @app.get("/scholarships")
+    def scholarships(actor=Depends(role)):
+        return service().scholarships()
+
+    @app.post("/scholarships")
+    def add_scholarship(body: ScholarshipIn, actor=Depends(role)):
+        return service().add_scholarship(actor, **body.model_dump())
+
+    @app.patch("/scholarships/{sid}")
+    def patch_scholarship(sid: str, body: ScholarshipPatch, actor=Depends(role)):
+        return service().update_scholarship(actor, sid, **body.model_dump(exclude_none=True))
+
+    @app.delete("/scholarships/{sid}")
+    def delete_scholarship(sid: str, actor=Depends(role)):
+        return service().delete_scholarship(actor, sid)
+
+    @app.get("/terms")
+    def terms(actor=Depends(role)):
+        return service().terms()
+
+    @app.post("/terms")
+    def add_term(body: TermIn, actor=Depends(role)):
+        return service().add_term(actor, **body.model_dump())
+
+    @app.put("/terms/{tid}")
+    def update_term(tid: str, body: TermIn, actor=Depends(role)):
+        return service().update_term(actor, tid, **body.model_dump())
+
+    @app.delete("/terms/{tid}")
+    def delete_term(tid: str, actor=Depends(role)):
+        return service().delete_term(actor, tid)
+
+    @app.get("/cashflow")
+    def cashflow(currency: str | None = None, months: int = 6, actor=Depends(role)):
+        return service().cashflow(currency, months)
+
+    @app.post("/afford")
+    def afford(body: AffordIn, actor=Depends(role)):
+        return service().afford(actor, body.amount, body.currency, body.date, body.label)
+
+    @app.get("/insights")
+    def insights(period: str = "month", lang: str = "en", currency: str | None = None, actor=Depends(role)):
+        return service().spending_insights(period, lang, currency)
+
+    @app.get("/email")
+    def email_settings(actor=Depends(role)):
+        service().owner(actor)
+        return service().email_settings()
+
+    @app.put("/email")
+    def set_email(body: EmailIn, actor=Depends(role)):
+        return service().set_email(actor, body.address, body.digest, body.reminders, body.language)
+
+    @app.post("/email/preview")
+    def email_preview(body: EmailSend, actor=Depends(role)):
+        service().owner(actor)
+        r = service().report(body.period if body.period in ("week", "month") else "week", body.language)
+        return {"subject": r["subject"], "text": r["text"]}
+
+    @app.post("/email/send")
+    def email_send(body: EmailSend, actor=Depends(role)):
+        service().owner(actor)
+        return service().send_report(actor, body.period)
 
     # ---------- agent memory ----------
     @app.get("/agent/memory")

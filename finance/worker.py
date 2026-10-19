@@ -1,4 +1,4 @@
-"""Background tracking: payment outcomes, reminders and rate alerts. Never prepares or submits payments."""
+"""Background tracking: payment outcomes, reminders, rate alerts and email reports. Never prepares or submits payments."""
 import asyncio
 import logging
 
@@ -17,6 +17,7 @@ async def run(finance, stop, interval=3):
             if tick % 200 == 0:  # ~10 minutes; reference data itself is daily and cached
                 await asyncio.to_thread(finance.check_rate_alerts)
                 await asyncio.to_thread(finance.materialize_recurring)
+                await asyncio.to_thread(finance.email_tick)
         except Exception:  # keep tracking; details may contain RPC credentials, so do not log them
             log.warning("background cycle failed")
         tick += 1
