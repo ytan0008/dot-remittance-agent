@@ -59,6 +59,8 @@ class Agent:
         self.client = client
         self.model = model or os.getenv("OPENAI_MODEL")
         self.effort = os.getenv("OPENAI_REASONING_EFFORT", "").strip() or None
+        if self.effort is None and (self.model or "").startswith("gpt-6"):
+            self.effort = "none"  # GPT-6 rejects function tools in Chat Completions unless reasoning_effort is "none"
         self.rules = RulePlanner(self)
         self.memory = Memory(finance.store)
 
@@ -168,7 +170,9 @@ class Agent:
     def _model_loop(self, message, session, language, rid):
         if not self.client:
             from openai import OpenAI
-            self.client = OpenAI(timeout=60, max_retries=1)  # honors OPENAI_BASE_URL for compatible providers
+            # An empty OPENAI_BASE_URL (as in .env templates) must mean the official endpoint; the SDK would use "" as the URL.
+            base_url = os.getenv("OPENAI_BASE_URL", "").strip() or "https://api.openai.com/v1"
+            self.client = OpenAI(timeout=60, max_retries=1, base_url=base_url)
         f = self.finance
         context = dict(today=str(date.today()), agent_tier=f.agent_tier(), agent_wallet=bool(f.evm),
                        chain_id=f.config.chain_id if f.evm else None, preferences=f.memory(),

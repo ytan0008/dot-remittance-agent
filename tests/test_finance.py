@@ -544,3 +544,9 @@ def test_reasoning_effort_is_sent_for_gpt6(local, monkeypatch):
     client, seen = fake_client([[("record_plan", plan)], "ok"])
     Agent(local, client=client, model="other").chat("hi", "g7", "en")
     assert "reasoning_effort" not in seen[0]
+
+
+def test_gpt6_defaults_to_tool_compatible_effort(local, monkeypatch):
+    monkeypatch.delenv("OPENAI_REASONING_EFFORT", raising=False)
+    assert Agent(local, model="gpt-6-luna").effort == "none"
+    assert Agent(local, model="some-other-model").effort is None
