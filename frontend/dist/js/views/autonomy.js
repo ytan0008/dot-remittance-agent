@@ -11,34 +11,9 @@ function tierRings(tier) {
     <p class="fine">${t('autonomy.tier_note')}</p>`;
 }
 
-function mandates() {
-  const list = state.data.mandates || [];
-  const wallet = state.data.wallet;
-  const now = Date.now() / 1000;
-  const rows = list.length ? `<ul class="list">${list.map(m => {
-    const live = !m.revoked && m.expires > now;
-    const used = Number(BigInt(m.used || '0') * 1000n / BigInt(m.total_budget || '1')) / 10;
-    return `<li class="row mandate ${live ? '' : 'disabled'}"><div class="mandate-ring" aria-hidden="true"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15"/><circle class="used" cx="18" cy="18" r="15" stroke-dasharray="${(used * .9425).toFixed(2)} 94.25"/></svg></div>
-      <div><b>${esc(m.recipient.name)} · ${live ? t('autonomy.active') : m.revoked ? t('autonomy.revoked') : t('autonomy.expired')}</b>
-      <small>${t('autonomy.per')} ${esc(money(m.per_payment, 'ETH'))} · ${t('autonomy.budget')} ${esc(money(m.used, 'ETH'))} / ${esc(money(m.total_budget, 'ETH'))} ETH · ${live ? relative(m.expires) : when(m.expires)}</small><small class="mono">${esc(m.recipient.address)}</small></div>
-      <button class="button sm ghost" data-action="revoke" data-id="${esc(m.id)}" ${live && isOwner() ? '' : 'disabled'}>${t('autonomy.revoke')}</button></li>`;
-  }).join('')}</ul>` : empty(t('autonomy.no_mandates'));
-  const evmRecipients = (state.data.recipients || []).filter(r => r.enabled && r.rail === 'evm');
-  const form = wallet?.available ? `<form id="mandate-form" class="inline-form">
-      <p class="note">${t('autonomy.mandate_intro')}</p>
-      ${field('m-recipient', t('autonomy.fixed_recipient'), `<select id="m-recipient" name="recipient_id" required><option value="">—</option>${options(evmRecipients.map(r => [r.id, `${r.name} · ${r.address.slice(0, 10)}…`]), '')}</select>`, evmRecipients.length ? '' : t('autonomy.need_evm_recipient'))}
-      <div class="grid-3">${field('m-per', t('autonomy.per') + ' (ETH)', `<input id="m-per" name="per_payment" inputmode="decimal" required placeholder="0.002">`)}
-      ${field('m-budget', t('autonomy.budget') + ' (ETH)', `<input id="m-budget" name="total_budget" inputmode="decimal" required placeholder="0.005">`)}
-      ${field('m-hours', t('autonomy.hours'), `<input id="m-hours" name="hours" type="number" min="1" max="168" value="24" required>`)}</div>
-      <label class="check-label"><input type="checkbox" required> ${t('autonomy.grant_confirm')}</label>
-      <div class="form-error"></div><button class="button primary" ${isOwner() ? '' : 'disabled'}>${t('autonomy.grant')}</button></form>`
-    : `<p class="note">${t('autonomy.mandate_unavailable')}</p>`;
-  return rows + form;
-}
-
 function limits() {
   const l = state.data.settings?.limits || {};
-  return `<div class="limits">${Object.entries(l).map(([c, x]) => `<form class="limit-row" id="limit-${esc(c)}" data-currency="${esc(c)}" data-form="limit-form">
+  return `<div class="limits">${Object.entries(l).filter(([c]) => c !== 'ETH').map(([c, x]) => `<form class="limit-row" id="limit-${esc(c)}" data-currency="${esc(c)}" data-form="limit-form">
       <b class="cur">${esc(c)}</b>
       ${field('lp-' + c, t('autonomy.per'), `<input id="lp-${esc(c)}" name="per_payment" inputmode="decimal" value="${esc(plain(x.per_payment, c))}" ${isOwner() ? '' : 'disabled'}>`, t('autonomy.ceiling') + ' ' + esc(money(x.ceiling_per_payment, c)))}
       ${field('ld-' + c, t('autonomy.daily'), `<input id="ld-${esc(c)}" name="daily" inputmode="decimal" value="${esc(plain(x.daily, c))}" ${isOwner() ? '' : 'disabled'}>`, t('autonomy.ceiling') + ' ' + esc(money(x.ceiling_daily, c)))}
@@ -64,7 +39,7 @@ function decisions() {
 
 export const view = {
   id: 'autonomy',
-  needs: ['settings', 'mandates', 'wallet', 'recipients', 'proposals', 'decisions'],
+  needs: ['settings', 'proposals', 'decisions'],
   render() {
     const tier = state.data.settings?.agent_tier ?? 3;
     return `<div class="actions-legend reveal"><div><span class="eyebrow">A</span><b>${t('autonomy.kind_rec')}</b><small>${t('autonomy.kind_rec_d')}</small></div><div><span class="eyebrow">B</span><b>${t('autonomy.kind_change')}</b><small>${t('autonomy.kind_change_d')}</small></div><div><span class="eyebrow">C</span><b>${t('autonomy.kind_pay')}</b><small>${t('autonomy.kind_pay_d')}</small></div></div>
@@ -72,7 +47,6 @@ export const view = {
         ${panel(t('autonomy.tiers'), tierRings(tier), {cls: 'tilt'})}
         ${panel(t('autonomy.proposals'), proposals(), {sub: 'B'})}
       </div>
-      ${panel(t('autonomy.mandates'), mandates(), {sub: t('kind.onchain')})}
       <div class="split">
         ${panel(t('autonomy.limits'), limits(), {sub: 'ADMIN'})}
         ${panel(t('autonomy.decisions'), decisions(), {sub: 'A'})}
@@ -80,18 +54,12 @@ export const view = {
   },
   actions: {
     async 'set-tier'(el) { await api('/settings/tier', 'PUT', {tier: Number(el.dataset.value)}); invalidate(['settings']); toast(t('autonomy.tier_set', {n: el.dataset.value}), 'good'); rerender(); },
-    async revoke(el) { await api(`/mandates/${encodeURIComponent(el.dataset.id)}/revoke`, 'POST', {}); invalidate(['mandates', 'wallet']); toast(t('autonomy.revoked_toast')); rerender(); },
     async decide(el) {
       await api(`/proposals/${encodeURIComponent(el.dataset.id)}/decide`, 'POST', {accept: el.dataset.accept === '1'});
       invalidate(); toast(t(el.dataset.accept === '1' ? 'autonomy.confirmed' : 'autonomy.rejected')); rerender();
     },
   },
   submit: {
-    async 'mandate-form'(f) {
-      await api('/mandates', 'POST', {recipient_id: value(f, 'recipient_id'), per_payment: value(f, 'per_payment'), total_budget: value(f, 'total_budget'),
-        expires: Math.floor(Date.now() / 1000) + Number(value(f, 'hours')) * 3600});
-      invalidate(['mandates', 'wallet']); toast(t('autonomy.granted'), 'good'); rerender();
-    },
     async 'limit-form'(f) {
       await api('/settings/limits', 'PUT', {currency: f.dataset.currency, per_payment: value(f, 'per_payment'), daily: value(f, 'daily')});
       invalidate(['settings']); toast(t('autonomy.limits_saved'), 'good'); rerender();

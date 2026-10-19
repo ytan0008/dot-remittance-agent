@@ -2,9 +2,9 @@
 import json
 import re
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
-from .domain import Denied, canonical, now, units, decimals
+from .domain import Denied, canonical, now, units, decimals, from_minor
 
 CATEGORIES = ("rent", "tuition", "utility", "loan", "family", "subscription", "other")
 
@@ -138,12 +138,22 @@ class HabitsMixin:
         source, target = payload.get("source", ""), payload.get("target", "")
         if not re.fullmatch(r"[A-Z]{3}", source) or not re.fullmatch(r"[A-Z]{3}", target) or source == target:
             raise Denied("distinct uppercase ISO currency pair required", "pair_invalid")
-        if payload.get("condition") not in ("above", "below"):
-            raise Denied("condition must be above or below", "alert_invalid")
+        condition = payload.get("condition")
+        if condition not in ("above", "below", "percentile", "date"):
+            raise Denied("condition must be above, below, percentile or date", "alert_invalid")
+        body = dict(source=source, target=target, condition=condition, note=str(payload.get("note") or "")[:120])
+        if condition == "date":
+            try:
+                due = datetime.strptime(str(payload.get("due_date") or ""), "%Y-%m-%d").date()
+            except ValueError:
+                raise Denied("reminder date must be YYYY-MM-DD", "date_invalid") from None
+            return dict(body, threshold="0", due_date=str(due))
         threshold = Decimal(str(payload.get("threshold", "0")))
-        if not threshold.is_finite() or threshold <= 0:
-            raise Denied("threshold must be positive", "alert_invalid")
-        return dict(source=source, target=target, condition=payload["condition"], threshold=str(threshold))
+        if not threshold.is_finite() or threshold <= 0 or (condition == "percentile" and not 50 <= threshold <= 99):
+            raise Denied("threshold must be positive (percentile 50-99)", "alert_invalid")
+        if condition == "percentile":
+            return dict(body, threshold=str(threshold), window=str(payload.get("window") or "90"))
+        return dict(body, threshold=str(threshold))
 
     def add_rate_alert(self, actor, **payload):
         self.owner(actor)
@@ -173,18 +183,32 @@ class HabitsMixin:
         """One notification per crossing; the alert disarms until the owner re-arms it."""
         fired = []
         for alert in [a for a in self.rate_alerts() if a["active"]]:
+            if alert["condition"] == "date":
+                if date.today() >= date.fromisoformat(alert["due_date"]):
+                    with self.store.tx() as c:
+                        c.execute("UPDATE rate_alerts SET active=0,triggered_at=? WHERE id=?", (now(), alert["id"]))
+                        self._remind(c, f"exchange:{alert['id']}", "exchange_due", alert["id"], "alert", dict(alert))
+                        self.store.event(c, "system", "rate_alert.trigger", "ok", alert["id"], condition="date")
+                    fired.append(alert["id"])
+                continue
             try:
                 ref = self.rates.latest(alert["source"], alert["target"])
+                history = self.rates.fetch(alert["source"], alert["target"], alert.get("window", "90")) if alert["condition"] == "percentile" else None
             except Denied:
                 continue
             rate, threshold = Decimal(ref["rate"]), Decimal(alert["threshold"])
-            hit = rate >= threshold if alert["condition"] == "above" else rate <= threshold
+            if alert["condition"] == "percentile":
+                hit = Decimal(history["percentile"]) >= threshold
+                ref = dict(ref, percentile=str(round(Decimal(history["percentile"]))))
+            else:
+                hit = rate >= threshold if alert["condition"] == "above" else rate <= threshold
             with self.store.tx() as c:
                 c.execute("UPDATE rate_alerts SET last_rate=?,last_checked=? WHERE id=?", (ref["rate"], now(), alert["id"]))
                 if hit:
                     c.execute("UPDATE rate_alerts SET active=0,triggered_at=? WHERE id=?", (now(), alert["id"]))
-                    self._remind(c, f"rate:{alert['id']}:{ref['observed']}", "rate_target", alert["id"], "info",
-                                 dict(alert, rate=ref["rate"], observed=ref["observed"], provider=ref["provider"]))
+                    kind = "rate_favorable" if alert["condition"] == "percentile" else "rate_target"
+                    self._remind(c, f"rate:{alert['id']}:{ref['observed']}", kind, alert["id"], "info",
+                                 dict(alert, rate=ref["rate"], observed=ref["observed"], provider=ref["provider"], percentile=ref.get("percentile", "")))
                     self.store.event(c, "system", "rate_alert.trigger", "ok", alert["id"], rate=ref["rate"], observed=ref["observed"])
                     fired.append(alert["id"])
         return fired
@@ -199,6 +223,7 @@ class HabitsMixin:
     def refresh_reminders(self):
         """Derive reminders from real state. A condition that has not changed never notifies twice."""
         current = []
+        today = date.today()
         for t in self.history(limit=300):
             b = t["details"]
             if t["status"] in ("draft", "approved"):
@@ -225,6 +250,10 @@ class HabitsMixin:
             if stage:
                 current.append((f"goal:{g['id']}:{stage}", "goal_deadline", g["id"], "alert" if stage != "7d" else "warn",
                                 dict(title=g["title"], deadline=g["deadline"], days_left=days)))
+        for e in self.expenses(status="expected", limit=200):
+            if e["date"] <= str(today + timedelta(days=1)):
+                current.append((f"expected:{e['id']}", "expense_expected", e["id"], "warn",
+                                dict(description=e["description"], date=e["date"], amount=str(from_minor(-e["amount"], e["currency"])), currency=e["currency"])))
         for o in self.obligations():
             if o["state"] in ("due_soon", "overdue"):
                 current.append((f"obligation:{o['id']}:{o['state']}", "obligation_" + o["state"], o["id"],

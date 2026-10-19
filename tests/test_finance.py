@@ -351,19 +351,6 @@ def test_mandate_total_budget(evm):
         evm.execute("agent", draft(evm, "0.001", "two")["id"], m["id"])
 
 
-def test_agent_spends_autonomously_through_tools(evm):
-    m = evm.grant_mandate("owner", "family", "0.002", "0.004", now() + 300)
-    agent = Agent(evm)
-    t = agent.tool("prepare_payment", {"amount": "0.001", "source": "ETH", "target": "ETH", "recipient_id": "family",
-                                       "purpose": "autonomous test"})
-    result = agent.tool("execute_payment", {"transfer_id": t["id"], "mandate_id": m["id"]})
-    assert result["status"] == "completed" and result["authorized_by"] == "owner_mandate"
-    t2 = agent.tool("prepare_payment", {"amount": "0.001", "source": "ETH", "target": "ETH", "recipient_id": "family",
-                                        "purpose": "no mandate"})
-    with pytest.raises(Denied, match="approval"):
-        agent.tool("execute_payment", {"transfer_id": t2["id"]})
-
-
 def test_broadcast_timeout_after_acceptance(evm, monkeypatch):
     original = evm.evm.broadcast
 
@@ -558,3 +545,9 @@ def test_pay_from_cny_with_receive_amount(local):
     assert t["details"]["receive"] >= 10000 and t["details"]["source"] == "CNY"
     local.approve("owner", t["id"], t["approval_digest"])
     assert local.execute("agent", t["id"])["status"] == "completed"
+
+
+def test_on_chain_tools_are_not_offered_to_the_agent(local):
+    from finance.tools import REGISTRY
+    assert not {"wallet_info", "list_mandates"} & set(REGISTRY)
+    assert set(REGISTRY["execute_payment"].parameters["properties"]) == {"transfer_id"}

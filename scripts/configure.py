@@ -12,7 +12,7 @@ defaults = {
     "OPENAI_REASONING_EFFORT": lambda: "none",
     "OPENAI_BASE_URL": lambda: "",
     # The agent's own wallet on the Sepolia test network. Remove EVM_RPC_URL to run the sandbox only.
-    "EVM_RPC_URL": lambda: "https://ethereum-sepolia-rpc.publicnode.com",
+    "EVM_RPC_URL": lambda: "",  # on-chain payments are paused; leave empty
     "EVM_CHAIN_ID": lambda: "11155111",
     "EVM_CONFIRMATIONS": lambda: "3",
     "AGENT_WALLET_PASSWORD": lambda: secrets.token_urlsafe(24),

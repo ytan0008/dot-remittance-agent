@@ -1,39 +1,34 @@
 import {state, t, api, toast, isOwner, canPrepare, invalidate, newId, $, rerender} from '../core.js';
 import {esc, amt, tag, panel, field, options, segmented, icons, empty} from '../ui.js';
-import {money, num, day, pct, region, decimalsOf, phrase} from '../i18n.js';
+import {money, num, day, pct, region, decimalsOf, phrase, when} from '../i18n.js';
 import {renderDetail} from './payments.js';
 
 let timer = 0, seq = 0;
+const insight = {};  // pair -> {latest, history, forecast} used by the reminder step
 
-function routeOf(id) {
-  if (id === 'onchain') return {id: 'onchain', source: 'ETH', target: 'ETH', send: null, receive: null, capabilities: {sandbox_payment: true}};
-  return (state.data.routes || []).find(r => r.id === id);
-}
+const routeOf = id => (state.data.routes || []).find(r => r.id === id);
 
 function routeChips() {
   const routes = (state.data.routes || []).filter(r => r.enabled);
   const sorted = [...routes].sort((a, b) => b.capabilities.sandbox_payment - a.capabilities.sandbox_payment);
-  const wallet = state.data.wallet;
   return `<div class="route-chips hscroll">${sorted.map(r => `<button class="route-chip ${state.send.route === r.id ? 'on' : ''} ${r.capabilities.sandbox_payment ? '' : 'analysis'}" data-action="pick-route" data-value="${esc(r.id)}">
       <span class="route-line"><i></i><s></s><i></i></span><b>${esc(r.send)} → ${esc(r.receive)}</b><small>${esc(r.source)}/${esc(r.target)} · ${r.capabilities.sandbox_payment ? t('send.payable') : t('send.analysis_only')}</small></button>`).join('')}
-    ${wallet?.available ? `<button class="route-chip chain ${state.send.route === 'onchain' ? 'on' : ''}" data-action="pick-route" data-value="onchain"><span class="route-line"><i></i><s></s><i></i></span><b>${t('send.onchain')}</b><small>ETH · ${esc(wallet.environment)}</small></button>` : ''}
     <button class="route-chip ghost" data-action="go" data-view="routes">${icons.plus}<b>${t('send.more_routes')}</b><small>APEC</small></button></div>`;
 }
 
 function form(route) {
   const s = state.send;
-  const chain = route.id === 'onchain';
-  const recipients = (state.data.recipients || []).filter(r => r.enabled && (chain ? r.rail === 'evm' : r.rail === 'sandbox' && r.currency === route.target));
+  const recipients = (state.data.recipients || []).filter(r => r.enabled && r.rail === 'sandbox' && r.currency === route.target);
   const goals = (state.data.goals || []).filter(g => g.status === 'active' && g.source === route.source && g.target === route.target);
-  const mode = chain ? 'send' : s.mode;
-  const currency = mode === 'send' ? route.source : route.target;
+  const currency = s.mode === 'send' ? route.source : route.target;
   return `<form id="send-form" class="send-form" autocomplete="off">
-    ${chain ? '' : segmented('mode', [['send', t('send.mode_send')], ['receive', t('send.mode_receive')]], mode, 'send-mode')}
-    <div class="amount-field"><label for="send-amount">${t(mode === 'send' ? 'send.amount' : 'send.receive_amount')}</label>
-      <div class="amount-input"><input id="send-amount" name="amount" inputmode="decimal" placeholder="${chain ? '0.001' : decimalsOf(currency) ? '100.00' : '1000000'}" value="${esc(mode === 'send' ? s.amount : s.receive)}" maxlength="24" required><span>${esc(currency)}</span></div>
+    <p class="direction-line">${t('send.direction', {s: route.source, t: route.target})}</p>
+    ${segmented('mode', [['send', t('send.mode_send')], ['receive', t('send.mode_receive')]], s.mode, 'send-mode')}
+    <div class="amount-field"><label for="send-amount">${t(s.mode === 'send' ? 'send.amount' : 'send.receive_amount')}</label>
+      <div class="amount-input"><input id="send-amount" name="amount" inputmode="decimal" placeholder="${decimalsOf(currency) ? '100.00' : '1000000'}" value="${esc(s.mode === 'send' ? s.amount : s.receive)}" maxlength="24" required><span>${esc(currency)}</span></div>
       <small>${t('send.decimals', {n: decimalsOf(currency)})}</small></div>
     ${field('send-recipient', t('send.recipient'), `<select id="send-recipient" name="recipient" required><option value="">${t('send.choose_recipient')}</option>${options(recipients.map(r => [r.id, `${r.name} · ${r.id}`]), s.recipient)}</select>`,
-      recipients.length ? '' : `${t(chain ? 'send.no_evm_recipient' : 'send.no_recipient', {c: route.target})} <button type="button" class="link" data-action="new-recipient" data-currency="${esc(chain ? '' : route.target)}" data-country="${esc(route.receive || '')}">${t('action.add_recipient')}</button>`)}
+      recipients.length ? '' : `${t('send.no_recipient', {c: route.target})} <button type="button" class="link" data-action="new-recipient" data-currency="${esc(route.target)}" data-country="${esc(route.receive || '')}">${t('action.add_recipient')}</button>`)}
     ${field('send-purpose', t('send.purpose'), `<input id="send-purpose" name="purpose" maxlength="200" required placeholder="${t('send.purpose_ph')}" value="${esc(s.purpose)}">`)}
     <div class="grid-2">
       ${field('send-arrival', t('send.arrival'), `<input id="send-arrival" name="arrival" type="date" value="${esc(s.arrival)}">`)}
@@ -41,25 +36,15 @@ function form(route) {
     </div>
     <div class="form-error"></div>
     <button class="button primary wide magnetic" ${canPrepare() && route.capabilities.sandbox_payment ? '' : 'disabled'}>${t('send.prepare')} ${icons.arrow}</button>
-    <p class="fine">${t(chain ? 'send.onchain_note' : 'send.prepare_note')}</p>
+    <p class="fine">${t('send.prepare_note')}</p>
   </form>`;
 }
 
-function comparison(result, route) {
-  if (route.id === 'onchain') {
-    const w = state.data.wallet;
-    const mandates = w?.mandates || [];
-    return `<div class="chain-explain"><span class="eyebrow">${t('kind.onchain')}</span><p>${t('send.onchain_explain')}</p>
-      ${w?.connected ? `<div class="kv"><span>${t('wallets.balance')}</span>${amt(w.balance, 'ETH')}</div>` : ''}
-      <div class="kv"><span>${t('wallets.mandates')}</span><b>${mandates.length}</b></div>
-      ${mandates.map(m => `<div class="kv"><span>${esc(m.recipient.name)}</span><small>${t('autonomy.per')} ${esc(money(m.per_payment, 'ETH'))} · ${t('autonomy.budget')} ${esc(money(m.total_budget, 'ETH'))}</small></div>`).join('')}
-      <button class="link" data-action="go" data-view="autonomy">${t('autonomy.title')} ${icons.arrow}</button></div>`;
-  }
+function comparison(result) {
   if (!result) return `<div class="compare-empty"><span class="empty-orb"><i></i></span><p>${t('send.enter_amount')}</p></div>`;
   if (result.error) return `<div class="rate-error">${esc(result.error)}</div>`;
   const r = result, unit = r.mode === 'send' ? r.target : r.source;
   const ref = r.reference;
-  const top = r.options.find(o => o.rank === 1);
   return `<div class="compare-head">
       ${ref ? `<div><span class="eyebrow">${tag('reference')}</span><b>${num(ref.rate, 6)}</b> <small>${esc(r.target)}/${esc(r.source)}</small><small class="muted block">${esc(ref.provider)} · ${day(ref.observed)} · ${esc(phrase(ref.frequency || ''))}${ref.derived ? ' · ' + t('rates.derived') : ''}</small></div>` : `<div class="note warn">${t('send.no_reference')}</div>`}
       ${segmented('rank', [['receive', t(r.mode === 'send' ? 'send.rank_receive' : 'send.rank_cost')], ['speed', t('send.rank_speed')]], state.send.rank, 'send-rank')}
@@ -79,9 +64,65 @@ function comparison(result, route) {
     <p class="fine">${t('send.disclaimer')}</p>`;
 }
 
+/* ---------- step 3: plan the timing and get an exchange reminder ---------- */
+function reminderStep(route) {
+  const key = route.source + '-' + route.target, info = insight[key];
+  const s = state.send;
+  const alerts = (state.data.alerts || []).filter(a => a.source === route.source && a.target === route.target);
+  const latest = info?.latest ? Number(info.latest.rate) : null;
+  const fc = info?.forecast?.available ? info.forecast : null;
+  const suggested = latest ? Math.max(latest * 1.01, fc ? Number(fc.interval_80[1]) : 0) : '';
+  const r = s.rem || (s.rem = {target: true, favorable: false, dated: null, threshold: '', top: '20', due: '', notify: null});
+  const defaultDate = s.arrival ? new Date(Date.parse(s.arrival) - 3 * 864e5).toISOString().slice(0, 10) : new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  const plan = info ? `<div class="plan-read">
+      <div><span class="eyebrow">${t('rem.today')}</span><b>${latest ? num(latest, 5) : '—'}</b><small>${esc(route.target)} / 1 ${esc(route.source)}</small></div>
+      <div><span class="eyebrow">${t('rem.position')}</span><b>${info.history ? t('rates.position.' + info.history.position) : '—'}</b><small>${info.history ? t('rem.percentile', {p: num(info.history.percentile, 0)}) : ''}</small></div>
+      <div><span class="eyebrow">${t('rem.forecast')}</span><b>${fc ? `${num(fc.interval_80[0], 4)} – ${num(fc.interval_80[1], 4)}` : '—'}</b><small>${fc ? (fc.beats_baseline ? t('rem.fc_ok') : t('rem.fc_weak')) : t('rem.fc_none')}</small></div>
+    </div><p class="fine">${t('rem.plan_note', {s: route.source, t: route.target})}</p>` : `<p class="fine">${t('common.loading')}</p>`;
+  const list = alerts.length ? `<ul class="list alert-list">${alerts.map(a => `<li class="row"><span class="state-dot ${a.active ? '' : 'off'}"></span><div><b>${esc(alertText(a))}</b><small>${a.triggered_at ? t('markets.triggered', {at: when(a.triggered_at)}) : a.active ? t('markets.armed') : '—'}${a.note ? ' · ' + esc(a.note) : ''}</small></div>
+      <button class="pill sm ${a.active ? 'on' : ''}" data-action="toggle-alert" data-id="${esc(a.id)}" data-active="${a.active ? 0 : 1}" ${isOwner() ? '' : 'disabled'}>${a.active ? t('markets.armed') : t('markets.rearm')}</button></li>`).join('')}</ul>` : '';
+  return panel(`<span class="step-n">3</span>${t('rem.title')}`, `${plan}
+    <form id="reminder-form" class="reminder-options">
+      <label class="rem-opt"><input type="checkbox" name="target" ${r.target ? 'checked' : ''}><span><b>${t('rem.target')}</b><span class="rem-line">${t('rem.target_line', {s: route.source, t: route.target})} <input name="threshold" inputmode="decimal" value="${esc(r.threshold || (suggested ? Number(suggested).toFixed(4) : ''))}" class="mini-input"> ${esc(route.target)}</span></span></label>
+      <label class="rem-opt"><input type="checkbox" name="favorable" ${r.favorable ? 'checked' : ''}><span><b>${t('rem.favorable')}</b><span class="rem-line">${t('rem.favorable_line')} <select name="top" class="mini-input">${options([['20', '20%'], ['10', '10%'], ['30', '30%']], r.top)}</select></span></span></label>
+      <label class="rem-opt"><input type="checkbox" name="dated" ${(r.dated ?? !!s.arrival) ? 'checked' : ''}><span><b>${t('rem.date')}</b><span class="rem-line">${t('rem.date_line')} <input type="date" name="due" value="${esc(r.due || defaultDate)}" class="mini-input"></span></span></label>
+      <label class="check-label notify-opt"><input type="checkbox" name="notify" ${(r.notify ?? notifyOn()) ? 'checked' : ''}> ${t('rem.notify')}</label>
+      <div class="form-error"></div>
+      <button class="button primary" ${isOwner() ? '' : 'disabled'}>${icons.check}${t('rem.create')}</button>
+    </form>${list}`, {cls: 'reminder-step', id: 'reminder-step'});
+}
+
+function notifyOn() { try { return localStorage.getItem('dot.notify') === '1'; } catch { return false; } }
+
+function rememberReminder(e) {
+  const r = state.send.rem, el = e.target;
+  if (!r || !el.name) return;
+  r[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+}
+
+// One listener for the page's lifetime: the reminder step is re-rendered often (insight load, live refresh).
+document.addEventListener('input', e => e.target.closest?.('#reminder-form') && rememberReminder(e));
+
+export function alertText(a) {
+  if (a.condition === 'date') return t('rem.when_date', {d: day(a.due_date)});
+  if (a.condition === 'percentile') return t('rem.when_top', {p: 100 - Number(a.threshold), s: a.source, t: a.target});
+  return t(a.condition === 'above' ? 'rem.when_above' : 'rem.when_below', {s: a.source, t: a.target, r: num(a.threshold, 4)});
+}
+
+async function loadInsight(route) {
+  const key = route.source + '-' + route.target;
+  if (insight[key]) return;
+  const [latest, history, forecast] = await Promise.allSettled([
+    api(`/rates/latest?source=${route.source}&target=${route.target}`), api(`/rates?source=${route.source}&target=${route.target}&days=90`),
+    api(`/rates/forecast?source=${route.source}&target=${route.target}`)]);
+  insight[key] = {latest: latest.value, history: history.value, forecast: forecast.value};
+  const box = document.getElementById('reminder-step');
+  if (box && state.view === 'send' && state.send.route === route.id) box.outerHTML = reminderStep(route);
+}
+
 export const view = {
   id: 'send',
-  needs: ['routes', 'recipients', 'goals', 'wallet', 'balances'],
+  needs: ['routes', 'recipients', 'goals', 'balances', 'alerts'],
   render() {
     let route = routeOf(state.send.route);
     if (!route) { route = (state.data.routes || []).find(r => r.capabilities.sandbox_payment) || (state.data.routes || [])[0]; if (route) state.send.route = route.id; }
@@ -89,27 +130,30 @@ export const view = {
     const balance = (state.data.balances || []).find(b => b.currency === route.source);
     return `${routeChips()}
       <div class="send-layout">
-        ${panel(`${route.id === 'onchain' ? t('send.onchain') : `${esc(region(route.send))} <span class="muted">→</span> ${esc(region(route.receive))}`}`, form(route),
+        ${panel(`<span class="step-n">1</span>${esc(region(route.send))} <span class="muted">→</span> ${esc(region(route.receive))}`, form(route),
           {sub: balance ? `${t('wallets.available')} ${esc(money(balance.available, balance.currency))} ${esc(balance.currency)}` : '', cls: 'send-panel'})}
-        ${panel(route.id === 'onchain' ? t('send.agent_wallet') : t('send.compare'), `<div id="compare">${comparison(state.send.result, route)}</div>`, {cls: 'compare-panel', sub: route.id === 'onchain' ? '' : t('send.live')})}
-      </div>`;
+        ${panel(`<span class="step-n">2</span>${t('send.compare')}`, `<div id="compare">${comparison(state.send.result)}</div>`, {cls: 'compare-panel', sub: t('send.live')})}
+      </div>
+      ${reminderStep(route)}`;
   },
   mount(root) {
-    const formEl = root.querySelector('#send-form');
-    formEl?.addEventListener('input', e => {
+    const route = routeOf(state.send.route);
+    root.querySelector('#send-form')?.addEventListener('input', e => {
       const s = state.send, name = e.target.name;
-      if (name === 'amount') { if (s.mode === 'send' || s.route === 'onchain') s.amount = e.target.value; else s.receive = e.target.value; schedule(); }
+      if (name === 'amount') { if (s.mode === 'send') s.amount = e.target.value; else s.receive = e.target.value; schedule(); }
       if (name === 'recipient') s.recipient = e.target.value;
       if (name === 'purpose') s.purpose = e.target.value;
       if (name === 'arrival') s.arrival = e.target.value;
       if (name === 'goal') s.goal = e.target.value;
     });
+    if (route) loadInsight(route);
     if (!state.send.result && (state.send.amount || state.send.receive)) schedule(0);
   },
   actions: {
-    'pick-route'(el) { state.send.route = el.dataset.value; state.send.result = null; state.send.recipient = ''; rerenderSend(); schedule(0); },
-    'send-mode'(el) { state.send.mode = el.dataset.value; state.send.result = null; rerenderSend(); schedule(0); },
+    'pick-route'(el) { state.send.route = el.dataset.value; state.send.result = null; state.send.recipient = ''; rerender(); schedule(0); },
+    'send-mode'(el) { state.send.mode = el.dataset.value; state.send.result = null; rerender(); schedule(0); },
     'send-rank'(el) { state.send.rank = el.dataset.value; schedule(0); },
+    async 'toggle-alert'(el) { await api('/rate-alerts/' + encodeURIComponent(el.dataset.id), 'PATCH', {active: el.dataset.active === '1'}); invalidate(['alerts']); rerender(); },
     'submit-send'() { $('#send-form')?.requestSubmit(); },
     async 'accept-rec'(el) {
       const r = state.send.result, o = r.options.find(x => x.id === el.dataset.id);
@@ -120,9 +164,9 @@ export const view = {
     },
   },
   submit: {
-    async 'send-form'(f) {
+    async 'send-form'() {
       const s = state.send, route = routeOf(s.route);
-      const amount = s.mode === 'send' || route.id === 'onchain' ? s.amount : null;
+      const amount = s.mode === 'send' ? s.amount : null;
       const result = await api('/transfers', 'POST', {amount: amount || null, receive_amount: amount ? null : s.receive || null,
         source: route.source, target: route.target, recipient_id: s.recipient, purpose: s.purpose,
         arrival_by: s.arrival || null, goal_id: s.goal || null, idempotency_key: s.key});
@@ -131,10 +175,36 @@ export const view = {
       renderDetail(result);
       toast(t('send.drafted'), 'good');
     },
+    async 'reminder-form'(f) {
+      const route = routeOf(state.send.route), v = Object.fromEntries(new FormData(f));
+      const s = state.send, recipient = (state.data.recipients || []).find(r => r.id === s.recipient);
+      const amount = s.mode === 'send' ? s.amount && `${s.amount} ${route.source}` : s.receive && `${s.receive} ${route.target}`;
+      const note = [amount, recipient?.name, s.purpose].filter(Boolean).join(' · ').slice(0, 120);
+      const base = {source: route.source, target: route.target, note};
+      const jobs = [];
+      if (v.target) jobs.push({...base, condition: 'above', threshold: String(v.threshold || '').replace(',', '.')});
+      if (v.favorable) jobs.push({...base, condition: 'percentile', threshold: String(100 - Number(v.top)), window: '90'});
+      if (v.dated) jobs.push({...base, condition: 'date', due_date: v.due});
+      if (!jobs.length) throw new Error(t('rem.pick_one'));
+      if (v.notify) await enableNotifications(); else try { localStorage.setItem('dot.notify', '0'); } catch { /* storage blocked */ }
+      for (const j of jobs) await api('/rate-alerts', 'POST', j);
+      invalidate(['alerts', 'reminders']);
+      state.send.rem = null;
+      toast(t('rem.created', {n: jobs.length}), 'good');
+      rerender();
+    },
   },
 };
 
-const rerenderSend = () => rerender();
+export async function enableNotifications() {
+  try {
+    if (!('Notification' in window)) return false;
+    const p = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+    localStorage.setItem('dot.notify', p === 'granted' ? '1' : '0');
+    if (p !== 'granted') toast(t('rem.notify_denied'));
+    return p === 'granted';
+  } catch { return false; }
+}
 
 function schedule(delay = 380) {
   clearTimeout(timer);
@@ -144,9 +214,9 @@ function schedule(delay = 380) {
 async function compare() {
   const s = state.send, route = routeOf(s.route);
   const box = document.getElementById('compare');
-  if (!route || route.id === 'onchain') return;
+  if (!route) return;
   const amount = s.mode === 'send' ? s.amount : s.receive;
-  if (!amount || !/^\d+(\.\d+)?$/.test(amount) || Number(amount) <= 0) { s.result = null; if (box) box.innerHTML = comparison(null, route); return; }
+  if (!amount || !/^\d+(\.\d+)?$/.test(amount) || Number(amount) <= 0) { s.result = null; if (box) box.innerHTML = comparison(null); return; }
   const mine = ++seq;
   box?.classList.add('loading');
   try {
@@ -159,5 +229,5 @@ async function compare() {
     s.result = {error: e.message};
   }
   const target = document.getElementById('compare');
-  if (target) { target.classList.remove('loading'); target.innerHTML = comparison(s.result, route); }
+  if (target) { target.classList.remove('loading'); target.innerHTML = comparison(s.result); }
 }

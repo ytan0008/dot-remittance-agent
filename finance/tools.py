@@ -108,6 +108,22 @@ def request_recipient_details(ctx, name, currency, country, reason):
                 note="Form shown to the owner. Do not ask for these details again in text; wait for their next message.")
 
 
+# ---------- spending ----------
+
+@tool("log_expense", "Log a spending entry from short text such as 'lunch 12.50' or 'bus pass 40'. It is saved as pending; "
+      "the student confirms it on the Spending page.", {"text": S}, tier="prepare")
+def log_expense(ctx, text):
+    entry = ctx.finance.parse_quick(text)
+    return ctx.finance.add_expense(ctx.actor, entry["date"], entry["amount"], entry["currency"], entry["description"],
+                                   entry["category"], source="agent")
+
+
+@tool("spending_summary", "Confirmed spending by category for a month (YYYY-MM, empty for this month), versus last month.",
+      {"month": S})
+def spending_summary(ctx, month):
+    return ctx.finance.spending_summary(month or None)
+
+
 # ---------- read-only facts (T1) ----------
 
 @tool("get_balances", "Ledger balances per currency: total, reserved, available. Sandbox is simulated test funds.")
@@ -193,21 +209,11 @@ def reminders(ctx):
     return ctx.finance.reminders()
 
 
-@tool("wallet_info", "The agent's own on-chain wallet: address, chain, balance and active mandates.")
-def wallet_info(ctx):
-    return ctx.finance.wallet()
-
-
-@tool("list_mandates", "Owner-granted spending scopes for the agent wallet. Never grants anything.")
-def list_mandates(ctx):
-    return ctx.finance.mandates()
-
-
 # ---------- prepare and modify (T2) ----------
 
 @tool("prepare_payment", "Create an immutable quote/draft. Does not authorize or spend. Give amount (what is sent) OR receive_amount "
       "(what the recipient must get). " + UNIT + " "
-      "Use source=target=ETH for the agent wallet.",
+      "",
       {"amount": S, "receive_amount": S, **PAIR, "recipient_id": S, "purpose": S, "arrival_by": S, "goal_id": S},
       ["source", "target", "recipient_id", "purpose"], tier="prepare")
 def prepare_payment(ctx, source, target, recipient_id, purpose, amount="", receive_amount="", arrival_by="", goal_id=""):
@@ -240,7 +246,6 @@ def propose_change(ctx, kind, payload, reason):
 
 # ---------- submit (T3) ----------
 
-@tool("execute_payment", "Submit a payment the owner approved, or an agent-wallet payment covered by mandate_id.",
-      {"transfer_id": S, "mandate_id": S}, ["transfer_id"], tier="submit")
-def execute_payment(ctx, transfer_id, mandate_id=""):
-    return ctx.finance.execute(ctx.actor, transfer_id, mandate_id or None)
+@tool("execute_payment", "Submit a payment the owner has explicitly approved in the app.", {"transfer_id": S}, tier="submit")
+def execute_payment(ctx, transfer_id):
+    return ctx.finance.execute(ctx.actor, transfer_id)

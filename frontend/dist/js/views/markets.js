@@ -1,6 +1,7 @@
 import {state, t, api, toast, isOwner, invalidate, rerender, refreshView, value} from '../core.js';
 import {esc, amt, tag, panel, field, options, segmented, icons, empty, dl, chip} from '../ui.js';
 import {num, day, pct, when, currencyName, phrase} from '../i18n.js';
+import {alertText} from './send.js';
 import {lineChart, forecastChart, gauge, animateGauges} from '../charts.js';
 
 const CURRENCIES = ['AUD', 'USD', 'CNY', 'VND', 'PHP', 'MXN', 'JPY', 'KRW', 'HKD', 'TWD', 'SGD', 'NZD', 'CAD', 'MYR', 'THB', 'IDR', 'CLP', 'PEN', 'EUR', 'GBP'];
@@ -79,9 +80,10 @@ export const view = {
         ${panel(t('markets.scenario'), `<form id="scenario-form" class="scenario"><div class="grid-2">${field('sc-amount', t('send.amount') + ' (' + esc(m.source) + ')', `<input id="sc-amount" name="amount" inputmode="decimal" value="${esc(m.scenarioAmount)}">`)}
             <div class="field"><label for="sc-change">${t('markets.rate_change')} <b id="sc-out">${pct(m.scenario, 1)}</b></label><input id="sc-change" name="change" type="range" min="-10" max="10" step="0.5" value="${esc(m.scenario)}"></div></div></form>
           <div id="scenario-out">${scenarioHtml()}</div>`)}
-        ${panel(t('markets.alerts'), `${alerts.length ? `<ul class="list">${alerts.map(a => `<li class="row"><div><b>${t('markets.alert_' + a.condition, {r: num(a.threshold, 6)})}</b><small>${a.last_rate ? t('markets.last_checked', {r: num(a.last_rate, 6), at: when(a.last_checked)}) : t('markets.not_checked')}${a.triggered_at ? ' · ' + t('markets.triggered', {at: when(a.triggered_at)}) : ''}</small></div><button class="pill ${a.active ? 'on' : ''}" data-action="toggle-alert" data-id="${esc(a.id)}" data-active="${a.active ? 0 : 1}" ${isOwner() ? '' : 'disabled'}>${a.active ? t('markets.armed') : t('markets.rearm')}</button></li>`).join('')}</ul>` : `<p class="fine">${t('markets.no_alerts')}</p>`}
-          <form id="alert-form" class="inline-form"><div class="grid-2">${field('al-cond', t('markets.condition'), `<select id="al-cond" name="condition">${options([['above', t('markets.above')], ['below', t('markets.below')]], 'above')}</select>`)}
-          ${field('al-th', t('markets.threshold'), `<input id="al-th" name="threshold" inputmode="decimal" required placeholder="${esc(l?.rate || '')}">`)}</div>
+        ${panel(t('markets.alerts'), `${alerts.length ? `<ul class="list">${alerts.map(a => `<li class="row"><div><b>${esc(alertText(a))}</b><small>${a.last_rate ? t('markets.last_checked', {r: num(a.last_rate, 6), at: when(a.last_checked)}) : t('markets.not_checked')}${a.triggered_at ? ' · ' + t('markets.triggered', {at: when(a.triggered_at)}) : ''}</small></div><button class="pill ${a.active ? 'on' : ''}" data-action="toggle-alert" data-id="${esc(a.id)}" data-active="${a.active ? 0 : 1}" ${isOwner() ? '' : 'disabled'}>${a.active ? t('markets.armed') : t('markets.rearm')}</button></li>`).join('')}</ul>` : `<p class="fine">${t('markets.no_alerts')}</p>`}
+          <form id="alert-form" class="inline-form"><div class="grid-2">${field('al-cond', t('markets.condition'), `<select id="al-cond" name="condition">${options([['above', t('markets.above')], ['below', t('markets.below')], ['percentile', t('rem.favorable')], ['date', t('rem.date')]], 'above')}</select>`)}
+          ${field('al-th', t('markets.threshold'), `<input id="al-th" name="threshold" inputmode="decimal" placeholder="${esc(l?.rate || '')}">`, t('rem.threshold_hint'))}</div>
+          ${field('al-due', t('rem.date'), `<input id="al-due" name="due" type="date">`)}
           <div class="form-error"></div><button class="button" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('markets.add_alert')}</button><p class="fine">${t('markets.alert_note')}</p></form>`)}
       </div>`;
   },
@@ -121,7 +123,11 @@ export const view = {
   },
   submit: {
     async 'alert-form'(f) {
-      await api('/rate-alerts', 'POST', {source: state.markets.source, target: state.markets.target, condition: value(f, 'condition'), threshold: value(f, 'threshold')});
+      const condition = value(f, 'condition'), body = {source: state.markets.source, target: state.markets.target, condition};
+      if (condition === 'date') body.due_date = value(f, 'due');
+      else if (condition === 'percentile') Object.assign(body, {threshold: value(f, 'threshold') || '80', window: '90'});
+      else body.threshold = value(f, 'threshold');
+      await api('/rate-alerts', 'POST', body);
       invalidate(['alerts', 'reminders']); toast(t('markets.alert_added'), 'good'); rerender();
     },
     'scenario-form'() {},

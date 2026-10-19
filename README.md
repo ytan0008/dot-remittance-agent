@@ -4,9 +4,9 @@
 
 # ◉ DOT · AI Cross-Border Remittance Agent
 
-**A finance agent that understands, plans and executes safely — with its own on-chain wallet, spending only inside the limits you grant.**
+**A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Sepolia](https://img.shields.io/badge/EVM-Sepolia%20testnet-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-96%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-128%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -24,7 +24,8 @@ DOT is a natural-language AI agent that helps you:
 - ⚖️ **Compare options** — reference calculations, simulated options and the sandbox quote are kept strictly apart, ranked by amount received or speed
 - 📝 **Prepare payments** — fix the amount you send, or the amount the recipient must receive (reverse-quoted)
 - 🛡️ **Execute safely** — 13 guardrail checks plus your explicit authorization; the agent can never approve its own payment
-- ⛓️ **Spend on-chain autonomously** — the agent owns an encrypted wallet and signs transfers by itself, but only inside a mandate you grant (fixed recipient, per-payment cap, total budget, expiry)
+- ⏰ **Exchange at a good moment** — after comparing, set reminders: a target rate, a “favorable level” (top 10–30% of the last 90 days) or an exchange-by date; optional browser notifications
+- 🧾 **Keep spending in order** — import a bank CSV, scan a receipt, or quick-add by text or voice (“lunch 12.50”); suggested categories, duplicate flags, recurring expenses and one-click batch review
 - 🧾 **Trace everything** — one audit trail answers who authorized what, which checks ran, and what happened next
 
 > Implements every functional module (4.1–4.15) of the product specification *AI Cross-Border Remittance Assistant* v4.0 — see the [requirements mapping](#-requirements-mapping).
@@ -35,13 +36,13 @@ DOT is a natural-language AI agent that helps you:
 
 ### 1. Understand → plan → act, every stage visible
 
-On each turn the agent first calls `record_plan` to record its **intent, extracted amounts/currencies/recipient, missing details and planned steps**, then calls tools within its permission tier. The three stages stream live over SSE, and tool results render as cards (rates, comparisons, drafts, on-chain status), each labeled by data kind — reference data, simulation, ledger record or on-chain state.
+On each turn the agent first calls `record_plan` to record its **intent, extracted amounts/currencies/recipient, missing details and planned steps**, then calls tools within its permission tier. The three stages stream live over SSE, and tool results render as cards (rates, comparisons, drafts, logged expenses), each labeled by data kind — reference data, simulation or ledger record.
 
 ![AI agent](docs/screenshots/agent.png)
 
 - Without a model key, an **offline rule planner** drives the same pipeline (clearly labeled “not an AI model”). It understands common intents in 6 languages, asks for missing details and fills them from your next message.
 - Configure any **OpenAI-compatible** model with function calling and it becomes a real AI agent.
-- The model has **no** tool to approve payments, grant mandates or raise limits — saying “OK” never authorizes anything.
+- The model has **no** tool to approve payments or raise limits — saying “OK” never authorizes anything.
 
 ### 2. Compare before you send
 
@@ -55,15 +56,17 @@ Live comparison as you type: a reference-rate benchmark, three simulated options
 
 The authorization screen shows the environment label, exact amounts, rate source, a live quote countdown, the status timeline and every guardrail check. After ticking the confirmation you must **press and hold** the ring. The approval is bound to a SHA-256 digest of the exact details — any change voids it.
 
-### 4. The AI owns its own wallet
+### 4. Plan the timing, get reminded
 
-On first start the backend creates an **encrypted keystore** for the agent. The private key lives only in the signer process — never in the model, the browser or the logs. Once you grant a mandate on the Permissions page, the agent can send Sepolia ETH on its own within that scope and tracks each transaction to the required confirmations.
+The Send page has a third step: **exchange timing & reminders**. It shows today's reference rate, its 90-day position and the experimental 7-day forecast range, then lets you arm reminders — a target rate (prefilled from the forecast's upper bound), a favorable level, and an exchange-by date a few days before the arrival deadline. The background worker checks them every ten minutes; reminders appear under the bell and, if you allow it, as browser notifications. We never claim to know the best day — we watch the rate for you.
 
-![Permissions](docs/screenshots/permissions.png)
+### 5. Spending you can trust
 
-### 5. Tools and memory
+The **Spending** page is built for students: drop the CSV your bank exports (comma/semicolon, debit/credit columns, day-first dates and GBK files are detected), and every row arrives **pending** with a suggested category and a duplicate flag (same merchant and amount within ±2 days, including re-imported statements). Select, recategorize in bulk and confirm — corrections are learned per merchant. Receipts are read by the vision model and always shown for checking before saving. Quick-add understands `lunch 12.50`, `bus pass 40`, `昨天 打车 23元` and voice input. Recurring expenses (rent, phone, subscriptions) create **expected** entries a week ahead to confirm or adjust. The assistant can log expenses too (`log_expense`), but they wait in the same review queue.
 
-**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 26 tools, including `remember_note`, `recall_memory` and `forget_note` — and deliberately none that approve payments, grant mandates, raise limits or change recipients. Adding a tool is one decorated function.
+### 6. Tools and memory
+
+**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 27 tools, including `log_expense`, `spending_summary`, `remember_note` and `recall_memory` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
 
 **Memory** lives in [`finance/memory.py`](finance/memory.py), in three layers:
 
@@ -110,10 +113,9 @@ flowchart LR
     API --> S
     S --> G[13 guardrail checks]
     G --> SB[Sandbox provider<br/>local simulation · async settlement]
-    G --> EVM[Agent wallet<br/>Sepolia · encrypted keystore]
     S --> R[Reference rates<br/>ECB / Frankfurter]
-    S --> DB[(SQLite<br/>ledger · append-only audit)]
-    W[Background worker] -->|reconcile · reminders · rate alerts| S
+    S --> DB[(SQLite<br/>ledger · expenses · append-only audit)]
+    W[Background worker] -->|reconcile · reminders · exchange alerts · recurring| S
 ```
 
 | Module | Files |
@@ -122,11 +124,12 @@ flowchart LR
 | **Tool registry** — every tool's schema, tier and implementation | `finance/tools.py` |
 | **Memory** — conversation, notes, episodes, recall | `finance/memory.py` |
 | Offline rule planner | `finance/agent_rules.py` |
-| Payments core, guardrails, approvals, mandates, routes | `finance/service.py` |
+| Payments core, guardrails, approvals, routes | `finance/service.py` |
 | Comparison, scenarios, goals & budget, decisions & proposals | `finance/planning.py` |
-| Payment habits, deduplicated reminders, rate alerts | `finance/habits.py` |
+| Payment habits, deduplicated reminders, exchange alerts (rate / favorable level / date) | `finance/habits.py` |
+| Spending: CSV import, categories, duplicates, review, recurring, quick-add | `finance/expenses.py` |
 | Reference rates, historical analysis, backtested forecast | `finance/rates.py` |
-| Sandbox provider / EVM wallet | `finance/providers.py`, `finance/wallet.py` |
+| Sandbox provider | `finance/providers.py` |
 | API, SSE, standalone server | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
 | Frontend (native ES modules) | `frontend/dist/js/**` |
 
@@ -139,17 +142,17 @@ flowchart LR
 ```bash
 git clone https://github.com/ytan0008/dot-remittance-agent.git
 cd dot-remittance-agent
-python scripts/configure.py          # creates your own .env (tokens, wallet password); prints no secrets
+python scripts/configure.py          # creates your own .env (tokens and passwords); prints no secrets
 docker compose up --build -d --wait  # first build takes a few minutes
 ```
 
 Open **http://localhost:8787** — you are signed in automatically as the local owner.
 
 - **AI model (optional):** put *your own* key in `.env` → `OPENAI_API_KEY=sk-...` (model `gpt-6-luna` is preset), save, then `docker compose up -d --force-recreate backend`. Without a key the agent runs in the labeled offline rule mode. Never commit `.env` or share keys in chat.
-- **Your data is yours:** each clone gets its own database, test funds and its own agent wallet address; nothing is shared with other teammates.
+- **Your data is yours:** each clone gets its own database and test funds; nothing is shared with other teammates.
 - **Port busy?** add `FRONTEND_PORT=8799` to `.env` and open that port instead.
 - **Update to the latest code:** `git pull` then `docker compose up --build -d --wait`.
-- **Stop / start:** `docker compose stop` / `docker compose up -d`. Reset all local data: `docker compose down -v` (also deletes the agent wallet).
+- **Stop / start:** `docker compose stop` / `docker compose up -d`. Reset all local data: `docker compose down -v`.
 - **Run tests without Docker:** `python -m venv .venv`, then `.venv\Scripts\pip install -r requirements.lock.txt` (macOS/Linux: `.venv/bin/pip`), then `python -m pytest -q`.
 
 ## 🚀 Getting started
@@ -159,17 +162,15 @@ Open **http://localhost:8787** — you are signed in automatically as the local 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.lock.txt
-.\.venv\Scripts\python scripts/configure.py      # writes .env: tokens, Sepolia RPC, wallet password (never printed)
+.\.venv\Scripts\python scripts/configure.py      # writes .env: tokens and passwords (never printed)
 docker compose up --build -d --wait
 ```
 
-Open **http://localhost:8787**. Local demo mode signs you in as the owner automatically (demo login is always refused when a live chain is configured).
+Open **http://localhost:8787**. Local demo mode signs you in as the owner automatically.
 
 ### Without Docker
 
 ```powershell
-$env:EVM_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com'   # leave empty to run the sandbox only
-$env:AGENT_WALLET_PASSWORD = '<at least 12 characters>'
 $env:ENABLE_DEMO_LOGIN = 'true'
 .\.venv\Scripts\python -m finance.cli serve       # UI: http://127.0.0.1:8000 · API docs: /api/docs
 ```
@@ -178,12 +179,11 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 
 Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenAI-compatible service) in `.env`, then run `docker compose up -d --force-recreate backend`.
 
-### Let the agent spend on-chain by itself
+### Try the new features
 
-1. On **Wallets**, copy the agent's address and fund it with test ETH from a Sepolia faucet
-2. **Wallets → Add recipient → Agent wallet**: enter the receiving address
-3. On **Permissions**, grant a mandate: recipient, per-payment cap, total budget, validity (≤ 7 days; gas counts toward the budget)
-4. Tell the agent `Send 0.001 ETH to <recipient-id> for test`, then `execute it` — it signs and broadcasts inside the mandate, and the receipt links to Etherscan
+1. **Send** → enter an amount → in step ③ tick “Target rate” and/or “Favorable level” → **Set reminders**
+2. **Spending** → drop a bank CSV → review the pending rows (duplicates are left unticked) → **Confirm**
+3. **Spending** → type `lunch 12.50` (or press the mic) → **Save**; or **Scan a receipt** (needs a vision-capable model, otherwise fill the form yourself)
 
 ### Sandbox test amounts
 
@@ -213,7 +213,8 @@ Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenA
 | 4.12 Approvals & history | Accepting a recommendation, confirming a change and authorizing a payment are recorded separately; any change voids the old approval |
 | 4.13 Audit log | Time, actor, action, outcome, correlation ID, request ID; denials recorded too; sensitive identifiers masked; triggers block edits and deletes |
 | 4.14 Credit-building support | Obligations with monthly recurrence, on-time / late history, an internal indicator clearly labeled “not a credit score”, credit education |
-| 4.15 Reminders & receipts | Deadlines, quote expiry, unresolved payments, insufficient funds, target rates; fingerprint deduplication; printable receipts |
+| 4.15 Reminders & receipts | Deadlines, quote expiry, unresolved payments, insufficient funds, target rates, favorable levels, exchange-by dates, expected expenses; fingerprint deduplication; browser notifications; printable receipts |
+| Extra: spending | Bank CSV import with suggested categories, duplicate detection and a review step; receipt scanning; text/voice quick-add; recurring expenses; batch review |
 
 ---
 
@@ -221,7 +222,7 @@ Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenA
 
 - **Separate roles**: owner / agent / viewer tokens are distinguished server-side; browser sessions use HttpOnly + SameSite=Strict cookies and writes require a same-origin header
 - **Bound authorization**: every sandbox payment needs the owner's approval of its quote digest; any field change, recipient change or quote expiry voids it
-- **On-chain**: the signed transaction is persisted before broadcast; no new nonce while unresolved; chain ID and block hash checked; gas ceiling; plain native ETH to normal accounts only; non-Sepolia chains need an explicit opt-in and a separate database
+- **Nothing counts unconfirmed**: imported, scanned and assistant-logged expenses stay pending until the owner reviews them; receipt photos are downscaled in the browser and never stored
 - **Exact amounts**: integer minor units everywhere; values above 2^53 travel as strings and are formatted with BigInt in the browser
 - **Model constraints**: tool whitelist, argument validation, bounded rounds; messages that look like private keys or API keys are rejected
 
@@ -230,21 +231,21 @@ Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenA
 ## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 96 tests: service, guardrails, in-process EVM, API, rule planner, suggestions in 6 languages
+.\.venv\Scripts\python -m pytest -q        # 128 tests: service, guardrails, spending, reminders, API, rule planner, 6 languages
 .\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
 docker run --rm --network remittance-agent_default --mount "type=bind,source=$PWD/artifacts,target=/artifacts" remittance-agent-browser-test
 ```
 
-Browser acceptance covers the full payment flow plus a sweep of 11 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
+Browser acceptance covers the full payment flow plus a sweep of 13 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
 
 ---
 
 ## ⚠️ Known limits
 
 - The spec's “provider-supported sandbox” needs real provider credentials; it is replaced by a **clearly labeled local simulation**. Connecting a provider means implementing `quote / submit / find / status`.
-- The agent wallet supports plain native ETH transfers on Sepolia only. An ETH transfer is not a fiat remittance; there is no bridge or on/off-ramp.
+- On-chain payments are paused: the UI and agent offer plans, forecasts and reminders, not crypto transfers. Direct bank connections depend on jurisdiction, so spending starts from CSV exports.
 - Forecasts are experimental; the habit indicator is not a credit score, and sandbox records do not build credit history.
 - Single-user development prototype. Production would still need HSM/KMS signing, identity and MFA, multi-tenancy, rate limiting, backups and compliance review.
 

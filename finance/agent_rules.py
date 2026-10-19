@@ -21,7 +21,7 @@ KEYWORDS = {
     "prepare": ["send", "transfer", "remit", "pay ", "汇款", "匯款", "转账", "轉帳", "付款", "支付", "gửi", "chuyển",
                 "送金", "振込", "송금", "보내", "이체"],
     "balance": ["balance", "funds", "how much do i have", "余额", "餘額", "资金", "資金", "số dư", "残高", "잔액"],
-    "wallet": ["wallet", "on-chain", "onchain", "钱包", "錢包", "链上", "鏈上", "ví", "ウォレット", "지갑"],
+    "expense": ["spent", "expense", "log ", "记账", "记一笔", "記帳", "花了", "chi tiêu", "使った", "썼어", "지출"],
     "reminders": ["remind", "deadline", "due", "提醒", "截止", "到期", "nhắc", "hạn", "リマインド", "期限", "알림", "마감"],
     "goals": ["goal", "budget", "plan", "目标", "目標", "预算", "預算", "mục tiêu", "ngân sách", "目標", "予算", "목표", "예산"],
     "credit": ["credit", "habit", "信用", "习惯", "習慣", "tín dụng", "thói quen", "クレジット", "신용"],
@@ -59,7 +59,7 @@ TEXT = {
                need_approval="This payment needs your explicit approval in the payment screen first (or an active mandate for the agent wallet).",
                nothing="I could not find a payment to act on. Open the payment and try again.",
                info="Here is what I found. Each card is labeled as reference data, simulation, ledger record or on-chain state.",
-               form="Fill in the recipient in the panel beside the chat; I will continue as soon as it is saved.", remembered="Noted. I will remember this; you can review or delete it on the Memory page.", recalled="From memory: {n} note(s) and {m} earlier conversation(s) match.", recalled_none="I have nothing remembered about that.", forgot="Forgotten.", forgot_none="I found no remembered note matching that.", sensitive="I never store passwords, keys or full account numbers in memory.",
+               form="Fill in the recipient in the panel beside the chat; I will continue as soon as it is saved.", logged="Logged as pending. Confirm it on the Spending page.", remembered="Noted. I will remember this; you can review or delete it on the Memory page.", recalled="From memory: {n} note(s) and {m} earlier conversation(s) match.", recalled_none="I have nothing remembered about that.", forgot="Forgotten.", forgot_none="I found no remembered note matching that.", sensitive="I never store passwords, keys or full account numbers in memory.",
                help="I can check balances and rates, compare options, prepare and track payments, and plan goals. "
                     "Try: “Send 100 AUD to family for living costs”.",
                fields=dict(amount="amount", recipient="recipient", purpose="purpose", pair="currency pair", percent="percentage")),
@@ -72,7 +72,7 @@ TEXT = {
                   need_approval="这笔支付需要你先在支付详情中明确授权（或为 Agent 钱包设置有效的预授权）。",
                   nothing="没有找到可操作的支付。请打开支付详情后再试。",
                   info="以下是查询结果。每张卡片都标明了是参考数据、模拟、账本记录还是链上状态。",
-                  form="请在聊天右侧的面板里填写收款人信息，保存后我会立刻继续。", remembered="已记住。你可以在“记忆”页查看或删除。", recalled="记忆中有 {n} 条笔记和 {m} 段过往对话与此相关。", recalled_none="关于这个我没有任何记忆。", forgot="已忘记。", forgot_none="没有找到匹配的记忆笔记。", sensitive="我绝不会把密码、密钥或完整账号存进记忆。",
+                  form="请在聊天右侧的面板里填写收款人信息，保存后我会立刻继续。", logged="已记为待确认，请在“记账”页确认。", remembered="已记住。你可以在“记忆”页查看或删除。", recalled="记忆中有 {n} 条笔记和 {m} 段过往对话与此相关。", recalled_none="关于这个我没有任何记忆。", forgot="已忘记。", forgot_none="没有找到匹配的记忆笔记。", sensitive="我绝不会把密码、密钥或完整账号存进记忆。",
                   help="我可以查询余额和汇率、比较方案、准备并跟踪支付、规划目标。试试：“给 family 汇 100 澳元用于生活费”。",
                   fields=dict(amount="金额", recipient="收款人", purpose="用途", pair="币种", percent="百分比")),
     "zh-TW": dict(offline="離線規則規劃器 —— 不是 AI 大模型。設定模型後可進行開放式對話。",
@@ -84,7 +84,7 @@ TEXT = {
                   need_approval="這筆付款需要你先在付款詳情中明確授權（或為 Agent 錢包設定有效的預授權）。",
                   nothing="沒有找到可操作的付款。請開啟付款詳情後再試。",
                   info="以下是查詢結果。每張卡片都標明了是參考資料、模擬、帳本紀錄還是鏈上狀態。",
-                  form="請在聊天右側的面板裡填寫收款人資料，儲存後我會立刻繼續。", remembered="已記住。你可以在「記憶」頁查看或刪除。", recalled="記憶中有 {n} 則筆記和 {m} 段過往對話與此相關。", recalled_none="關於這個我沒有任何記憶。", forgot="已忘記。", forgot_none="沒有找到符合的記憶筆記。", sensitive="我絕不會把密碼、金鑰或完整帳號存進記憶。",
+                  form="請在聊天右側的面板裡填寫收款人資料，儲存後我會立刻繼續。", logged="已記為待確認，請在「記帳」頁確認。", remembered="已記住。你可以在「記憶」頁查看或刪除。", recalled="記憶中有 {n} 則筆記和 {m} 段過往對話與此相關。", recalled_none="關於這個我沒有任何記憶。", forgot="已忘記。", forgot_none="沒有找到符合的記憶筆記。", sensitive="我絕不會把密碼、金鑰或完整帳號存進記憶。",
                   help="我可以查詢餘額和匯率、比較方案、準備並追蹤付款、規劃目標。試試：「給 family 匯 100 澳幣用於生活費」。",
                   fields=dict(amount="金額", recipient="收款人", purpose="用途", pair="幣別", percent="百分比")),
     "vi": dict(offline="Bộ lập kế hoạch theo quy tắc ngoại tuyến — không phải mô hình AI. Hãy cấu hình mô hình để trò chuyện tự do.",
@@ -96,7 +96,7 @@ TEXT = {
                need_approval="Khoản thanh toán này cần bạn phê duyệt rõ ràng trước (hoặc một ủy quyền còn hiệu lực cho ví Agent).",
                nothing="Không tìm thấy khoản thanh toán để thực hiện. Hãy mở chi tiết thanh toán rồi thử lại.",
                info="Đây là kết quả. Mỗi thẻ ghi rõ là dữ liệu tham chiếu, mô phỏng, sổ cái hay trạng thái on-chain.",
-               form="Hãy điền thông tin người nhận ở bảng bên cạnh khung chat; tôi sẽ tiếp tục ngay khi lưu xong.", remembered="Đã ghi nhớ. Bạn có thể xem hoặc xóa trong trang Bộ nhớ.", recalled="Trong bộ nhớ có {n} ghi chú và {m} cuộc trò chuyện trước liên quan.", recalled_none="Tôi không nhớ gì về điều đó.", forgot="Đã quên.", forgot_none="Không tìm thấy ghi chú nào khớp.", sensitive="Tôi không bao giờ lưu mật khẩu, khóa hay số tài khoản đầy đủ vào bộ nhớ.",
+               form="Hãy điền thông tin người nhận ở bảng bên cạnh khung chat; tôi sẽ tiếp tục ngay khi lưu xong.", logged="Đã ghi là chờ xác nhận. Hãy xác nhận ở trang Chi tiêu.", remembered="Đã ghi nhớ. Bạn có thể xem hoặc xóa trong trang Bộ nhớ.", recalled="Trong bộ nhớ có {n} ghi chú và {m} cuộc trò chuyện trước liên quan.", recalled_none="Tôi không nhớ gì về điều đó.", forgot="Đã quên.", forgot_none="Không tìm thấy ghi chú nào khớp.", sensitive="Tôi không bao giờ lưu mật khẩu, khóa hay số tài khoản đầy đủ vào bộ nhớ.",
                help="Tôi có thể xem số dư và tỷ giá, so sánh phương án, chuẩn bị và theo dõi thanh toán. "
                     "Thử: “Gửi 100 AUD cho family để chi tiêu sinh hoạt”.",
                fields=dict(amount="số tiền", recipient="người nhận", purpose="mục đích", pair="cặp tiền tệ", percent="phần trăm")),
@@ -109,7 +109,7 @@ TEXT = {
                need_approval="この支払いには、まず支払い画面での明示的な承認（またはエージェントウォレットの有効な委任）が必要です。",
                nothing="操作できる支払いが見つかりません。支払い詳細を開いてから再試行してください。",
                info="結果です。各カードには参考データ・シミュレーション・台帳記録・オンチェーン状態の区別が表示されます。",
-               form="チャット横のパネルで受取人を入力してください。保存されたらすぐに続けます。", remembered="覚えました。「メモリー」ページで確認・削除できます。", recalled="メモリーに一致するメモが {n} 件、過去の会話が {m} 件あります。", recalled_none="それについて覚えていることはありません。", forgot="忘れました。", forgot_none="一致するメモは見つかりませんでした。", sensitive="パスワード、鍵、完全な口座番号をメモリーに保存することはありません。",
+               form="チャット横のパネルで受取人を入力してください。保存されたらすぐに続けます。", logged="保留中として記録しました。「家計簿」ページで確定してください。", remembered="覚えました。「メモリー」ページで確認・削除できます。", recalled="メモリーに一致するメモが {n} 件、過去の会話が {m} 件あります。", recalled_none="それについて覚えていることはありません。", forgot="忘れました。", forgot_none="一致するメモは見つかりませんでした。", sensitive="パスワード、鍵、完全な口座番号をメモリーに保存することはありません。",
                help="残高や為替の確認、比較、支払いの準備と追跡、目標の計画ができます。例：「family に生活費として 100 AUD 送金」。",
                fields=dict(amount="金額", recipient="受取人", purpose="目的", pair="通貨ペア", percent="割合")),
     "ko": dict(offline="오프라인 규칙 플래너입니다(AI 모델이 아님). 자유로운 대화를 하려면 모델을 설정하세요.",
@@ -121,7 +121,7 @@ TEXT = {
                need_approval="이 결제는 먼저 결제 화면에서 명시적으로 승인해야 합니다(또는 에이전트 지갑의 유효한 위임).",
                nothing="처리할 결제를 찾지 못했습니다. 결제 상세를 연 뒤 다시 시도하세요.",
                info="조회 결과입니다. 각 카드에 참고 데이터, 시뮬레이션, 원장 기록, 온체인 상태가 표시됩니다.",
-               form="채팅 옆 패널에 수취인 정보를 입력해 주세요. 저장되면 바로 이어서 진행할게요.", remembered="기억했습니다. 기억 페이지에서 확인하거나 삭제할 수 있습니다.", recalled="기억 속에 관련 메모 {n}개와 이전 대화 {m}개가 있습니다.", recalled_none="그것에 대해 기억하는 것이 없습니다.", forgot="잊었습니다.", forgot_none="일치하는 기억 메모를 찾지 못했습니다.", sensitive="비밀번호, 키, 전체 계좌번호는 절대 기억에 저장하지 않습니다.",
+               form="채팅 옆 패널에 수취인 정보를 입력해 주세요. 저장되면 바로 이어서 진행할게요.", logged="대기 중으로 기록했어요. 지출 페이지에서 확인해 주세요.", remembered="기억했습니다. 기억 페이지에서 확인하거나 삭제할 수 있습니다.", recalled="기억 속에 관련 메모 {n}개와 이전 대화 {m}개가 있습니다.", recalled_none="그것에 대해 기억하는 것이 없습니다.", forgot="잊었습니다.", forgot_none="일치하는 기억 메모를 찾지 못했습니다.", sensitive="비밀번호, 키, 전체 계좌번호는 절대 기억에 저장하지 않습니다.",
                help="잔액·환율 조회, 옵션 비교, 결제 준비와 추적, 목표 계획을 도와드립니다. 예: “family에게 생활비로 100 AUD 송금”.",
                fields=dict(amount="금액", recipient="수취인", purpose="용도", pair="통화쌍", percent="비율")),
 }
@@ -209,8 +209,8 @@ class RulePlanner:
         tid = re.search(r"\b([0-9a-f]{8})(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\b", text)
         if tid:
             entities["transfer"] = tid.group(0)
-        intent = next((i for i in ("forget", "recall", "remember", "execute", "track", "forecast", "scenario", "compare", "prepare", "rates", "wallet",
-                                   "balance", "reminders", "goals", "credit") if has(text, i)), None)
+        intent = next((i for i in ("forget", "recall", "remember", "execute", "track", "forecast", "scenario", "compare", "prepare", "rates",
+                                   "balance", "reminders", "goals", "credit", "expense") if has(text, i)), None)
         if intent in ("forget", "recall", "remember"):
             entities = {"note": self.after_keyword(message, intent)}
             return intent, entities
@@ -263,8 +263,8 @@ class RulePlanner:
         pair = dict(source=src, target=dst) if src and dst else None
         if intent == "balance":
             steps = [("get_balances", {})]
-        elif intent == "wallet":
-            steps = [("wallet_info", {}), ("list_mandates", {})]
+        elif intent == "expense":
+            steps = [("log_expense", {"text": self.after_keyword(message, "expense")})]
         elif intent == "rates":
             if pair:
                 steps = [("latest_rate", pair), ("rate_history", dict(pair, days="30"))]
@@ -304,7 +304,7 @@ class RulePlanner:
             if target:
                 steps = [("get_payment", dict(transfer_id=target["id"]))]
                 if intent == "execute":
-                    steps.append(("execute_payment", dict(transfer_id=target["id"], **self.mandate_for(target))))
+                    steps.append(("execute_payment", dict(transfer_id=target["id"])))
                 else:
                     steps.append(("reconcile_payment", dict(transfer_id=target["id"])))
         elif intent == "reminders":
@@ -373,6 +373,8 @@ class RulePlanner:
             return last["error"]
         if last["tool"] == "request_recipient_details":
             return t["form"]
+        if last["tool"] == "log_expense":
+            return t["logged"]
         if last["tool"] == "remember_note":
             return t["remembered"]
         if last["tool"] == "forget_note":

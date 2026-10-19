@@ -4,7 +4,7 @@ import {esc, icons, options, field, empty, panel} from './ui.js';
 import {field as dotField, transition, reveal, interactive, countUp, swipe, progress, reduced} from './motion.js';
 import {view as overview} from './views/overview.js';
 import {view as agent, send as sendChat, paint as paintChat} from './views/agent.js';
-import {view as sendView} from './views/send.js';
+import {view as sendView, enableNotifications} from './views/send.js';
 import {view as payments, openDetail} from './views/payments.js';
 import {view as markets} from './views/markets.js';
 import {view as plans} from './views/plans.js';
@@ -14,10 +14,11 @@ import {view as autonomy} from './views/autonomy.js';
 import {view as routes} from './views/routes.js';
 import {view as audit} from './views/audit.js';
 import {view as memory} from './views/memory.js';
+import {view as spending} from './views/spending.js';
 
-const VIEWS = [overview, agent, sendView, payments, markets, plans, habits, wallets, autonomy, memory, routes, audit];
+const VIEWS = [overview, agent, sendView, spending, payments, markets, plans, habits, wallets, autonomy, memory, routes, audit];
 const BY_ID = Object.fromEntries(VIEWS.map(v => [v.id, v]));
-const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'payments']], ['nav.g_insight', ['markets', 'plans', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
+const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'spending', 'payments']], ['nav.g_insight', ['markets', 'plans', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
 const DOCK = ['overview', 'agent', 'send', 'payments'];
 const ORDER = GROUPS.flatMap(g => g[1]);
 let pendingPaint = false, refreshTimer = 0, events = null;
@@ -38,13 +39,13 @@ function shellText() {
 function status() {
   const h = state.health;
   const badge = $('#env-badge');
-  const chain = h?.rails?.evm;
   badge.className = 'env-badge ' + (state.connected ? 'ok' : 'off');
-  badge.querySelector('span').textContent = state.connected ? (chain ? t('env.badge_both', {c: t(chain === 'live_chain' ? 'env.live' : 'env.sepolia')}) : t('env.sandbox')) : t('shell.offline');
+  badge.querySelector('span').textContent = state.connected ? t('env.sandbox') : t('shell.offline');
   $('#side-status').textContent = state.connected ? t('shell.connected') : t('shell.disconnected');
   $('#avatar').textContent = state.role ? state.role[0].toUpperCase() : '·';
   const count = (state.data.reminders || []).length;
   $('#bell-count').hidden = !count; $('#bell-count').textContent = count;
+  notifyNew(state.data.reminders);
   $('#sync').textContent = state.connected ? t('shell.synced', {at: new Date().toLocaleTimeString(lang, {hour12: false})}) : '';
 }
 
@@ -84,6 +85,8 @@ function render() {
 }
 bus.render = render;
 bus.flush = () => { if (pendingPaint) render(); };
+// After an explicit user action the page must update even if a field keeps focus; restore that focus afterwards.
+bus.repaint = () => { const id = document.activeElement?.id, y = scrollY; paint(true); scrollTo(0, y); if (id) document.getElementById(id)?.focus({preventScroll: true}); };
 
 async function show(id, mode = 'forward') {
   const v = BY_ID[id] ? id : 'overview';
@@ -179,19 +182,38 @@ async function settingsModal() {
       <div class="form-error"></div><button class="button" ${isOwner() ? '' : 'disabled'}>${t('common.save')}</button></form>
     <section class="settings-sec"><span class="eyebrow">${t('settings.session')}</span>
       <dl class="facts"><div><dt>${t('settings.role')}</dt><dd>${esc(state.role ? t('role.' + state.role) : '—')}</dd></div><div><dt>${t('settings.model')}</dt><dd>${state.model ? esc(state.modelName || t('agent.mode.model')) : t('settings.model_off')}</dd></div>
-      <div><dt>${t('settings.rails')}</dt><dd>${t('env.sandbox')}${state.health?.rails?.evm ? ' · ' + t(state.health.rails.evm === 'live_chain' ? 'env.live' : 'env.sepolia') : ''}</dd></div></dl>
+      <div><dt>${t('settings.rails')}</dt><dd>${t('env.sandbox')}</dd></div></dl>
+      <label class="check-label"><input type="checkbox" id="set-notify" ${localStorage.getItem('dot.notify') === '1' ? 'checked' : ''}> ${t('rem.notify')}</label>
       <form id="login-form" class="inline-form">${field('access-token-2', t('login.switch'), `<input id="access-token-2" type="password" name="token" minlength="24" autocomplete="off" required>`)}<div class="form-error"></div>
       <div class="row-actions"><button class="button">${t('login.connect')}</button>${state.role ? `<button type="button" class="button ghost" data-action="logout">${t('login.logout')}</button>` : ''}</div></form></section>`, 'SETTINGS', {mount: root => {
     root.querySelector('#set-lang').addEventListener('change', e => changeLang(e.target.value));
     root.querySelector('#set-theme').addEventListener('change', e => setTheme(e.target.value));
+    root.querySelector('#set-notify').addEventListener('change', async e => { if (e.target.checked) e.target.checked = await enableNotifications(); else localStorage.setItem('dot.notify', '0'); });
   }});
 }
+
+/* Browser notifications for reminders that appeared since the last look (opt-in, per browser). */
+function notifyNew(list) {
+  if (!Array.isArray(list)) return;
+  let seen = null;
+  try { seen = JSON.parse(localStorage.getItem('dot.seenReminders') || 'null'); } catch { /* storage blocked */ }
+  const ids = list.map(r => r.id);
+  try { localStorage.setItem('dot.seenReminders', JSON.stringify(ids.slice(0, 200))); } catch { /* storage blocked */ }
+  if (!seen) return;  // first visit: remember what exists, announce nothing
+  let on = false;
+  try { on = localStorage.getItem('dot.notify') === '1' && 'Notification' in window && Notification.permission === 'granted'; } catch { /* ignore */ }
+  if (!on) return;
+  for (const r of list.filter(x => !seen.includes(x.id)).slice(0, 3)) {
+    try { const n = new Notification('DOT · ' + t('shell.reminders'), {body: t('reminder.' + r.kind, r.data), tag: 'dot-' + r.id}); n.onclick = () => { window.focus(); location.hash = REMINDER_VIEW[r.kind] || 'overview'; }; } catch { /* unsupported */ }
+  }
+}
+const REMINDER_VIEW = {rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
 
 function drawer() {
   const list = state.data.reminders || [];
   $('#drawer-panel').innerHTML = `<header><span class="eyebrow">${t('shell.reminders')}</span><button class="icon-button" data-action="close-drawer" aria-label="${t('common.close')}">×</button></header>
     ${list.length ? `<ul class="reminders">${list.map(r => `<li class="sev-${esc(r.severity)}"><span class="pulse"></span><div><p>${esc(t('reminder.' + r.kind, r.data))}</p><small>${when(r.created)}</small></div>
-      <div class="row-actions">${['quote_expired', 'quote_expiring', 'unresolved', 'insufficient_funds'].includes(r.kind) ? `<button class="link sm" data-action="detail" data-id="${esc(r.ref)}">${t('agent.view')}</button>` : r.kind.startsWith('goal') ? `<button class="link sm" data-action="go" data-view="plans">${t('common.open')}</button>` : r.kind.startsWith('obligation') ? `<button class="link sm" data-action="go" data-view="habits">${t('common.open')}</button>` : r.kind === 'rate_target' ? `<button class="link sm" data-action="go" data-view="markets">${t('common.open')}</button>` : ''}
+      <div class="row-actions">${['quote_expired', 'quote_expiring', 'unresolved', 'insufficient_funds'].includes(r.kind) ? `<button class="link sm" data-action="detail" data-id="${esc(r.ref)}">${t('agent.view')}</button>` : r.kind.startsWith('goal') ? `<button class="link sm" data-action="go" data-view="plans">${t('common.open')}</button>` : r.kind.startsWith('obligation') ? `<button class="link sm" data-action="go" data-view="habits">${t('common.open')}</button>` : REMINDER_VIEW[r.kind] ? `<button class="link sm" data-action="go" data-view="${REMINDER_VIEW[r.kind]}">${t('common.open')}</button>` : ''}
       <button class="x" data-action="dismiss" data-id="${r.id}" aria-label="${t('common.dismiss')}">×</button></div></li>`).join('')}</ul>` : empty(t('reminder.none'))}
     <p class="fine">${t('reminder.note')}</p>`;
 }

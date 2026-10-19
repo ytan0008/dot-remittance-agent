@@ -22,13 +22,12 @@ export const view = {
   render() {
     const all = state.data.transfers || [];
     const f = state.filters;
-    const list = all.filter(p => (f.status === 'all' || p.status === f.status) && (f.rail === 'all' || p.rail === f.rail));
+    const list = all.filter(p => (f.status === 'all' || p.status === f.status));
     const count = s => all.filter(p => p.status === s).length;
     const stats = [['draft', count('draft') + count('approved')], ['pending', count('pending') + count('unknown')], ['completed', count('completed')], ['failed', count('failed')]];
     return `<div class="stat-strip reveal">${stats.map(([s, n]) => `<button class="stat" data-action="filter" data-name="status" data-value="${s}"><span class="stat-n" data-count="${n}" data-digits="0">${n}</span><span>${chip(s)}</span></button>`).join('')}</div>
       ${panel(`${t('payments.title')} <span class="muted">/ ${list.length}</span>`, `
-        <div class="toolbar"><div class="chips-scroll hscroll">${STATUSES.map(s => `<button class="pill ${f.status === s ? 'on' : ''}" data-action="filter" data-name="status" data-value="${s}">${s === 'all' ? t('common.all') : t('status.' + s)}</button>`).join('')}</div>
-        ${segmented('rail', [['all', t('common.all')], ['sandbox', t('rail.sandbox')], ['evm', t('rail.evm')]], f.rail, 'filter')}</div>
+        <div class="toolbar"><div class="chips-scroll hscroll">${STATUSES.map(s => `<button class="pill ${f.status === s ? 'on' : ''}" data-action="filter" data-name="status" data-value="${s}">${s === 'all' ? t('common.all') : t('status.' + s)}</button>`).join('')}</div></div>
         ${table(list)}`, {actions: `<button class="button" data-action="go" data-view="send">${icons.plus}${t('action.new_transfer')}</button>`})}`;
   },
   actions: {
@@ -36,7 +35,7 @@ export const view = {
     detail(el) { return openDetail(el.dataset.id); },
     approve() {},
     async execute(el) {
-      const result = await api(`/transfers/${encodeURIComponent(el.dataset.id)}/execute`, 'POST', {mandate_id: el.dataset.mandate || null});
+      const result = await api(`/transfers/${encodeURIComponent(el.dataset.id)}/execute`, 'POST', {});
       invalidate(); renderDetail(result); toast(t('status.' + result.status));
     },
     async reconcile(el) {
@@ -102,14 +101,12 @@ export function renderDetail(p) {
   const editable = ['draft', 'approved'].includes(p.status);
   const owner = isOwner();
   const recipient = b.recipient;
-  const mandate = p.rail === 'evm' && p.status === 'draft' ? (state.data.mandates || []).find(m => !m.revoked && m.expires * 1000 > Date.now() && m.recipient?.address === recipient.address) : null;
   const fee = b.fee_breakdown ? `${amt(b.fee, b.source)} <small class="muted">(${esc(b.fee_breakdown.fixed)} ${esc(b.source)} + ${num(b.fee_breakdown.percent, 3)}%)</small>` : amt(b.fee, b.source);
   const ref = b.reference ? `${num(b.reference.rate, 6)} · ${esc(b.reference.provider)} · ${day(b.reference.observed)}${b.reference.derived ? ' · ' + t('rates.derived') : ''}` : esc(t('detail.no_reference'));
   const actions = [];
   if (editable && owner) actions.push(`<button type="button" class="button ghost" data-action="cancel-payment" data-id="${esc(p.id)}">${t('action.cancel_payment')}</button>`);
   if (editable && canPrepare() && !expired) actions.push(`<button type="button" class="button ghost" data-action="show-modify">${t('action.modify')}</button>`);
   if (p.status === 'approved' && !expired && canPrepare()) actions.push(`<button type="button" class="button primary magnetic" data-action="execute" data-id="${esc(p.id)}">${t('action.submit')} ${icons.arrow}</button>`);
-  if (mandate && canPrepare() && !expired) actions.push(`<button type="button" class="button primary magnetic" data-action="execute" data-id="${esc(p.id)}" data-mandate="${esc(mandate.id)}">${t('action.submit_mandate')} ${icons.arrow}</button>`);
   if (ACTIVE.includes(p.status) && canPrepare()) actions.push(`<button type="button" class="button primary" data-action="reconcile" data-id="${esc(p.id)}">${icons.reset}${t('action.reconcile')}</button>`);
   if (editable && expired) actions.push(`<button type="button" class="button primary" data-action="requote" data-id="${esc(p.id)}">${t('action.requote')}</button>`);
   if (['completed', 'failed'].includes(p.status)) actions.push(`<button type="button" class="button" data-action="receipt" data-id="${esc(p.id)}">${icons.print}${t('action.receipt')}</button>`);

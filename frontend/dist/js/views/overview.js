@@ -3,7 +3,8 @@ import {esc, chip, amt, empty, panel, icons, short} from '../ui.js';
 import {money, approx, num, day, when, pct, decimalsOf, currencyName} from '../i18n.js';
 import {sparkline} from '../charts.js';
 import {zoomPan, reduced} from '../motion.js';
-import {table, envLabel} from './payments.js';
+import {table} from './payments.js';
+import {alertText} from './send.js';
 import {chatLog, composer} from './agent.js';
 
 const NODES = [
@@ -68,7 +69,6 @@ function orbit() {
 
 function metrics() {
   const balances = (state.data.balances || []).filter(b => b.rail === 'sandbox');
-  const wallet = state.data.wallet;
   const tier = state.data.settings?.agent_tier ?? 3;
   const cards = balances.map(b => {
     const digits = Math.min(2, decimalsOf(b.currency));
@@ -77,9 +77,11 @@ function metrics() {
       <div class="metric-bar"><i class="bar-fill" data-ratio="${Number(b.total) > 0 ? (Number(b.reserved) / Number(b.total)).toFixed(4) : 0}"></i></div>
       <div class="metric-foot"><span>${t('wallets.reserved')} ${esc(money(b.reserved, b.currency))}</span><span class="tag k-simulation">${t('kind.simulation')}</span></div><i class="metric-orbit"></i></article>`;
   });
-  cards.push(`<article class="metric dark tilt reveal" data-action="go" data-view="wallets"><div class="metric-head"><span>${t('overview.agent_wallet')}</span><small>${wallet?.available ? esc(envLabel({rail: 'evm', environment: wallet.environment})) : t('wallets.not_connected')}</small></div>
-    <div class="metric-value">${wallet?.available && wallet.connected ? `<span>${esc(money(wallet.balance, 'ETH'))}</span><small>ETH</small>` : '<span>—</span>'}</div>
-    <div class="metric-foot"><span class="mono">${wallet?.available ? esc(wallet.address.slice(0, 6) + '…' + wallet.address.slice(-4)) : t('wallets.setup_short')}</span><span>${t('wallets.mandates_active', {n: wallet?.mandates?.length || 0})}</span></div><i class="metric-orbit"></i></article>`);
+  const alerts = (state.data.alerts || []).filter(a => a.active);
+  const next = alerts.find(a => a.condition === 'date') || alerts[0];
+  cards.push(`<article class="metric dark tilt reveal" data-action="go" data-view="send"><div class="metric-head"><span>${t('overview.reminders')}</span><small>${t('overview.reminders_d')}</small></div>
+    <div class="metric-value"><span data-count="${alerts.length}" data-digits="0">${alerts.length}</span><small>${t('overview.reminders_unit')}</small></div>
+    <div class="metric-foot"><span>${next ? esc(alertText(next)) : t('overview.reminders_none')}</span></div><i class="metric-orbit"></i></article>`);
   cards.push(`<article class="metric tilt reveal" data-action="go" data-view="autonomy"><div class="metric-head"><span>${t('overview.boundary')}</span><small>IN CONTROL</small></div>
     <div class="metric-value"><span>T${tier}</span><small>${esc(t('tier.' + tier))}</small></div>
     <div class="tier-dots">${[1, 2, 3].map(n => `<i class="${n <= tier ? 'on' : ''}"></i>`).join('')}</div>
@@ -104,7 +106,7 @@ function rateCard() {
 
 export const view = {
   id: 'overview',
-  needs: ['balances', 'transfers', 'wallet', 'settings', 'reminders', 'mandates'],
+  needs: ['balances', 'transfers', 'alerts', 'settings', 'reminders'],
   async load() {
     const {source, target} = state.markets;
     try { state.data.overviewRate = await api(`/rates?source=${source}&target=${target}&days=30`); delete state.errors.overviewRate; }

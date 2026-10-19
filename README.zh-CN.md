@@ -4,9 +4,9 @@
 
 # ◉ DOT · AI 跨境汇款助手
 
-**一个会「理解 · 规划 · 安全执行」的金融 Agent —— 拥有自己的链上钱包，只在你划定的边界内花钱。**
+**一个会「理解 · 规划 · 安全执行」的金融 Agent —— 比较方案、预测汇率、提醒你何时换汇，并把日常开销理清楚。**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Sepolia](https://img.shields.io/badge/EVM-Sepolia%20testnet-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-96%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-128%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![总览](docs/screenshots/overview.png)
 
@@ -24,7 +24,8 @@ DOT 是一个自然语言 AI Agent，帮你：
 - ⚖️ **比较方案**：参考计算、模拟方案、沙盒报价三者严格区分，按到账金额或速度排序
 - 📝 **准备支付**：固定发送额，或按“对方要收到多少”反算
 - 🛡️ **安全执行**：13 项风控检查 + 你的明确授权，Agent 永远不能批准自己的支付
-- ⛓️ **链上自主花钱**：Agent 拥有自己的加密钱包，在你授予的预授权（固定收款人、单笔上限、总预算、期限）内自主签名转账
+- ⏰ **挑好时机换汇**：比较之后设置提醒——目标汇率、“有利水平”（近 90 天最好的 10–30%）或最晚换汇日；可选浏览器通知
+- 🧾 **理清日常开销**：导入银行 CSV、扫描小票、文字或语音快速记账（“午饭 35元”）；自动建议分类、标记疑似重复、周期开销、一键批量审核
 - 🧾 **全程可追溯**：谁授权了什么、跑了哪些检查、之后发生了什么，一条审计轨迹全部回答
 
 > 本项目实现了课程/产品文档《AI Cross-Border Remittance Assistant》v4.0 中的全部功能模块（4.1–4.15），对照表见[下文](#-文档需求对照)。
@@ -35,13 +36,13 @@ DOT 是一个自然语言 AI Agent，帮你：
 
 ### 1. 理解 → 规划 → 执行，每一步都看得见
 
-Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种收款人、缺失信息、计划步骤**，再按权限等级调用工具。三个阶段通过 SSE 实时流式呈现，工具结果以卡片展示（汇率、比较、草稿、链上状态），并标注数据类型——参考数据、模拟、账本记录还是链上状态。
+Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种收款人、缺失信息、计划步骤**，再按权限等级调用工具。三个阶段通过 SSE 实时流式呈现，工具结果以卡片展示（汇率、比较、草稿、记账），并标注数据类型——参考数据、模拟还是账本记录。
 
 ![AI 助手](docs/screenshots/agent.png)
 
 - 未配置大模型时，由**离线规则规划器**驱动同一条流水线（明确标注“不是 AI”），支持 6 种语言的常见意图，缺信息会追问并在下一句补全
 - 配置任意 **OpenAI 兼容**、支持 function calling 的模型后即为真 AI
-- 模型工具里**没有**“批准”“授予预授权”“提高额度”——说“好的”永远不等于授权
+- 模型工具里**没有**“批准”“提高额度”——说“好的”永远不等于授权
 
 ### 2. 先比较，再汇款
 
@@ -55,15 +56,17 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 授权屏显示环境标签、精确金额、费率来源、报价倒计时、状态时间线和逐项风控检查。勾选确认后需要**长按圆环**才能授权；授权绑定详情摘要（SHA-256），任何改动都会使其失效。
 
-### 4. AI 拥有自己的链上钱包
+### 4. 规划换汇时机，到点提醒
 
-后端首次启动时为 Agent 生成**加密 keystore**（私钥只存在于签名进程内存，模型、浏览器、日志都拿不到）。你在「权限」页授予预授权后，Agent 就能在范围内自主转账 Sepolia ETH，并按确认数跟踪到完成。
+「汇款」页新增第三步：**换汇时机与提醒**。它展示今天的参考汇率、90 天位置和实验性 7 天预测区间，然后让你设置提醒——目标汇率（默认取预测区间上沿）、有利水平，以及到账截止前几天的最晚换汇日。后台每十分钟检查一次；提醒出现在铃铛里，你允许的话还会弹出浏览器通知。我们不假装知道哪天最好——只是替你盯着汇率。
 
-![权限](docs/screenshots/permissions.png)
+### 5. 看得清的开销
 
-### 5. 工具与记忆
+「记账」页为留学生设计：把银行导出的 CSV 拖进来（自动识别逗号/分号、支出/收入分列、日在前的日期和 GBK 编码），每一行都以**待审核**状态进入，附带建议分类和疑似重复标记（同商家同金额 ±2 天内，含重复导入的账单）。勾选、批量改分类、确认——你的修改会按商家学习。小票由视觉模型识别，保存前一定给你核对。快速记账能理解 `午饭 35元`、`bus pass 40`、`昨天 打车 23元` 和语音输入。周期开销（房租、话费、订阅）会提前一周生成**预计**条目等你确认或调整。AI 助手也能记账（`log_expense`），但同样进入审核队列。
 
-**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 26 个工具，包括 `remember_note`、`recall_memory`、`forget_note`——并且刻意没有“批准支付”“授予预授权”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
+### 6. 工具与记忆
+
+**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 27 个工具，包括 `log_expense`、`spending_summary`、`remember_note`、`recall_memory`——并且刻意没有“批准支付”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
 
 **记忆**在 [`finance/memory.py`](finance/memory.py)，分三层：
 
@@ -110,7 +113,6 @@ flowchart LR
     API --> S
     S --> G[13 项风控检查]
     G --> SB[沙盒提供方<br/>本地模拟 · 异步结算]
-    G --> EVM[Agent 钱包<br/>Sepolia · 加密 keystore]
     S --> R[参考汇率<br/>ECB / Frankfurter]
     S --> DB[(SQLite<br/>账本 · 追加式审计)]
     W[后台 worker] -->|对账 · 提醒 · 汇率提醒| S
@@ -122,11 +124,12 @@ flowchart LR
 | **工具注册表**——每个工具的参数、权限等级与实现 | `finance/tools.py` |
 | **记忆**——对话、笔记、经历、检索 | `finance/memory.py` |
 | 离线规则规划器 | `finance/agent_rules.py` |
-| 支付核心、风控、授权、预授权、路线 | `finance/service.py` |
+| 支付核心、风控、授权、路线 | `finance/service.py` |
 | 比较、情景、目标预算、建议与提案 | `finance/planning.py` |
 | 付款习惯、提醒去重、汇率提醒 | `finance/habits.py` |
 | 参考汇率、历史分析、回测预测 | `finance/rates.py` |
-| 沙盒提供方 / EVM 钱包 | `finance/providers.py`, `finance/wallet.py` |
+| 沙盒提供方 | `finance/providers.py` |
+| 记账：CSV 导入、分类、去重、审核、周期、快速记账 | `finance/expenses.py` |
 | API、SSE、独立服务 | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
 | 前端（原生 ES modules） | `frontend/dist/js/**` |
 
@@ -139,17 +142,17 @@ flowchart LR
 ```bash
 git clone https://github.com/ytan0008/dot-remittance-agent.git
 cd dot-remittance-agent
-python scripts/configure.py          # 生成你自己的 .env（令牌、钱包密码），不会显示任何密钥
+python scripts/configure.py          # 生成你自己的 .env（令牌和密码），不会显示任何密钥
 docker compose up --build -d --wait  # 第一次构建需要几分钟
 ```
 
 打开 **http://localhost:8787** —— 会自动以本机 Owner 身份进入。
 
 - **接入 AI 模型（可选）：** 在 `.env` 中填写*你自己的* Key：`OPENAI_API_KEY=sk-...`（已预设 `gpt-6-luna`），保存后执行 `docker compose up -d --force-recreate backend`。不填 Key 时 Agent 以标注清楚的离线规则模式运行。不要提交 `.env`，也不要在聊天里分享 Key。
-- **数据互不影响：** 每个人的副本都有独立的数据库、测试资金和独立的 Agent 钱包地址。
+- **数据互不影响：** 每个人的副本都有独立的数据库和测试资金。
 - **端口被占用？** 在 `.env` 加一行 `FRONTEND_PORT=8799`，改用这个端口打开。
 - **更新到最新代码：** `git pull`，然后 `docker compose up --build -d --wait`。
-- **停止 / 启动：** `docker compose stop` / `docker compose up -d`。清空本地全部数据：`docker compose down -v`（Agent 钱包也会被删除）。
+- **停止 / 启动：** `docker compose stop` / `docker compose up -d`。清空本地全部数据：`docker compose down -v`。
 - **不用 Docker 跑测试：** `python -m venv .venv`，再 `.venv\Scripts\pip install -r requirements.lock.txt`（macOS/Linux 用 `.venv/bin/pip`），然后 `python -m pytest -q`。
 
 ## 🚀 快速开始
@@ -159,17 +162,15 @@ docker compose up --build -d --wait  # 第一次构建需要几分钟
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.lock.txt
-.\.venv\Scripts\python scripts/configure.py      # 生成 .env：令牌、Sepolia RPC、钱包密码（不输出密钥）
+.\.venv\Scripts\python scripts/configure.py      # 生成 .env：令牌和密码（不输出密钥）
 docker compose up --build -d --wait
 ```
 
-打开 **http://localhost:8787**。本机演示模式会自动以 Owner 身份登录（正式链上会拒绝演示登录）。
+打开 **http://localhost:8787**。本机演示模式会自动以 Owner 身份登录。
 
 ### 不用 Docker
 
 ```powershell
-$env:EVM_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com'   # 留空则只运行沙盒
-$env:AGENT_WALLET_PASSWORD = '<至少 12 个字符>'
 $env:ENABLE_DEMO_LOGIN = 'true'
 .\.venv\Scripts\python -m finance.cli serve       # UI: http://127.0.0.1:8000  · API 文档: /api/docs
 ```
@@ -178,12 +179,11 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 
 在 `.env` 设置 `OPENAI_API_KEY`、`OPENAI_MODEL`，可选 `OPENAI_BASE_URL`（任意 OpenAI 兼容服务），然后 `docker compose up -d --force-recreate backend`。
 
-### 让 Agent 在链上自主花钱
+### 试试新功能
 
-1. 「钱包」页复制 Agent 地址，用 Sepolia 水龙头充值测试 ETH
-2. 「钱包 → 添加收款人 → Agent 钱包」填入收款地址
-3. 「权限」页授予预授权：收款人、单笔上限、总预算、有效期（≤ 7 天，gas 计入预算）
-4. 在 AI 助手说 `Send 0.001 ETH to <收款人ID> for test`，再说 `execute it` —— Agent 在预授权内自主签名广播，回执附 Etherscan 链接
+1. 「汇款」→ 输入金额 → 在第 ③ 步勾选“目标汇率”和/或“有利水平”→ **设置提醒**
+2. 「记账」→ 拖入银行 CSV → 审核待确认的行（疑似重复默认不勾选）→ **确认**
+3. 「记账」→ 输入 `午饭 35元`（或点麦克风）→ **保存**；或 **扫描小票**（需要支持图像的模型，否则手动填写）
 
 ### 沙盒测试金额
 
@@ -221,7 +221,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 
 - **角色分离**：Owner / Agent / Viewer 令牌由后端区分；浏览器使用 HttpOnly + SameSite=Strict 会话，写请求要求同源头
 - **授权绑定**：沙盒支付需 Owner 对报价摘要逐笔授权；字段、收款人变化或报价过期即失效
-- **链上**：先持久化已签名交易再广播、未决期间不换 nonce、校验 chain ID 与区块哈希、gas 上限、仅普通地址原生 ETH；非 Sepolia 需显式开启并使用独立数据库
+- **未确认不计入**：导入、扫描和 AI 记下的开销都保持待审核，直到你确认；小票照片在浏览器里先压缩，且不会被保存
 - **精确金额**：后端一律最小单位整数，超过 2^53 以字符串传输，前端 BigInt 格式化
 - **模型约束**：工具白名单、参数校验、轮数上限；疑似私钥/API key 的消息直接拒绝
 
@@ -230,7 +230,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 ## 🧪 测试
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 96 项：服务、风控、进程内 EVM、API、规则规划器、6 语言建议语句
+.\.venv\Scripts\python -m pytest -q        # 128 项：服务、风控、记账、提醒、API、规则规划器、6 种语言
 .\.venv\Scripts\python -m finance.demo     # 离线演示：未授权被拒 → 授权 → 执行 → 幂等 → 超时恢复
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
@@ -244,7 +244,7 @@ docker run --rm --network remittance-agent_default --mount "type=bind,source=$PW
 ## ⚠️ 已知边界
 
 - 文档要求的“服务商沙盒”需真实服务商凭据，当前以**带标注的本地模拟**代替；接入时实现 `quote / submit / find / status` 即可
-- Agent 钱包仅支持 Sepolia 原生 ETH 普通转账；ETH 转账不等于法币跨境汇款，无跨链桥或出入金
+- 链上支付已暂停：界面和 Agent 提供方案、预测和提醒，不做加密货币转账。直连银行取决于各地监管，因此记账从 CSV 导出开始。
 - 预测为实验性功能；付款习惯指标不是信用评分，沙盒记录不构成信用历史
 - 单用户开发原型。正式上线还需 HSM/KMS 签名、身份与 MFA、多租户、限流、备份与合规审查
 

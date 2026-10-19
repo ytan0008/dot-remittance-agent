@@ -162,7 +162,10 @@ class RateAlert(Model):
     source: str
     target: str
     condition: str
-    threshold: str
+    threshold: str = "0"
+    window: str | None = None
+    due_date: str | None = None
+    note: str | None = None
 
 
 class AlertUpdate(Model):
@@ -177,6 +180,51 @@ class Decide(Model):
 class Note(Model):
     text: str = Field(min_length=1, max_length=300)
     kind: str = "fact"
+
+
+class CsvImport(Model):
+    filename: str = Field(default="statement.csv", max_length=200)
+    content: str = Field(max_length=2_100_000)
+    currency: str | None = None
+
+
+class ExpenseIn(Model):
+    date: str
+    amount: int
+    currency: str
+    description: str = Field(min_length=1, max_length=200)
+    category: str
+    source: str = "manual"
+    recurring: str | None = None
+
+
+class ExpensePatch(Model):
+    category: str | None = None
+    amount: int | None = None
+    description: str | None = None
+    date: str | None = None
+
+
+class QuickText(Model):
+    text: str = Field(min_length=1, max_length=200)
+    currency: str | None = None
+
+
+class Receipt(Model):
+    image: str = Field(max_length=6_000_000)
+
+
+class ReviewIn(Model):
+    items: list[dict]
+
+
+class RecurringIn(Model):
+    description: str
+    amount: int
+    currency: str
+    category: str
+    cadence: str
+    last_date: str
 
 
 class Recommendation(Model):
@@ -543,7 +591,9 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.post("/rate-alerts")
     def add_alert(body: RateAlert, actor=Depends(role)):
-        return service().add_rate_alert(actor, **body.model_dump())
+        alert = service().add_rate_alert(actor, **body.model_dump(exclude_none=True))
+        service().check_rate_alerts()  # fire immediately if the condition already holds
+        return alert
 
     @app.patch("/rate-alerts/{aid}")
     def update_alert(aid: str, body: AlertUpdate, actor=Depends(role)):
@@ -554,6 +604,57 @@ def create_app(finance=None, agent=None, background=None):
     def audit(q: str | None = None, outcome: str | None = None, actor_filter: str | None = None, limit: int = 300,
               actor=Depends(role)):
         return service().audit(actor, q, outcome, actor_filter, limit)
+
+    # ---------- spending ----------
+    @app.get("/expenses")
+    def list_expenses(status: str | None = None, month: str | None = None, actor=Depends(role)):
+        return service().expenses(status=status, month=month)
+
+    @app.get("/expenses/summary")
+    def spending(month: str | None = None, actor=Depends(role)):
+        return service().spending_summary(month)
+
+    @app.post("/expenses/import")
+    def import_csv(body: CsvImport, actor=Depends(role)):
+        return service().import_csv(actor, body.filename, body.content, body.currency)
+
+    @app.post("/expenses/parse")
+    def parse_quick(body: QuickText, actor=Depends(role)):
+        return service().parse_quick(body.text, body.currency)
+
+    @app.post("/expenses/receipt")
+    def receipt(body: Receipt, actor=Depends(role)):
+        service().owner(actor)
+        return app.state.agent.read_receipt(body.image)
+
+    @app.post("/expenses")
+    def add_expense(body: ExpenseIn, actor=Depends(role)):
+        return service().add_expense(actor, body.date, body.amount, body.currency, body.description, body.category, body.source,
+                                     recurring=body.recurring)
+
+    @app.post("/expenses/review")
+    def review(body: ReviewIn, actor=Depends(role)):
+        return service().review(actor, body.items)
+
+    @app.patch("/expenses/{eid}")
+    def patch_expense(eid: str, body: ExpensePatch, actor=Depends(role)):
+        return service().update_expense(actor, eid, body.category, body.amount, body.description, body.date)
+
+    @app.delete("/expenses/{eid}")
+    def delete_expense(eid: str, actor=Depends(role)):
+        return service().delete_expense(actor, eid)
+
+    @app.get("/recurring")
+    def recurring(actor=Depends(role)):
+        return {"active": service().recurring_list(), "candidates": service().detect_recurring()}
+
+    @app.post("/recurring")
+    def add_recurring(body: RecurringIn, actor=Depends(role)):
+        return service().add_recurring(actor, body.description, body.amount, body.currency, body.category, body.cadence, body.last_date)
+
+    @app.delete("/recurring/{rid}")
+    def stop_recurring(rid: str, actor=Depends(role)):
+        return service().stop_recurring(actor, rid)
 
     # ---------- agent memory ----------
     @app.get("/agent/memory")

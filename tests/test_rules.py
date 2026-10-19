@@ -65,21 +65,6 @@ def test_every_localized_suggestion_is_understood(planner, lang, prompt, intent)
         assert entities["source"] == "AUD" and entities["target"] == "CNY"
 
 
-def test_rules_spend_autonomously_within_mandate(evm):
-    from finance.domain import now
-    agent = Agent(evm)
-    first = agent.chat("Send 0.001 ETH to family for a test payment", "chain", "en")
-    draft = first["trace"][-1]["result"]
-    assert draft["rail"] == "evm" and draft["status"] == "draft"
-    refused = agent.chat("execute it", "chain", "en")
-    assert "approval" in refused["message"]
-    evm.grant_mandate("owner", "family", "0.002", "0.004", now() + 600)
-    done = agent.chat("execute it", "chain", "en")
-    result = done["trace"][-1]["result"]
-    assert result["status"] == "completed" and result["authorized_by"] == "owner_mandate"
-    assert "mandate" in done["message"]
-
-
 @pytest.mark.parametrize("message,name", [
     ("用人民币给 Mia 汇款，让对方收到 100 澳元，用于生活费", "Mia"),
     ("Pay in CNY so Mia receives 100 AUD, send to Mia for rent", "Mia"),
