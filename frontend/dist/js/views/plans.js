@@ -3,7 +3,16 @@ import {esc, amt, panel, field, options, icons, empty, dl, chip, tag} from '../u
 import {money, day, num, decimalsOf, phrase} from '../i18n.js';
 import {gauge, animateGauges} from '../charts.js';
 
-const PAIRS = [['AUD', 'CNY'], ['AUD', 'VND'], ['AUD', 'PHP'], ['USD', 'CNY'], ['USD', 'VND'], ['USD', 'PHP'], ['USD', 'MXN']];
+const CURRENCIES = ['AUD', 'USD', 'CNY', 'VND', 'PHP', 'MXN', 'JPY', 'KRW', 'HKD', 'TWD', 'SGD', 'NZD', 'CAD', 'MYR', 'THB', 'IDR', 'EUR', 'GBP'];
+const pick = {source: 'AUD', target: 'CNY'};
+
+/** Whether the chosen pair can be paid in the sandbox, or is planned with reference rates only. */
+function pairHint() {
+  if (pick.source === pick.target) return `<span class="bad">${t('err.pair_invalid')}</span>`;
+  const route = (state.data.routes || []).find(r => r.source === pick.source && r.target === pick.target && r.capabilities.sandbox_payment);
+  return route ? `<span class="tag k-sandbox_quote">${t('plans.pair_payable')}</span> ${t('plans.pair_payable_d')}`
+    : `<span class="tag k-reference">${t('plans.pair_planning')}</span> ${t('plans.pair_planning_d')}`;
+}
 
 function goalCard(g) {
   const done = g.target_amount ? Math.min(100, g.completed / g.target_amount * 100) : 0;
@@ -28,10 +37,13 @@ export const view = {
       <div class="split">
         ${panel(t('plans.new_goal'), `<form id="goal-form" class="form-block">
           ${field('g-title', t('plans.title_field'), `<input id="g-title" name="title" required maxlength="100" placeholder="${t('plans.title_ph')}">`)}
-          <div class="grid-2">${field('g-pair', t('plans.pair'), `<select id="g-pair" name="pair">${options(PAIRS.map(([a, b]) => [a + '-' + b, a + ' → ' + b]), 'AUD-CNY')}</select>`)}
+          <div class="pair-row">${field('g-source', t('plans.from'), `<select id="g-source" name="source">${options(CURRENCIES.map(c => [c, c]), pick.source)}</select>`)}
+            <button type="button" class="swap" data-action="goal-swap" aria-label="${t('markets.swap')}">${icons.swap}</button>
+            ${field('g-target', t('plans.to'), `<select id="g-target" name="target">${options(CURRENCIES.map(c => [c, c]), pick.target)}</select>`)}</div>
+          <p class="fine pair-hint" id="pair-hint">${pairHint()}</p>
+          <div class="grid-2"><div class="field"><label for="g-amount">${t('plans.target_receive')} (<span id="g-unit">${esc(pick.target)}</span>)</label><input id="g-amount" name="target_amount" inputmode="decimal" required></div>
           ${field('g-cat', t('plans.category'), `<select id="g-cat" name="category">${options(['family', 'tuition', 'rent', 'business', 'other'].map(c => [c, t('category.' + c)]), 'family')}</select>`)}</div>
-          <div class="grid-2">${field('g-amount', t('plans.target_receive'), `<input id="g-amount" name="target_amount" inputmode="decimal" required>`)}
-          ${field('g-deadline', t('plans.deadline'), `<input id="g-deadline" name="deadline" type="date" required min="${today}">`)}</div>
+          ${field('g-deadline', t('plans.deadline'), `<input id="g-deadline" name="deadline" type="date" required min="${today}">`)}
           <div class="form-error"></div><button class="button primary" ${owner ? '' : 'disabled'}>${icons.plus}${t('plans.create')}</button></form>`)}
         ${panel(t('plans.budget'), `<p class="fine">${t('plans.budget_note')}</p>
           ${budget.length ? `<ul class="list">${budget.map(b => `<li class="row"><span class="kind-dot b-${esc(b.kind)}"></span><div><b>${esc(b.label)}</b><small>${esc(t('budget.' + b.kind))}${b.date ? ' · ' + day(b.date) : ''}${b.kind === 'holding' ? ' · ' + t('plans.unverified') : ''}</small></div>${amt(b.amount, b.currency)}${owner ? `<button class="x" data-action="budget-delete" data-id="${esc(b.id)}" aria-label="${t('common.delete')}">×</button>` : ''}</li>`).join('')}</ul>` : empty(t('plans.budget_empty'))}
@@ -46,9 +58,22 @@ export const view = {
   },
   mount(root) {
     animateGauges(root);
+    const sync = () => {
+      pick.source = root.querySelector('#g-source').value; pick.target = root.querySelector('#g-target').value;
+      root.querySelector('#pair-hint').innerHTML = pairHint();
+      root.querySelector('#g-unit').textContent = pick.target;
+    };
+    root.querySelector('#g-source')?.addEventListener('change', sync);
+    root.querySelector('#g-target')?.addEventListener('change', sync);
+    view.sync = sync;
   },
   actions: {
     'goal-plan'(el) { return openPlan(el.dataset.id, 3); },
+    'goal-swap'() {
+      const a = document.getElementById('g-source'), b = document.getElementById('g-target');
+      [a.value, b.value] = [b.value, a.value];
+      view.sync?.();
+    },
     'goal-send'(el) {
       const g = (state.data.goals || []).find(x => x.id === el.dataset.id);
       const route = (state.data.routes || []).find(r => r.source === g.source && r.target === g.target);
@@ -62,7 +87,8 @@ export const view = {
   },
   submit: {
     async 'goal-form'(f) {
-      const [source, target] = value(f, 'pair').split('-');
+      const source = value(f, 'source'), target = value(f, 'target');
+      if (source === target) throw new Error(t('err.pair_invalid'));
       await api('/goals', 'POST', {title: value(f, 'title'), source, target, target_amount: value(f, 'target_amount'), deadline: value(f, 'deadline'), category: value(f, 'category')});
       invalidate(['goals', 'reminders']); toast(t('plans.created'), 'good'); rerender();
     },

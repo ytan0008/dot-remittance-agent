@@ -166,7 +166,7 @@ class Rates:
                 return None
             return (math.log(values[i]) - math.log(values[j])) / (dates[i] - dates[j]).days
 
-        origins = []
+        origins, checks = [], []
         for i in range(len(rows)):
             target_index = next((k for k in range(i + 1, len(rows)) if (dates[k] - dates[i]).days >= horizon_days), None)
             mu = drift_at(i)
@@ -174,6 +174,7 @@ class Rates:
                 continue
             model = values[i] * math.exp(mu * horizon_days)
             origins.append((values[target_index], model, values[i]))
+            checks.append((rows[target_index]["date"], values[target_index], model))
         if len(origins) < 60:
             return dict(base, available=False, reason=f"insufficient evaluated history ({len(origins)} origins, need 60)",
                         data_cutoff=rows[-1]["date"])
@@ -195,7 +196,10 @@ class Rates:
         point = values[-1] * math.exp(mu * horizon_days)
         q10, q90 = quantile(ratios, 0.1), quantile(ratios, 0.9)
         fmt = lambda x: f"{x:.6g}"
+        recent = [dict(date=r["date"], rate=r["rate"]) for r in rows[-90:]]
+        backtest = [dict(date=d, actual=fmt(a), predicted=fmt(m)) for d, a, m in checks[-45:]]
         return dict(base, available=True, data_cutoff=rows[-1]["date"], last_observed=rows[-1]["rate"],
+                    recent=recent, backtest=backtest,
                     point=fmt(point), interval_80=[fmt(point * (1 + q10)), fmt(point * (1 + q90))],
                     baseline_point=rows[-1]["rate"], backtest_origins=len(origins),
                     model_mae=fmt(model_mae), baseline_mae=fmt(naive_mae),

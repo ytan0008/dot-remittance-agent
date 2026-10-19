@@ -51,6 +51,10 @@ def test_forecast_backtested_against_baseline():
         f = Rates(c).forecast("AUD", "CNY")
     assert f["available"] and float(f["interval_80"][0]) <= float(f["point"]) <= float(f["interval_80"][1])
     assert {"model_mae", "baseline_mae", "beats_baseline", "holdout_interval_coverage", "data_cutoff"} <= set(f)
+    # The chart needs the recent actual series and past predictions paired with what happened.
+    assert len(f["recent"]) == 90 and f["recent"][-1]["date"] == f["data_cutoff"]
+    assert f["backtest"] and {"date", "actual", "predicted"} <= set(f["backtest"][0])
+    assert f["backtest"][-1]["date"] <= f["data_cutoff"]
     with client(lambda req: httpx.Response(200, json=rows(40))) as c:
         short = Rates(c).forecast("AUD", "CNY")
     assert short["available"] is False and "insufficient" in short["reason"]

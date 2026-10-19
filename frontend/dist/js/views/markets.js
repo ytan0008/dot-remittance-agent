@@ -1,7 +1,7 @@
 import {state, t, api, toast, isOwner, invalidate, rerender, refreshView, value} from '../core.js';
 import {esc, amt, tag, panel, field, options, segmented, icons, empty, dl, chip} from '../ui.js';
 import {num, day, pct, when, currencyName, phrase} from '../i18n.js';
-import {lineChart, gauge, animateGauges} from '../charts.js';
+import {lineChart, forecastChart, gauge, animateGauges} from '../charts.js';
 
 const CURRENCIES = ['AUD', 'USD', 'CNY', 'VND', 'PHP', 'MXN', 'JPY', 'KRW', 'HKD', 'TWD', 'SGD', 'NZD', 'CAD', 'MYR', 'THB', 'IDR', 'CLP', 'PEN', 'EUR', 'GBP'];
 let chart = null, scenarioTimer = 0;
@@ -53,6 +53,10 @@ export const view = {
       <p class="fine">${t('markets.percentile_note')}</p></div>`;
     const forecast = !f ? '' : f.available ? `<div class="forecast">
         <div class="forecast-head">${tag('forecast')}<span class="fine">${t('markets.generated')} ${when(Date.parse(f.generated_at) / 1000)} · ${t('markets.cutoff')} ${day(f.data_cutoff)} · ${t('markets.horizon', {n: f.horizon_days})}</span></div>
+        <p class="fc-read">${t('markets.fc_read', {n: f.horizon_days, lo: num(f.interval_80[0], 5), hi: num(f.interval_80[1], 5), point: num(f.point, 5), base: num(f.baseline_point, 5), t: esc(m.target), s: esc(m.source)})}</p>
+        <div class="chart-host no-swipe" id="forecast-chart"></div>
+        <div class="fc-legend"><span><i class="lg-actual"></i>${t('markets.fc_actual')}</span><span><i class="lg-pred"></i>${t('markets.fc_past')}</span><span><i class="lg-model"></i>${t('markets.fc_model_line')}</span><span><i class="lg-base"></i>${t('markets.baseline')}</span><span><i class="lg-fan"></i>${t('markets.interval')}</span></div>
+        <p class="fine">${t('markets.fc_how')}</p>
         <div class="forecast-main"><div><span class="eyebrow">${t('markets.point')}</span><b>${num(f.point, 6)}</b></div><div><span class="eyebrow">${t('markets.interval')}</span><b>${num(f.interval_80[0], 6)} – ${num(f.interval_80[1], 6)}</b></div><div><span class="eyebrow">${t('markets.baseline')}</span><b>${num(f.baseline_point, 6)}</b></div></div>
         <div class="mae"><div><span>${t('markets.model_error')}</span><i class="bar-fill" data-ratio="${(Number(f.model_mae) / Math.max(Number(f.model_mae), Number(f.baseline_mae))).toFixed(3)}"></i><b>${num(f.model_mae, 6)}</b></div>
           <div><span>${t('markets.baseline_error')}</span><i class="bar-fill" data-ratio="${(Number(f.baseline_mae) / Math.max(Number(f.model_mae), Number(f.baseline_mae))).toFixed(3)}"></i><b>${num(f.baseline_mae, 6)}</b></div></div>
@@ -68,8 +72,8 @@ export const view = {
         ${panel(t('markets.latest'), latest, {cls: 'tilt'})}
       </div>
       <div class="markets-layout">
+        ${panel(t('markets.forecast'), forecast, {cls: 'forecast-panel'})}
         ${panel(t('markets.analysis'), stats)}
-        ${panel(t('markets.forecast'), forecast)}
       </div>
       <div class="markets-layout">
         ${panel(t('markets.scenario'), `<form id="scenario-form" class="scenario"><div class="grid-2">${field('sc-amount', t('send.amount') + ' (' + esc(m.source) + ')', `<input id="sc-amount" name="amount" inputmode="decimal" value="${esc(m.scenarioAmount)}">`)}
@@ -97,6 +101,11 @@ export const view = {
         label: t('markets.chart_label', {s: state.markets.source, t: state.markets.target})});
       root.querySelectorAll('[data-chart]').forEach(b => b.addEventListener('click', () => ({in: () => chart.zoom(.7), out: () => chart.zoom(1.4), reset: () => chart.reset()})[b.dataset.chart]()));
     }
+    const fhost = root.querySelector('#forecast-chart');
+    if (fhost) forecastChart(fhost, state.data.forecast, {format: v => num(v, 5), dateFormat: d => day(d), labels: {
+      cutoff: t('markets.cutoff'), horizon: t('markets.horizon', {n: state.data.forecast.horizon_days}), high: t('markets.fc_high'), low: t('markets.fc_low'),
+      point: t('markets.fc_model'), baseline: t('markets.baseline'), predicted: t('markets.fc_predicted'),
+      aria: t('markets.forecast')}});
     const sc = root.querySelector('#scenario-form');
     sc?.addEventListener('input', e => {
       if (e.target.name === 'change') { state.markets.scenario = e.target.value; root.querySelector('#sc-out').textContent = pct(e.target.value, 1); }
