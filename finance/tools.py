@@ -173,6 +173,24 @@ def email_report(ctx, period):
     return ctx.finance.send_report(ctx.actor, period)
 
 
+# ---------- motivation ----------
+
+@tool("progress_overview", "The student's encouraging progress: money-skill level and criteria for the next one, badges, the "
+      "forgiving check-in streak, active challenges and suggested ones. Never compares students or ranks by money.")
+def progress_overview(ctx):
+    r = ctx.finance.motivation()
+    r.pop("celebrations", None)
+    return r
+
+
+@tool("start_challenge", "Start a short, opt-in 7-day challenge the student asked for. kind: log_5_days | clear_review | plan_term | "
+      "one_document | review_subs | no_spend_day | set_aside (amount in normal units, small and only if it fits the budget).",
+      {"kind": {"type": "string", "enum": ["log_5_days", "clear_review", "plan_term", "one_document", "review_subs", "no_spend_day",
+                                           "set_aside"]}, "amount": S}, ["kind"], tier="prepare")
+def start_challenge(ctx, kind, amount=""):
+    return ctx.finance.start_challenge(ctx.actor, kind, amount or None)
+
+
 # ---------- read-only facts (T1) ----------
 
 @tool("get_balances", "Ledger balances per currency: total, reserved, available. Sandbox is simulated test funds.")

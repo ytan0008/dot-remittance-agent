@@ -21,7 +21,7 @@ const RESOURCES = {
   balances: '/balances', transfers: '/transfers', recipients: '/recipients', routes: '/routes', economies: '/economies',
   settings: '/settings', memory: '/memory', proposals: '/proposals',
   decisions: '/decisions', goals: '/goals', budget: '/budget', obligations: '/obligations', habits: '/habits',
-  reminders: '/reminders', alerts: '/rate-alerts', recurring: '/recurring', agentMemory: '/agent/memory',
+  reminders: '/reminders', alerts: '/rate-alerts', motivationSummary: '/motivation', recurring: '/recurring', agentMemory: '/agent/memory',
   equivalents: () => '/balances/equivalents?display=' + encodeURIComponent(state.display),
   audit: () => '/audit?' + new URLSearchParams(Object.entries({q: state.audit.q, outcome: state.audit.outcome, actor_filter: state.audit.actor}).filter(([, v]) => v)),
 };

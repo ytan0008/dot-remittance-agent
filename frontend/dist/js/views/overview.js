@@ -82,6 +82,11 @@ function metrics() {
   cards.push(`<article class="metric dark tilt reveal" data-action="go" data-view="send"><div class="metric-head"><span>${t('overview.reminders')}</span><small>${t('overview.reminders_d')}</small></div>
     <div class="metric-value"><span data-count="${alerts.length}" data-digits="0">${alerts.length}</span><small>${t('overview.reminders_unit')}</small></div>
     <div class="metric-foot"><span>${next ? esc(alertText(next)) : t('overview.reminders_none')}</span></div><i class="metric-orbit"></i></article>`);
+  const mo = state.data.motivationSummary;
+  if (mo?.settings?.enabled) cards.push(`<article class="metric tilt reveal" data-action="go" data-view="progress"><div class="metric-head"><span>${t('overview.momentum')}</span><small>${esc(t('level.' + mo.level))}</small></div>
+    <div class="metric-value"><span>L${mo.level}</span><small>/ ${mo.max_level}</small></div>
+    <div class="tier-dots">${Array.from({length: mo.max_level}, (_, i) => `<i class="${i < mo.level ? 'on' : ''}"></i>`).join('')}</div>
+    <div class="metric-foot"><span>${t('overview.streak', {n: mo.streak.current})}</span><span>${t('overview.challenges', {n: mo.active.length})}</span></div><i class="metric-orbit"></i></article>`);
   cards.push(`<article class="metric tilt reveal" data-action="go" data-view="autonomy"><div class="metric-head"><span>${t('overview.boundary')}</span><small>IN CONTROL</small></div>
     <div class="metric-value"><span>T${tier}</span><small>${esc(t('tier.' + tier))}</small></div>
     <div class="tier-dots">${[1, 2, 3].map(n => `<i class="${n <= tier ? 'on' : ''}"></i>`).join('')}</div>
@@ -106,7 +111,7 @@ function rateCard() {
 
 export const view = {
   id: 'overview',
-  needs: ['balances', 'transfers', 'alerts', 'settings', 'reminders'],
+  needs: ['balances', 'transfers', 'alerts', 'settings', 'reminders', 'motivationSummary'],
   async load() {
     const {source, target} = state.markets;
     try { state.data.overviewRate = await api(`/rates?source=${source}&target=${target}&days=30`); delete state.errors.overviewRate; }

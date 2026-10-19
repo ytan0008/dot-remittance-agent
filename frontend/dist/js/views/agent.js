@@ -74,8 +74,6 @@ function card(step) {
         : r.status === 'pending' ? `<button class="link" data-action="go" data-view="autonomy">${t('agent.review_proposal')} ${icons.arrow}</button>` : '';
       return `<div class="rcard proposal-card p-${esc(r.status)}"><div class="kv"><span class="eyebrow">${t('agent.proposal')} · ${esc(t('proposal.kind.' + r.kind))}</span>${chip(r.status, 'proposal.status')}</div><dl class="facts compact">${rows}</dl>${act}</div>`;
     }
-    case 'wallet_info':
-      return r.available ? `<div class="rcard"><span class="eyebrow">${t('kind.onchain')}</span><div class="kv"><span class="mono">${esc(r.address.slice(0, 8))}…${esc(r.address.slice(-6))}</span>${r.connected ? amt(r.balance, 'ETH') : t('wallets.rpc_down')}</div><small class="muted">${t('wallets.mandates_active', {n: r.mandates.length})}</small></div>` : `<div class="rcard"><small>${t('wallets.unavailable')}</small></div>`;
     case 'reminders':
       return `<div class="rcard"><span class="eyebrow">${t('shell.reminders')}</span>${r.length ? r.slice(0, 3).map(x => `<p>· ${esc(t('reminder.' + x.kind, x.data))}</p>`).join('') : `<p>${t('reminder.none')}</p>`}</div>`;
     case 'goals_overview':

@@ -6,7 +6,7 @@
 
 **一个会「理解 · 规划 · 安全执行」的金融 Agent —— 比较方案、预测汇率、提醒你何时换汇，并把日常开销理清楚。**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-138%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-146%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![总览](docs/screenshots/overview.png)
 
@@ -27,6 +27,7 @@ DOT 是一个自然语言 AI Agent，帮你：
 - ⏰ **挑好时机换汇**：比较之后设置提醒——目标汇率、“有利水平”（近 90 天最好的 10–30%）或最晚换汇日；可选浏览器通知
 - 🧾 **理清日常开销**：导入银行 CSV、扫描小票、文字或语音快速记账（“午饭 35元”）；自动建议分类、标记疑似重复、周期开销、一键批量审核
 - 🎓 **学生理财**：“我买得起吗？”判断、按学期的现金流规划（学费、生活费、收入）、奖学金与助学金跟踪（截止日期与材料清单）、带具体建议的周/月消费洞察，以及邮件报告
+- 🌱 **温和地保持动力**：里程碑徽章、宽容的连续打卡、可选的短期挑战、理财技能等级和庆祝时刻；不排名、不施压、不分享
 - 🧾 **全程可追溯**：谁授权了什么、跑了哪些检查、之后发生了什么，一条审计轨迹全部回答
 
 > 本项目实现了课程/产品文档《AI Cross-Border Remittance Assistant》v4.0 中的全部功能模块（4.1–4.15），对照表见[下文](#-文档需求对照)。
@@ -77,9 +78,21 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 这里的一切都是基于你的计划和已确认开销的估算，不构成理财建议，也不会动用任何资金。
 
-### 7. 工具与记忆
+### 7. 成长：以鼓励为主
 
-**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 33 个工具，包括 `afford_check`、`cashflow_plan`、`spending_insights`、`track_scholarship`、`log_expense`、`remember_note`——并且刻意没有“批准支付”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
+「成长」页加入轻量的游戏化机制，帮助培养理财技能，但不制造竞争：
+
+- **徽章**：记录、规划、习惯、目标四类共 16 个里程碑——第一笔记账、记账一周、学期计划、安全垫、提交申请、材料齐全、达成目标……
+- **宽容的连续打卡**：记账或审核开销、更新计划/目标/奖学金都算打卡；连续休息不超过两天不会中断。中断后显示“欢迎回来”而不是惩罚；用圆点展示最近 8 周。
+- **短期挑战**（7 天、可选、最多同时 3 个）：5 天记账、清空待审核、规划学期、再完成一份材料、检查订阅、一天不乱花、存一点点。可测量的挑战自动完成，其余由你自己标记。停止或到期显示“已结束——没关系”，从不算失败。“存一点点”建议金额不超过 10 个货币单位或一周预算的 5%，超出承受范围的金额会被拒绝。
+- **等级 1–5** 描述的是技能，每级都有清晰的达成条件清单——从不涉及余额或排名。
+- **庆祝时刻**：获得徽章、升级、完成挑战、打卡里程碑、达成目标或获得奖学金时，弹出圆点绽放动画。功能上线前的历史会被安静地记录，不会一次弹出一堆。
+
+一切都来自你自己的操作，不比较、不分享，成长功能和庆祝动画都可以关闭。
+
+### 8. 工具与记忆
+
+**工具**在 [`finance/tools.py`](finance/tools.py)。每个工具用 `@tool(名称, 说明, 参数, 等级)` 在实现旁边声明一次；Agent 统一做参数校验、权限等级检查（T1 查看 / T2 准备 / T3 提交）并逐次写审计。共 35 个工具，包括 `progress_overview`、`start_challenge`、 `afford_check`、`cashflow_plan`、`spending_insights`、`track_scholarship`、`log_expense`、`remember_note`——并且刻意没有“批准支付”“提高额度”“修改收款人”。新增工具只需写一个带装饰器的函数。
 
 **记忆**在 [`finance/memory.py`](finance/memory.py)，分三层：
 
@@ -144,6 +157,7 @@ flowchart LR
 | 沙盒提供方 | `finance/providers.py` |
 | 记账：CSV 导入、分类、去重、审核、周期、快速记账 | `finance/expenses.py` |
 | 学生理财：奖学金、学期、现金流、买得起判断、洞察、邮件报告 | `finance/student.py`、`finance/student_i18n.py`、`finance/mailer.py` |
+| 成长：徽章、宽容打卡、挑战、等级、庆祝 | `finance/motivation.py` |
 | API、SSE、独立服务 | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
 | 前端（原生 ES modules） | `frontend/dist/js/**` |
 
@@ -234,6 +248,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 | 4.14 信用习惯 | 应付项目与每月重复、按时/逾期、内部指标（显著标注“不是信用评分”）、信用知识 |
 | 4.15 提醒与回执 | 截止、报价过期、未决交易、资金不足、目标汇率、有利水平、换汇日、预计开销、奖学金与学费截止；指纹去重；浏览器通知与邮件；可打印回执 |
 | 扩展：记账 | 银行 CSV 导入（建议分类、重复检测、审核步骤）、小票扫描、文字/语音快速记账、周期开销、批量审核 |
+| 扩展：成长 | 徽章、宽容的连续打卡、可选挑战、理财技能等级与庆祝时刻——鼓励、私密、不竞争 |
 | 扩展：学生理财 | “我买得起吗？”、学期现金流规划、奖学金与助学金跟踪、带建议的周/月洞察、邮件报告与提醒 |
 
 ---
@@ -251,14 +266,14 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 ## 🧪 测试
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 138 项：服务、风控、记账、学生理财、邮件、提醒、API、规则规划器、6 种语言
+.\.venv\Scripts\python -m pytest -q        # 146 项：服务、风控、记账、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
 .\.venv\Scripts\python -m finance.demo     # 离线演示：未授权被拒 → 授权 → 执行 → 幂等 → 超时恢复
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
 docker run --rm --network remittance-agent_default --mount "type=bind,source=$PWD/artifacts,target=/artifacts" remittance-agent-browser-test
 ```
 
-浏览器验收：完整支付流程 + 11 个页面 × 6 种语言 × 桌面/手机全量巡检（无 JS 错误、无漏翻、无横向溢出）。
+浏览器验收：完整支付流程 + 15 个页面 × 6 种语言 × 桌面/手机全量巡检（无 JS 错误、无漏翻、无横向溢出）。
 
 ---
 

@@ -6,7 +6,7 @@
 
 **A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-138%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-146%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -27,6 +27,7 @@ DOT is a natural-language AI agent that helps you:
 - ⏰ **Exchange at a good moment** — after comparing, set reminders: a target rate, a “favorable level” (top 10–30% of the last 90 days) or an exchange-by date; optional browser notifications
 - 🧾 **Keep spending in order** — import a bank CSV, scan a receipt, or quick-add by text or voice (“lunch 12.50”); suggested categories, duplicate flags, recurring expenses and one-click batch review
 - 🎓 **Plan student money** — “Can I afford this?” checks, a term-based cash-flow planner for tuition, living costs and income, a scholarship & grant tracker with deadlines and document checklists, weekly/monthly insights with concrete suggestions, and email reports
+- 🌱 **Stay motivated, kindly** — milestone badges, a forgiving check-in streak, short opt-in challenges, money-skill levels and celebration moments; no rankings, no pressure, nothing shared
 - 🧾 **Trace everything** — one audit trail answers who authorized what, which checks ran, and what happened next
 
 > Implements every functional module (4.1–4.15) of the product specification *AI Cross-Border Remittance Assistant* v4.0 — see the [requirements mapping](#-requirements-mapping).
@@ -77,9 +78,21 @@ The **Student money** page plans a whole term on your own figures:
 
 Everything here is an estimate from your plan and confirmed spending, never financial advice, and nothing moves money.
 
-### 7. Tools and memory
+### 7. Progress, the encouraging way
 
-**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 33 tools, including `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
+The **Progress** page adds light game mechanics that build money skills without competition:
+
+- **Badges** for 16 milestones in four skills (tracking, planning, habits, goals) — first entry, a week of logging, a term plan, a safety buffer, an application sent, all documents ready, a goal reached…
+- **A forgiving check-in streak** — logging or reviewing spending, or updating a plan, goal or scholarship counts; up to two days off in a row never break it. A gap shows “Welcome back”, never a loss; the last 8 weeks are drawn as dots.
+- **Short challenges** (7 days, optional, at most three): log on 5 days, clear the review queue, plan your term, finish one document, review subscriptions, one no-spend day, set aside a little. Measured ones complete by themselves; the others you mark done. Stopping or running out of time is “ended — no worries”, never a failure. “Set aside” suggests at most 10 units or 5% of a week's budget and refuses amounts that do not fit.
+- **Levels 1–5** describe skills, each with clear criteria shown as a checklist — never balances or rankings.
+- **Celebration moments** — a dot burst when you earn a badge, level up, finish a challenge, reach a streak milestone, complete a goal or win a scholarship. History from before the feature is acknowledged quietly.
+
+Everything comes from your own activity, nothing is compared or shared, and both progress features and celebrations can be switched off.
+
+### 8. Tools and memory
+
+**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, tier)` next to its implementation; the agent validates arguments, checks the tier (T1 view / T2 prepare / T3 submit) and audits every call. There are 35 tools, including `progress_overview`, `start_challenge`, `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that approve payments, raise limits or change recipients. Adding a tool is one decorated function.
 
 **Memory** lives in [`finance/memory.py`](finance/memory.py), in three layers:
 
@@ -142,6 +155,7 @@ flowchart LR
 | Payment habits, deduplicated reminders, exchange alerts (rate / favorable level / date) | `finance/habits.py` |
 | Spending: CSV import, categories, duplicates, review, recurring, quick-add | `finance/expenses.py` |
 | Student money: scholarships, terms, cash flow, afford check, insights, email reports | `finance/student.py`, `finance/student_i18n.py`, `finance/mailer.py` |
+| Progress: badges, forgiving streak, challenges, levels, celebrations | `finance/motivation.py` |
 | Reference rates, historical analysis, backtested forecast | `finance/rates.py` |
 | Sandbox provider | `finance/providers.py` |
 | API, SSE, standalone server | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
@@ -234,6 +248,7 @@ Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP
 | 4.14 Credit-building support | Obligations with monthly recurrence, on-time / late history, an internal indicator clearly labeled “not a credit score”, credit education |
 | 4.15 Reminders & receipts | Deadlines, quote expiry, unresolved payments, insufficient funds, target rates, favorable levels, exchange-by dates, expected expenses, scholarship and tuition deadlines; fingerprint deduplication; browser notifications and email; printable receipts |
 | Extra: student money | “Can I afford this?”, term cash-flow planner, scholarship & grant tracker, weekly/monthly insights with suggestions, email reports and reminders |
+| Extra: progress | Badges, forgiving streak, optional challenges, money-skill levels and celebration moments — encouraging, private, non-competitive |
 | Extra: spending | Bank CSV import with suggested categories, duplicate detection and a review step; receipt scanning; text/voice quick-add; recurring expenses; batch review |
 
 ---
@@ -251,14 +266,14 @@ Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP
 ## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 138 tests: service, guardrails, spending, student money, email, reminders, API, rule planner, 6 languages
+.\.venv\Scripts\python -m pytest -q        # 146 tests: service, guardrails, spending, student money, progress, email, reminders, API, rule planner, 6 languages
 .\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
 docker run --rm --network remittance-agent_default --mount "type=bind,source=$PWD/artifacts,target=/artifacts" remittance-agent-browser-test
 ```
 
-Browser acceptance covers the full payment flow plus a sweep of 14 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
+Browser acceptance covers the full payment flow plus a sweep of 15 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
 
 ---
 

@@ -18,6 +18,8 @@ async def run(finance, stop, interval=3):
                 await asyncio.to_thread(finance.check_rate_alerts)
                 await asyncio.to_thread(finance.materialize_recurring)
                 await asyncio.to_thread(finance.email_tick)
+                if finance.motivation_settings()["enabled"]:
+                    await asyncio.to_thread(finance.motivation_refresh)
         except Exception:  # keep tracking; details may contain RPC credentials, so do not log them
             log.warning("background cycle failed")
         tick += 1

@@ -286,6 +286,21 @@ class EmailSend(Model):
     language: str | None = None
 
 
+class MotivationIn(Model):
+    enabled: bool = True
+    celebrate: bool = True
+
+
+class ChallengeIn(Model):
+    kind: str
+    amount: str | None = None
+    currency: str | None = None
+
+
+class SeenIn(Model):
+    ids: list[int] = Field(max_length=50)
+
+
 class Recommendation(Model):
     subject: str
     detail: dict
@@ -779,6 +794,37 @@ def create_app(finance=None, agent=None, background=None):
     def email_send(body: EmailSend, actor=Depends(role)):
         service().owner(actor)
         return service().send_report(actor, body.period)
+
+    # ---------- motivation ----------
+    @app.get("/motivation")
+    def motivation(actor=Depends(role)):
+        return service().motivation()
+
+    @app.put("/motivation/settings")
+    def motivation_settings(body: MotivationIn, actor=Depends(role)):
+        return service().set_motivation(actor, body.enabled, body.celebrate)
+
+    @app.post("/challenges")
+    def start_challenge(body: ChallengeIn, actor=Depends(role)):
+        return service().start_challenge(actor, body.kind, body.amount, body.currency)
+
+    @app.post("/challenges/{cid}/done")
+    def challenge_done(cid: str, actor=Depends(role)):
+        return service().finish_challenge(actor, cid, True)
+
+    @app.post("/challenges/{cid}/stop")
+    def challenge_stop(cid: str, actor=Depends(role)):
+        return service().finish_challenge(actor, cid, False)
+
+    @app.get("/celebrations")
+    def celebrations(actor=Depends(role)):
+        if service().motivation_settings()["enabled"]:
+            service().motivation_refresh()
+        return service().celebrations()
+
+    @app.post("/celebrations/seen")
+    def celebrations_seen(body: SeenIn, actor=Depends(role)):
+        return service().celebrations_seen(actor, body.ids)
 
     # ---------- agent memory ----------
     @app.get("/agent/memory")

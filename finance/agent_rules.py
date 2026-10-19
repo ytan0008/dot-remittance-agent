@@ -13,6 +13,8 @@ KEYWORDS = {
     "recall": ["what do you remember", "do you remember", "你记得", "你記得", "记得什么", "記得什麼", "bạn nhớ", "覚えてる",
                "覚えている", "기억나", "기억하고"],
     "remember": ["remember", "记住", "記住", "ghi nhớ", "覚えて", "기억해"],
+    "progress": ["badge", "streak", "challenge", "my progress", "徽章", "勋章", "連續", "连续打卡", "挑战", "挑戰", "成就", "huy hiệu",
+                 "chuỗi ngày", "thử thách", "バッジ", "連続", "チャレンジ", "배지", "연속", "챌린지"],
     "afford": ["afford", "can i buy", "should i buy", "买得起", "能不能买", "可以买吗", "该不该买", "買得起", "能不能買", "可以買嗎",
                "có đủ tiền", "mua được không", "có nên mua", "買える", "買っても", "살 수 있", "사도 될까", "감당"],
     "scholarship": ["scholarship", "grant", "bursary", "奖学金", "獎學金", "助学金", "助學金", "học bổng", "奨学金", "給付金", "장학금"],
@@ -59,77 +61,65 @@ DOWN = ["less favorable", "worse", "drop", "fall", "down", "lower", "下跌", "�
         "하락", "떨어"]
 
 TEXT = {
-    "en": dict(afford_yes='Yes — after spending {amount}, your lowest projected balance stays at {lowest} ({date}).', afford_careful="Possible but tight: your lowest projected balance would be {lowest} ({date}), below your buffer or this month's budget.{wait}", afford_no='Not right now: you would run short around {date} (lowest {lowest}).{wait}', wait=' Safer from {date}.', scholarships='You are tracking {n} application(s). Next deadline: {name} on {date}.', scholarships_none='No scholarships tracked yet — add one on the Student money page, or tell me its name and deadline.', cashflow='Lowest projected balance: {amount} on {date}.', cashflow_short='Shortfall expected: your balance drops below zero around {date} (lowest {amount}).', offline="Offline rule planner — not an AI model. Configure a model for open-ended conversation.",
+    "en": dict(progress='Level {level} of {max} · {streak} check-in day(s) in your current streak · {active} active challenge(s) · {badges} badge(s) earned.', afford_yes='Yes — after spending {amount}, your lowest projected balance stays at {lowest} ({date}).', afford_careful="Possible but tight: your lowest projected balance would be {lowest} ({date}), below your buffer or this month's budget.{wait}", afford_no='Not right now: you would run short around {date} (lowest {lowest}).{wait}', wait=' Safer from {date}.', scholarships='You are tracking {n} application(s). Next deadline: {name} on {date}.', scholarships_none='No scholarships tracked yet — add one on the Student money page, or tell me its name and deadline.', cashflow='Lowest projected balance: {amount} on {date}.', cashflow_short='Shortfall expected: your balance drops below zero around {date} (lowest {amount}).', offline="Offline rule planner — not an AI model. Configure a model for open-ended conversation.",
                missing="I need a few more details before preparing anything: {fields}.",
                prepared="Draft prepared from a sandbox quote. Review it and authorize it yourself — I cannot approve payments.",
-               prepared_evm="Draft prepared on the agent wallet.",
                executed="Submitted. Current status: {status}. Submitted is not the same as completed; I will keep tracking it.",
-               autonomous="Within your mandate, I submitted this on-chain payment autonomously. Status: {status}.",
-               need_approval="This payment needs your explicit approval in the payment screen first (or an active mandate for the agent wallet).",
+               need_approval="This payment needs your explicit approval in the payment screen first.",
                nothing="I could not find a payment to act on. Open the payment and try again.",
-               info="Here is what I found. Each card is labeled as reference data, simulation, ledger record or on-chain state.",
+               info="Here is what I found. Each card is labeled as reference data, simulation, ledger record or estimate.",
                form="Fill in the recipient in the panel beside the chat; I will continue as soon as it is saved.", logged="Logged as pending. Confirm it on the Spending page.", remembered="Noted. I will remember this; you can review or delete it on the Memory page.", recalled="From memory: {n} note(s) and {m} earlier conversation(s) match.", recalled_none="I have nothing remembered about that.", forgot="Forgotten.", forgot_none="I found no remembered note matching that.", sensitive="I never store passwords, keys or full account numbers in memory.",
                help="I can check balances and rates, compare options, prepare and track payments, and plan goals. "
                     "Try: “Send 100 AUD to family for living costs”.",
                fields=dict(amount="amount", recipient="recipient", purpose="purpose", pair="currency pair", percent="percentage")),
-    "zh-CN": dict(afford_yes='可以——花掉 {amount} 后，预计最低余额仍有 {lowest}（{date}）。', afford_careful='可以但偏紧：预计最低余额会是 {lowest}（{date}），低于你的安全垫或本月预算。{wait}', afford_no='现在不建议：大约 {date} 会出现缺口（最低 {lowest}）。{wait}', wait='从 {date} 起会更稳妥。', scholarships='你正在跟踪 {n} 个申请。最近的截止：{name}，{date}。', scholarships_none='还没有跟踪任何奖学金——可在“学生理财”页添加，或告诉我名称和截止日期。', cashflow='预计最低余额：{date} 时 {amount}。', cashflow_short='预计会出现缺口：大约 {date} 余额跌破零（最低 {amount}）。', offline="离线规则规划器 —— 不是 AI 大模型。配置模型后可进行开放式对话。",
+    "zh-CN": dict(progress='等级 {level}/{max} · 当前连续 {streak} 天打理财务 · {active} 个进行中的挑战 · 已获得 {badges} 枚徽章。', afford_yes='可以——花掉 {amount} 后，预计最低余额仍有 {lowest}（{date}）。', afford_careful='可以但偏紧：预计最低余额会是 {lowest}（{date}），低于你的安全垫或本月预算。{wait}', afford_no='现在不建议：大约 {date} 会出现缺口（最低 {lowest}）。{wait}', wait='从 {date} 起会更稳妥。', scholarships='你正在跟踪 {n} 个申请。最近的截止：{name}，{date}。', scholarships_none='还没有跟踪任何奖学金——可在“学生理财”页添加，或告诉我名称和截止日期。', cashflow='预计最低余额：{date} 时 {amount}。', cashflow_short='预计会出现缺口：大约 {date} 余额跌破零（最低 {amount}）。', offline="离线规则规划器 —— 不是 AI 大模型。配置模型后可进行开放式对话。",
                   missing="在准备任何操作前，我还需要：{fields}。",
                   prepared="已根据沙盒报价创建草稿。请你亲自核对并授权——我无法批准支付。",
-                  prepared_evm="已在 Agent 钱包上创建草稿。",
                   executed="已提交。当前状态：{status}。已提交不等于已完成，我会继续跟踪。",
-                  autonomous="在你的授权范围内，我已自主提交这笔链上支付。状态：{status}。",
-                  need_approval="这笔支付需要你先在支付详情中明确授权（或为 Agent 钱包设置有效的预授权）。",
+                  need_approval="这笔支付需要你先在支付详情中明确授权。",
                   nothing="没有找到可操作的支付。请打开支付详情后再试。",
-                  info="以下是查询结果。每张卡片都标明了是参考数据、模拟、账本记录还是链上状态。",
+                  info="以下是查询结果。每张卡片都标明了是参考数据、模拟、账本记录还是估算。",
                   form="请在聊天右侧的面板里填写收款人信息，保存后我会立刻继续。", logged="已记为待确认，请在“记账”页确认。", remembered="已记住。你可以在“记忆”页查看或删除。", recalled="记忆中有 {n} 条笔记和 {m} 段过往对话与此相关。", recalled_none="关于这个我没有任何记忆。", forgot="已忘记。", forgot_none="没有找到匹配的记忆笔记。", sensitive="我绝不会把密码、密钥或完整账号存进记忆。",
                   help="我可以查询余额和汇率、比较方案、准备并跟踪支付、规划目标。试试：“给 family 汇 100 澳元用于生活费”。",
                   fields=dict(amount="金额", recipient="收款人", purpose="用途", pair="币种", percent="百分比")),
-    "zh-TW": dict(afford_yes='可以——花掉 {amount} 後，預計最低餘額仍有 {lowest}（{date}）。', afford_careful='可以但偏緊：預計最低餘額會是 {lowest}（{date}），低於你的安全墊或本月預算。{wait}', afford_no='現在不建議：大約 {date} 會出現缺口（最低 {lowest}）。{wait}', wait='從 {date} 起會更穩妥。', scholarships='你正在追蹤 {n} 個申請。最近的截止：{name}，{date}。', scholarships_none='還沒有追蹤任何獎學金——可在「學生理財」頁新增，或告訴我名稱和截止日期。', cashflow='預計最低餘額：{date} 時 {amount}。', cashflow_short='預計會出現缺口：大約 {date} 餘額跌破零（最低 {amount}）。', offline="離線規則規劃器 —— 不是 AI 大模型。設定模型後可進行開放式對話。",
+    "zh-TW": dict(progress='等級 {level}/{max} · 目前連續 {streak} 天打理財務 · {active} 個進行中的挑戰 · 已獲得 {badges} 枚徽章。', afford_yes='可以——花掉 {amount} 後，預計最低餘額仍有 {lowest}（{date}）。', afford_careful='可以但偏緊：預計最低餘額會是 {lowest}（{date}），低於你的安全墊或本月預算。{wait}', afford_no='現在不建議：大約 {date} 會出現缺口（最低 {lowest}）。{wait}', wait='從 {date} 起會更穩妥。', scholarships='你正在追蹤 {n} 個申請。最近的截止：{name}，{date}。', scholarships_none='還沒有追蹤任何獎學金——可在「學生理財」頁新增，或告訴我名稱和截止日期。', cashflow='預計最低餘額：{date} 時 {amount}。', cashflow_short='預計會出現缺口：大約 {date} 餘額跌破零（最低 {amount}）。', offline="離線規則規劃器 —— 不是 AI 大模型。設定模型後可進行開放式對話。",
                   missing="在準備任何操作前，我還需要：{fields}。",
                   prepared="已根據沙盒報價建立草稿。請你親自核對並授權——我無法批准付款。",
-                  prepared_evm="已在 Agent 錢包上建立草稿。",
                   executed="已提交。目前狀態：{status}。已提交不等於已完成，我會持續追蹤。",
-                  autonomous="在你的授權範圍內，我已自主提交這筆鏈上付款。狀態：{status}。",
-                  need_approval="這筆付款需要你先在付款詳情中明確授權（或為 Agent 錢包設定有效的預授權）。",
+                  need_approval="這筆付款需要你先在付款詳情中明確授權。",
                   nothing="沒有找到可操作的付款。請開啟付款詳情後再試。",
-                  info="以下是查詢結果。每張卡片都標明了是參考資料、模擬、帳本紀錄還是鏈上狀態。",
+                  info="以下是查詢結果。每張卡片都標明了是參考資料、模擬、帳本紀錄還是估算。",
                   form="請在聊天右側的面板裡填寫收款人資料，儲存後我會立刻繼續。", logged="已記為待確認，請在「記帳」頁確認。", remembered="已記住。你可以在「記憶」頁查看或刪除。", recalled="記憶中有 {n} 則筆記和 {m} 段過往對話與此相關。", recalled_none="關於這個我沒有任何記憶。", forgot="已忘記。", forgot_none="沒有找到符合的記憶筆記。", sensitive="我絕不會把密碼、金鑰或完整帳號存進記憶。",
                   help="我可以查詢餘額和匯率、比較方案、準備並追蹤付款、規劃目標。試試：「給 family 匯 100 澳幣用於生活費」。",
                   fields=dict(amount="金額", recipient="收款人", purpose="用途", pair="幣別", percent="百分比")),
-    "vi": dict(afford_yes='Được — sau khi chi {amount}, số dư dự kiến thấp nhất vẫn là {lowest} ({date}).', afford_careful='Được nhưng hơi sát: số dư thấp nhất sẽ là {lowest} ({date}), dưới mức dự phòng hoặc ngân sách tháng này.{wait}', afford_no='Chưa nên lúc này: bạn sẽ thiếu tiền vào khoảng {date} (thấp nhất {lowest}).{wait}', wait=' An toàn hơn từ {date}.', scholarships='Bạn đang theo dõi {n} hồ sơ. Hạn gần nhất: {name} ngày {date}.', scholarships_none='Chưa theo dõi học bổng nào — thêm ở trang Tài chính sinh viên, hoặc cho tôi biết tên và hạn nộp.', cashflow='Số dư dự kiến thấp nhất: {amount} vào {date}.', cashflow_short='Dự kiến thiếu hụt: số dư xuống dưới 0 vào khoảng {date} (thấp nhất {amount}).', offline="Bộ lập kế hoạch theo quy tắc ngoại tuyến — không phải mô hình AI. Hãy cấu hình mô hình để trò chuyện tự do.",
+    "vi": dict(progress='Cấp {level}/{max} · chuỗi hiện tại {streak} ngày chăm sóc tài chính · {active} thử thách đang chạy · {badges} huy hiệu đã nhận.', afford_yes='Được — sau khi chi {amount}, số dư dự kiến thấp nhất vẫn là {lowest} ({date}).', afford_careful='Được nhưng hơi sát: số dư thấp nhất sẽ là {lowest} ({date}), dưới mức dự phòng hoặc ngân sách tháng này.{wait}', afford_no='Chưa nên lúc này: bạn sẽ thiếu tiền vào khoảng {date} (thấp nhất {lowest}).{wait}', wait=' An toàn hơn từ {date}.', scholarships='Bạn đang theo dõi {n} hồ sơ. Hạn gần nhất: {name} ngày {date}.', scholarships_none='Chưa theo dõi học bổng nào — thêm ở trang Tài chính sinh viên, hoặc cho tôi biết tên và hạn nộp.', cashflow='Số dư dự kiến thấp nhất: {amount} vào {date}.', cashflow_short='Dự kiến thiếu hụt: số dư xuống dưới 0 vào khoảng {date} (thấp nhất {amount}).', offline="Bộ lập kế hoạch theo quy tắc ngoại tuyến — không phải mô hình AI. Hãy cấu hình mô hình để trò chuyện tự do.",
                missing="Tôi cần thêm vài thông tin trước khi chuẩn bị: {fields}.",
                prepared="Đã tạo bản nháp từ báo giá sandbox. Hãy tự kiểm tra và ủy quyền — tôi không thể phê duyệt thanh toán.",
-               prepared_evm="Đã tạo bản nháp trên ví của Agent.",
                executed="Đã gửi. Trạng thái hiện tại: {status}. Đã gửi không có nghĩa là đã hoàn tất; tôi sẽ tiếp tục theo dõi.",
-               autonomous="Trong phạm vi ủy quyền của bạn, tôi đã tự động gửi khoản thanh toán on-chain này. Trạng thái: {status}.",
-               need_approval="Khoản thanh toán này cần bạn phê duyệt rõ ràng trước (hoặc một ủy quyền còn hiệu lực cho ví Agent).",
+               need_approval="Khoản thanh toán này cần bạn phê duyệt rõ ràng trước trong màn hình thanh toán.",
                nothing="Không tìm thấy khoản thanh toán để thực hiện. Hãy mở chi tiết thanh toán rồi thử lại.",
-               info="Đây là kết quả. Mỗi thẻ ghi rõ là dữ liệu tham chiếu, mô phỏng, sổ cái hay trạng thái on-chain.",
+               info="Đây là kết quả. Mỗi thẻ ghi rõ là dữ liệu tham chiếu, mô phỏng, sổ cái hay ước tính.",
                form="Hãy điền thông tin người nhận ở bảng bên cạnh khung chat; tôi sẽ tiếp tục ngay khi lưu xong.", logged="Đã ghi là chờ xác nhận. Hãy xác nhận ở trang Chi tiêu.", remembered="Đã ghi nhớ. Bạn có thể xem hoặc xóa trong trang Bộ nhớ.", recalled="Trong bộ nhớ có {n} ghi chú và {m} cuộc trò chuyện trước liên quan.", recalled_none="Tôi không nhớ gì về điều đó.", forgot="Đã quên.", forgot_none="Không tìm thấy ghi chú nào khớp.", sensitive="Tôi không bao giờ lưu mật khẩu, khóa hay số tài khoản đầy đủ vào bộ nhớ.",
                help="Tôi có thể xem số dư và tỷ giá, so sánh phương án, chuẩn bị và theo dõi thanh toán. "
                     "Thử: “Gửi 100 AUD cho family để chi tiêu sinh hoạt”.",
                fields=dict(amount="số tiền", recipient="người nhận", purpose="mục đích", pair="cặp tiền tệ", percent="phần trăm")),
-    "ja": dict(afford_yes='大丈夫です——{amount} 使っても、予測残高の最低値は {lowest}（{date}）です。', afford_careful='可能ですがぎりぎりです：予測残高の最低値は {lowest}（{date}）で、安全資金か今月の予算を下回ります。{wait}', afford_no='今はおすすめしません：{date} ごろに不足します（最低 {lowest}）。{wait}', wait='{date} 以降なら安全です。', scholarships='{n} 件の応募を管理しています。次の締切：{name}（{date}）。', scholarships_none='まだ奨学金は登録されていません。「学生のお金」ページで追加するか、名前と締切を教えてください。', cashflow='予測残高の最低値：{date} に {amount}。', cashflow_short='不足が見込まれます：{date} ごろ残高がマイナスになります（最低 {amount}）。', offline="オフラインのルールプランナーです（AI モデルではありません）。自由な会話にはモデルを設定してください。",
+    "ja": dict(progress='レベル {level}/{max} · 現在の連続記録 {streak} 日 · 進行中のチャレンジ {active} 件 · 獲得バッジ {badges} 個。', afford_yes='大丈夫です——{amount} 使っても、予測残高の最低値は {lowest}（{date}）です。', afford_careful='可能ですがぎりぎりです：予測残高の最低値は {lowest}（{date}）で、安全資金か今月の予算を下回ります。{wait}', afford_no='今はおすすめしません：{date} ごろに不足します（最低 {lowest}）。{wait}', wait='{date} 以降なら安全です。', scholarships='{n} 件の応募を管理しています。次の締切：{name}（{date}）。', scholarships_none='まだ奨学金は登録されていません。「学生のお金」ページで追加するか、名前と締切を教えてください。', cashflow='予測残高の最低値：{date} に {amount}。', cashflow_short='不足が見込まれます：{date} ごろ残高がマイナスになります（最低 {amount}）。', offline="オフラインのルールプランナーです（AI モデルではありません）。自由な会話にはモデルを設定してください。",
                missing="準備の前に、次の情報が必要です：{fields}。",
                prepared="サンドボックス見積もりから下書きを作成しました。ご自身で確認して承認してください。私は支払いを承認できません。",
-               prepared_evm="エージェントウォレットで下書きを作成しました。",
                executed="送信しました。現在の状態：{status}。送信済みは完了ではありません。引き続き追跡します。",
-               autonomous="あなたの委任範囲内で、このオンチェーン支払いを自律的に送信しました。状態：{status}。",
-               need_approval="この支払いには、まず支払い画面での明示的な承認（またはエージェントウォレットの有効な委任）が必要です。",
+               need_approval="この支払いには、まず支払い画面での明示的な承認が必要です。",
                nothing="操作できる支払いが見つかりません。支払い詳細を開いてから再試行してください。",
-               info="結果です。各カードには参考データ・シミュレーション・台帳記録・オンチェーン状態の区別が表示されます。",
+               info="結果です。各カードには参考データ・シミュレーション・台帳記録・推定の区別が表示されます。",
                form="チャット横のパネルで受取人を入力してください。保存されたらすぐに続けます。", logged="保留中として記録しました。「家計簿」ページで確定してください。", remembered="覚えました。「メモリー」ページで確認・削除できます。", recalled="メモリーに一致するメモが {n} 件、過去の会話が {m} 件あります。", recalled_none="それについて覚えていることはありません。", forgot="忘れました。", forgot_none="一致するメモは見つかりませんでした。", sensitive="パスワード、鍵、完全な口座番号をメモリーに保存することはありません。",
                help="残高や為替の確認、比較、支払いの準備と追跡、目標の計画ができます。例：「family に生活費として 100 AUD 送金」。",
                fields=dict(amount="金額", recipient="受取人", purpose="目的", pair="通貨ペア", percent="割合")),
-    "ko": dict(afford_yes='괜찮아요 — {amount}를 써도 예상 최저 잔액은 {lowest}({date})입니다.', afford_careful='가능하지만 빠듯해요: 예상 최저 잔액이 {lowest}({date})로 비상금이나 이번 달 예산보다 낮아요.{wait}', afford_no='지금은 어려워요: {date}쯤 잔액이 부족해집니다(최저 {lowest}).{wait}', wait=' {date}부터는 더 안전해요.', scholarships='지원서 {n}개를 관리 중입니다. 가장 가까운 마감: {name}, {date}.', scholarships_none='아직 관리 중인 장학금이 없습니다. ‘학생 재정’ 페이지에서 추가하거나 이름과 마감일을 알려 주세요.', cashflow='예상 최저 잔액: {date}에 {amount}.', cashflow_short='부족이 예상됩니다: {date}쯤 잔액이 0 아래로 떨어집니다(최저 {amount}).', offline="오프라인 규칙 플래너입니다(AI 모델이 아님). 자유로운 대화를 하려면 모델을 설정하세요.",
+    "ko": dict(progress='레벨 {level}/{max} · 현재 연속 {streak}일 · 진행 중인 챌린지 {active}개 · 획득한 배지 {badges}개.', afford_yes='괜찮아요 — {amount}를 써도 예상 최저 잔액은 {lowest}({date})입니다.', afford_careful='가능하지만 빠듯해요: 예상 최저 잔액이 {lowest}({date})로 비상금이나 이번 달 예산보다 낮아요.{wait}', afford_no='지금은 어려워요: {date}쯤 잔액이 부족해집니다(최저 {lowest}).{wait}', wait=' {date}부터는 더 안전해요.', scholarships='지원서 {n}개를 관리 중입니다. 가장 가까운 마감: {name}, {date}.', scholarships_none='아직 관리 중인 장학금이 없습니다. ‘학생 재정’ 페이지에서 추가하거나 이름과 마감일을 알려 주세요.', cashflow='예상 최저 잔액: {date}에 {amount}.', cashflow_short='부족이 예상됩니다: {date}쯤 잔액이 0 아래로 떨어집니다(최저 {amount}).', offline="오프라인 규칙 플래너입니다(AI 모델이 아님). 자유로운 대화를 하려면 모델을 설정하세요.",
                missing="준비하기 전에 다음 정보가 필요합니다: {fields}.",
                prepared="샌드박스 견적으로 초안을 만들었습니다. 직접 확인하고 승인해 주세요. 저는 결제를 승인할 수 없습니다.",
-               prepared_evm="에이전트 지갑에 초안을 만들었습니다.",
                executed="제출했습니다. 현재 상태: {status}. 제출은 완료와 다릅니다. 계속 추적하겠습니다.",
-               autonomous="위임 범위 안에서 이 온체인 결제를 자율적으로 제출했습니다. 상태: {status}.",
-               need_approval="이 결제는 먼저 결제 화면에서 명시적으로 승인해야 합니다(또는 에이전트 지갑의 유효한 위임).",
+               need_approval="이 결제는 먼저 결제 화면에서 명시적으로 승인해야 합니다.",
                nothing="처리할 결제를 찾지 못했습니다. 결제 상세를 연 뒤 다시 시도하세요.",
-               info="조회 결과입니다. 각 카드에 참고 데이터, 시뮬레이션, 원장 기록, 온체인 상태가 표시됩니다.",
+               info="조회 결과입니다. 각 카드에 참고 데이터, 시뮬레이션, 원장 기록, 추정이 표시됩니다.",
                form="채팅 옆 패널에 수취인 정보를 입력해 주세요. 저장되면 바로 이어서 진행할게요.", logged="대기 중으로 기록했어요. 지출 페이지에서 확인해 주세요.", remembered="기억했습니다. 기억 페이지에서 확인하거나 삭제할 수 있습니다.", recalled="기억 속에 관련 메모 {n}개와 이전 대화 {m}개가 있습니다.", recalled_none="그것에 대해 기억하는 것이 없습니다.", forgot="잊었습니다.", forgot_none="일치하는 기억 메모를 찾지 못했습니다.", sensitive="비밀번호, 키, 전체 계좌번호는 절대 기억에 저장하지 않습니다.",
                help="잔액·환율 조회, 옵션 비교, 결제 준비와 추적, 목표 계획을 도와드립니다. 예: “family에게 생활비로 100 AUD 송금”.",
                fields=dict(amount="금액", recipient="수취인", purpose="용도", pair="통화쌍", percent="비율")),
@@ -218,7 +208,7 @@ class RulePlanner:
         tid = re.search(r"\b([0-9a-f]{8})(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\b", text)
         if tid:
             entities["transfer"] = tid.group(0)
-        intent = next((i for i in ("forget", "recall", "remember", "afford", "scholarship", "cashflow", "insights", "execute", "track", "forecast", "scenario", "compare", "prepare", "rates",
+        intent = next((i for i in ("forget", "recall", "remember", "progress", "afford", "scholarship", "cashflow", "insights", "execute", "track", "forecast", "scenario", "compare", "prepare", "rates",
                                    "balance", "reminders", "goals", "credit", "expense") if has(text, i)), None)
         if intent in ("forget", "recall", "remember"):
             entities = {"note": self.after_keyword(message, intent)}
@@ -277,6 +267,8 @@ class RulePlanner:
                 steps = [("afford_check", dict(amount=e["amount"], currency=src or "", date="", label=message[:80]))]
             else:
                 missing = ["amount"]
+        elif intent == "progress":
+            steps = [("progress_overview", {})]
         elif intent == "scholarship":
             steps = [("list_scholarships", {})]
         elif intent == "cashflow":
@@ -368,14 +360,6 @@ class RulePlanner:
                 return t
         return None
 
-    def mandate_for(self, transfer):
-        if transfer["rail"] != "evm" or transfer["status"] == "approved":
-            return {}
-        for m in self.agent.finance.mandates():
-            if not m["revoked"] and m["recipient"] == transfer["details"]["recipient"]:
-                return {"mandate_id": m["id"]}
-        return {}
-
     @staticmethod
     def reply(t, intent, missing, results):
         if results and results[-1]["ok"] and results[-1]["tool"] == "request_recipient_details":
@@ -386,7 +370,7 @@ class RulePlanner:
             return t["nothing"] if intent in ("execute", "track") else t["forgot_none"] if intent == "forget" else t["help"]
         last = results[-1]
         if not last["ok"]:
-            if last.get("code") in ("approval_required", "mandate_required"):
+            if last.get("code") == "approval_required":
                 return t["need_approval"]
             if last.get("code") == "memory_sensitive":
                 return t["sensitive"]
@@ -395,6 +379,10 @@ class RulePlanner:
             return t["form"]
         if last["tool"] == "log_expense":
             return t["logged"]
+        if last["tool"] == "progress_overview":
+            r = last["result"]
+            return t["progress"].format(level=r["level"], max=r["max_level"], streak=r["streak"]["current"], active=len(r["active"]),
+                                        badges=sum(1 for b in r["badges"] if b["earned"]))
         if last["tool"] == "afford_check":
             r = last["result"]
             wait = t["wait"].format(date=r["wait_until"]) if r.get("wait_until") else ""
@@ -421,9 +409,8 @@ class RulePlanner:
             r = last["result"]
             return t["recalled"].format(n=len(r["notes"]), m=len(r["episodes"])) if r["notes"] or r["episodes"] else t["recalled_none"]
         if last["tool"] == "prepare_payment":
-            return t["prepared_evm"] if last["result"]["rail"] == "evm" else t["prepared"]
+            return t["prepared"]
         if last["tool"] in ("execute_payment", "reconcile_payment"):
             r = last["result"]
-            key = "autonomous" if r.get("authorized_by") == "owner_mandate" else "executed"
-            return t[key].format(status=r["status"])
+            return t["executed"].format(status=r["status"])
         return t["info"]

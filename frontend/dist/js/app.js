@@ -16,13 +16,14 @@ import {view as audit} from './views/audit.js';
 import {view as memory} from './views/memory.js';
 import {view as spending} from './views/spending.js';
 import {view as study} from './views/study.js';
+import {view as progressView, medal} from './views/progress.js';
 
-const VIEWS = [overview, agent, sendView, spending, payments, markets, plans, study, habits, wallets, autonomy, memory, routes, audit];
+const VIEWS = [overview, agent, sendView, spending, payments, markets, plans, study, progressView, habits, wallets, autonomy, memory, routes, audit];
 const BY_ID = Object.fromEntries(VIEWS.map(v => [v.id, v]));
-const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'spending', 'payments']], ['nav.g_insight', ['markets', 'plans', 'study', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
+const GROUPS = [['nav.g_work', ['overview', 'agent', 'send', 'spending', 'payments']], ['nav.g_insight', ['markets', 'plans', 'study', 'progress', 'habits']], ['nav.g_control', ['wallets', 'autonomy', 'memory', 'routes', 'audit']]];
 const DOCK = ['overview', 'agent', 'send', 'payments'];
 const ORDER = GROUPS.flatMap(g => g[1]);
-let pendingPaint = false, refreshTimer = 0, events = null;
+let pendingPaint = false, refreshTimer = 0, events = null, primed = false;
 
 /* ---------- shell ---------- */
 function shellText() {
@@ -119,17 +120,77 @@ async function refresh(force = false) {
   } catch { state.connected = false; }
   if (!$('#modal').open || force) render(); else pendingPaint = true;
   status();
+  celebrate();
+}
+
+/* ---------- celebration moments: shown once, gently, never compared with anyone ---------- */
+let celebrating = false;
+async function celebrate() {
+  if (!state.role || celebrating || state.role === 'agent') return;
+  let list = [];
+  try { list = await api('/celebrations'); } catch { return; }
+  if (!list.length) return;
+  celebrating = true;
+  const seen = [];
+  for (const c of list) {
+    await new Promise(resolve => showCelebration(c, resolve));
+    seen.push(c.id);
+  }
+  try { await api('/celebrations/seen', 'POST', {ids: seen}); } catch { /* shown again next time */ }
+  celebrating = false;
+}
+
+function celebrationText(c) {
+  const d = c.data || {};
+  if (c.kind === 'badge') return t('badge.' + c.ref);
+  if (c.kind === 'level') return t('cel.level', {n: c.ref, name: t('level.' + c.ref)});
+  if (c.kind === 'challenge') return t('ch.' + d.kind);
+  if (c.kind === 'streak') return t('cel.streak', {n: c.ref});
+  if (c.kind === 'goal') return t('cel.goal', {title: d.title || ''});
+  if (c.kind === 'awarded') return t('cel.awarded', {name: d.name || ''});
+  return '';
+}
+
+function showCelebration(c, done) {
+  const box = document.createElement('div');
+  box.className = 'celebrate';
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-modal', 'true');
+  box.setAttribute('aria-label', t('cel.kind.' + c.kind));
+  const dots = Array.from({length: 18}, (_, i) => `<i data-i="${i}"></i>`).join('');
+  box.innerHTML = `<div class="cel-card"><div class="cel-burst" aria-hidden="true">${dots}</div>${medal(true, 88)}
+    <span class="eyebrow">${esc(t('cel.kind.' + c.kind))}</span><h2>${esc(celebrationText(c))}</h2><p>${esc(t('cel.sub'))}</p>
+    <div class="row-actions"><button class="button primary" data-cel="ok">${t('cel.ok')}</button><button class="link" data-cel="view">${t('cel.view')}</button></div></div>`;
+  box.querySelectorAll('.cel-burst i').forEach(el => {
+    const i = Number(el.dataset.i), a = i / 18 * Math.PI * 2, r = 90 + (i % 3) * 26;
+    el.style.setProperty('--x', `${Math.cos(a) * r}px`); el.style.setProperty('--y', `${Math.sin(a) * r}px`);
+    el.style.setProperty('--d', `${(i % 6) * 40}ms`); el.style.setProperty('--s', String(0.5 + (i % 4) * 0.25));
+  });
+  const close = go => {
+    box.classList.add('out');
+    setTimeout(() => { box.remove(); if (go) location.hash = 'progress'; done(); }, 320);
+  };
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-cel]');
+    if (b) close(b.dataset.cel === 'view');
+    else if (e.target === box) close(false);
+  });
+  box.addEventListener('keydown', e => { if (e.key === 'Escape') close(false); });
+  document.body.appendChild(box);
+  box.querySelector('[data-cel="ok"]').focus();
 }
 
 /* ---------- live updates ---------- */
 function connectEvents() {
   events?.close();
+  primed = false;
   if (!('EventSource' in window) || !state.role) return;
   events = new EventSource('/api/events');
   events.onmessage = e => {
     const data = JSON.parse(e.data);
     if (data.version === state.version) return;
-    const first = !state.version;
+    const first = !primed;
+    primed = true;
     state.version = data.version;
     if (first) return;
     clearTimeout(refreshTimer);
@@ -208,7 +269,7 @@ function notifyNew(list) {
     try { const n = new Notification('DOT · ' + t('shell.reminders'), {body: t('reminder.' + r.kind, r.data), tag: 'dot-' + r.id}); n.onclick = () => { window.focus(); location.hash = REMINDER_VIEW[r.kind] || 'overview'; }; } catch { /* unsupported */ }
   }
 }
-const REMINDER_VIEW = {rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', scholarship_due: 'study', tuition_due: 'study', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
+const REMINDER_VIEW = {rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', scholarship_due: 'study', tuition_due: 'study', challenge_ending: 'progress', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
 
 function drawer() {
   const list = state.data.reminders || [];
@@ -345,6 +406,7 @@ async function boot() {
   status();
   if (state.role) {
     connectEvents();
+    setTimeout(celebrate, 1500);
     need(['reminders', 'memory', 'economies']).then(() => {
       const m = state.data.memory || {};
       if (m.display_currency) state.display = m.display_currency;
