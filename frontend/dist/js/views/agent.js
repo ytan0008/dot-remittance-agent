@@ -108,7 +108,9 @@ function cardFor(step) {
       if (r.kind === 'action') {  // "Get this done for me": what will run, with which details — it runs only on Confirm
         const a = r.payload?.action, params = r.payload?.params || {};
         const val = v => typeof v === 'boolean' || v === 'true' || v === 'false' ? t(String(v) === 'true' ? 'act.yes' : 'act.no') : typeof v === 'object' && v ? Object.values(v).join(' ') : String(v);
-        const rows = Object.entries(params).slice(0, 6).map(([k, v]) => line(has('act.p.' + k) ? t('act.p.' + k) : k, `<b>${esc(val(v))}</b>`)).join('');
+        const word = (k, v) => typeof v === 'string' && has('act.v.' + v) ? t('act.v.' + v)  // cadence, digest… in the reader's language
+          : k === 'category' && has('cat.' + v) ? t('cat.' + v) : k === 'category' && has('category.' + v) ? t('category.' + v) : val(v);
+        const rows = Object.entries(params).slice(0, 6).map(([k, v]) => line(has('act.p.' + k) ? t('act.p.' + k) : k, `<b>${esc(word(k, v))}</b>`)).join('');
         return {title: has('act.' + a) ? t('act.' + a) : a, cls: pending ? 'ask' : '', badge: chip(r.status, 'proposal.status'),
           body: `${r.note ? `<p>${esc(r.note)}</p>` : ''}${rows}`, foot: act};
       }

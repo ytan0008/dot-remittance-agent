@@ -66,6 +66,8 @@ The authorization screen shows the environment label, exact amounts, rate source
 
 The **Overview** follows one line of thought: *how much do I have → how do I plan to exchange it → what would that leave → where am I short?*
 
+![Sandbox](docs/screenshots/sandbox.png)
+
 - **How much you have** — the latest balance per currency, typed in or read from a bank CSV, each shown big **in its own currency** (no single converted headline to confuse AUD with CNY). A **currency-mix bar** shows the share of each, and one small line gives the reference-rate total as an estimate.
 - **Exchange plans** — your intentions: “get 4,300 AUD from CNY by the 25th for tuition”, or “spend 20,000 CNY”. A plan can be set by what you receive or what you spend; tap a plan to edit it with a live preview (rate, what you pay, what each currency has left, how much of the need it covers). Suggestions come ready-made from tuition, a term's living costs and bills that nothing covers yet. Plans are only intent — nothing is exchanged — and each plan's pair is judged by the AI watch, which treats the plan's amount, date and lowest acceptable rate as hard limits. The Send page's *needs* form and the assistant (`plan_exchange`, or a pop-up plan form) create the same plans.
 - **Sandbox** (its own page in the sidebar; the overview shows a summary card) — applies your plans to your balances in numbers only and shows before/after per currency. Try a worse or better rate (−3%, −5%, +3%), add pretend money (“what if my parents send 20,000 CNY”) or leave plans out; none of it is saved. Below it, the **simulated payments** list shows what payments prepared by DOT or by you did to the pretend test balances — held while *not completed*, deducted once the simulation completes. No real money ever moves.
@@ -85,6 +87,8 @@ The **Bank transfer templates** tab of the Send page stores the bank details you
 A confirmed template opens a **copy-ready instruction sheet** (copy each field, copy all, download .txt) and, for SWIFT, an **MT103-style field preview** (:32A:, :57A:, :59:, :70:, :71A:) for reference — your bank builds the real message; DOT never sends instructions anywhere. Account numbers are masked everywhere except the owner's sheet. Templates drafted by the assistant, and templates whose bank details change, stay **unconfirmed** until you check them against an official source — the classic “our bank details have changed” scam is called out on every sheet. *Compare & plan* switches to the comparison tab with the template's currency, amount and purpose; when you pick a recipient that has a confirmed template, the Send form links to it, and a new draft reminds you which template to use at your bank. The assistant can also fill a template from bank details you paste in the chat: the form pops up prefilled, problems are marked with ⚠ and their reason, and if you close it the draft stays on the result board to continue later.
 
 ### 7. Spending you can trust
+
+![Fixed costs](docs/screenshots/spending.png)
 
 The **Spending** page is built for students: drop the CSV your bank exports (comma/semicolon, debit/credit columns, day-first dates and GBK files are detected), and every row arrives **pending** with a suggested category and a duplicate flag (same merchant and amount within ±2 days, including re-imported statements). Select, recategorize in bulk and confirm — corrections are learned per merchant. **Pictures:** drop, paste or pick up to four images — shop receipts, or screenshots of your banking or card app listing several transactions; the vision model reads every transaction (resolving “yesterday” or weekday names, `A$12,10` decimal commas, skipping rows without an amount) and you check them as a list before saving. **Quick-add** reads one line your way: `lunch 12.50`, `午饭40澳刀`, `2026年10月19号 午饭10澳元`, `午饭10澳元 打车25` (two entries), `上周五 coles 21.50`, `ランチ 1200円` and voice input. Fast offline rules read most lines instantly; when they cannot, *Read with AI* (or Enter) hands the line to the model. The same reader serves the assistant's `log_expense`. Recurring expenses (rent, phone, subscriptions) create **expected** entries a week ahead to confirm or adjust. The assistant can log expenses too (`log_expense`), but they wait in the same review queue.
 
@@ -130,13 +134,13 @@ Recall works across languages (word matching for Latin scripts, character bigram
 
 ### 11. Black & white · dots, lines, circles · in motion
 
-| Pull close · depth-of-field blur | Dark mode |
+| Rates · history, position and 7-day forecast | Dark mode |
 | --- | --- |
-| ![Zoom](docs/screenshots/zoom.png) | ![Dark](docs/screenshots/dark.png) |
+| ![Rates](docs/screenshots/markets.png) | ![Dark](docs/screenshots/dark.png) |
 
 - The dot-grid background becomes a **magnifying lens** around the cursor; a constellation of dots, lines and circles drifts with scroll parallax
 - **Depth transitions** between pages: going forward pushes the old page away and blurs it while the new one pulls close; **swipe** between pages on mobile
-- The journey orbit and the rate chart support **wheel / pinch zoom and drag to pan**; clicking a node pulls the camera close and blurs the background layers
+- The rate chart supports **wheel / pinch zoom and drag to pan**; result cards on the agent board are soft “jelly” tiles you can drag, join and open
 - Modals zoom out of the click point over a blurred backdrop; scroll reveal, 3D card tilt, magnetic buttons, count-up numbers, line-drawing animations
 - Respects `prefers-reduced-motion`; zero external dependencies under a strict `'self'` CSP
 
