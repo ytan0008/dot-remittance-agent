@@ -36,8 +36,13 @@ CURRENCY_WORDS = {
     "HKD": ["hkd", "港币", "港幣"], "TWD": ["twd", "新台币", "新台幣"], "SGD": ["sgd"], "NZD": ["nzd"], "CAD": ["cad"],
     "EUR": ["eur", "欧元", "歐元"], "ETH": ["eth", "以太"],
 }
-PURPOSE = [r"\bfor\s+(.{3,80})$", r"用于(.{2,40})", r"用於(.{2,40})", r"用途[:：是为]*(.{2,40})", r"作为(.{2,40})", r"作為(.{2,40})",
-           r"để\s+(.{3,60})", r"mục đích[:：]?\s*(.{3,60})", r"の(.{2,20})のため", r"([^\sにへをで]{1,20})として", r"용도[:：]?\s*(.{2,40})"]
+PURPOSE = [r"用途[:：是为]*(.{2,40})", r"mục đích[:：]?\s*(.{3,60})", r"目的[:：]\s*(.{2,40})", r"용도[:：]?\s*(.{2,40})",
+           r"\bfor\s+(.{3,80})$", r"用于(.{2,40})", r"用於(.{2,40})", r"作为(.{2,40})", r"作為(.{2,40})",
+           r"để\s+(.{3,60})", r"の(.{2,20})のため", r"([^\sにへをで]{1,20})として"]
+# Names of people not yet registered, used only to prefill the recipient form.
+NEW_NAME = [r"(?:给|給)\s*([^\s，,。用让讓的]{1,20}?)\s*(?:汇|匯|转|轉|寄|付)", r"\bto\s+([A-Z][\w-]{0,30})", r"\bcho\s+([^\s,.]{1,30})",
+            r"([^\s、,。]{1,20})\s*(?:に|へ)\s*(?:送金|送る|振込)", r"([^\s,]{1,20})에게"]
+RECEIVE = ["receives", "receive", "gets", "收到", "到账", "到賬", "nhận", "受け取", "받게", "받도록", "수령"]
 ROUTINE = ["every", "monthly", "weekly", "usually", "each month", "每月", "每个月", "每個月", "每周", "通常", "hàng tháng", "mỗi tháng",
            "毎月", "毎週", "매달", "매월", "매주"]
 PREFER = ["prefer", "喜欢", "喜歡", "偏好", "thích", "好み", "선호"]
@@ -182,6 +187,14 @@ class RulePlanner:
                 elif r.get("currency") and "target" not in entities and entities.get("source") != r["currency"]:
                     entities["target"] = r["currency"]
                 break
+        if any(w in text for w in RECEIVE):
+            entities["receive"] = True  # the amount is what the recipient gets
+        if "recipient" not in entities:
+            for pattern in NEW_NAME:
+                m = re.search(pattern, message)
+                if m and m.group(1).lower() not in ("me", "my", "family's"):
+                    entities["new_name"] = m.group(1).strip()
+                    break
         for pattern in PURPOSE:
             m = re.search(pattern, message, re.I)
             if m:
@@ -281,10 +294,11 @@ class RulePlanner:
             if not e.get("purpose"):
                 missing.append("purpose")
             if not missing:
-                steps = [("get_balances", {}), ("prepare_payment", dict(amount=e["amount"], source=src, target=dst,
+                money = dict(receive_amount=e["amount"]) if e.get("receive") else dict(amount=e["amount"])
+                steps = [("get_balances", {}), ("prepare_payment", dict(money, source=src, target=dst,
                                                                        recipient_id=e["recipient"], purpose=e["purpose"]))]
             elif "recipient" in missing:
-                steps = [("request_recipient_details", dict(name="", currency=dst or "", country="", reason="recipient not registered"))]
+                steps = [("request_recipient_details", dict(name=e.get("new_name", ""), currency=dst or "", country="", reason="recipient not registered"))]
         elif intent in ("execute", "track"):
             target = self.find_transfer(e.get("transfer"), intent)
             if target:
@@ -344,6 +358,8 @@ class RulePlanner:
 
     @staticmethod
     def reply(t, intent, missing, results):
+        if results and results[-1]["ok"] and results[-1]["tool"] == "request_recipient_details":
+            return t["form"]  # the form beside the chat collects what is missing
         if missing:
             return t["missing"].format(fields=", ".join(t["fields"].get(m, m) for m in missing))
         if not results:

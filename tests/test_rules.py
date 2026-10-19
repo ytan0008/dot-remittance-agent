@@ -57,6 +57,8 @@ def test_every_localized_suggestion_is_understood(planner, lang, prompt, intent)
     assert got == intent, (lang, prompt, entities)
     if intent == "prepare":
         assert {"amount", "source", "recipient", "purpose"} <= set(entities), (lang, entities)
+        # Unambiguous wording: pay in CNY, the recipient receives 100 AUD.
+        assert entities["source"] == "CNY" and entities["target"] == "AUD" and entities.get("receive") is True, (lang, entities)
     if intent == "scenario":
         assert entities["percent"] == "-3" and entities["amount"] == "1000"
     if intent == "compare":
@@ -76,3 +78,16 @@ def test_rules_spend_autonomously_within_mandate(evm):
     result = done["trace"][-1]["result"]
     assert result["status"] == "completed" and result["authorized_by"] == "owner_mandate"
     assert "mandate" in done["message"]
+
+
+@pytest.mark.parametrize("message,name", [
+    ("用人民币给 Mia 汇款，让对方收到 100 澳元，用于生活费", "Mia"),
+    ("Pay in CNY so Mia receives 100 AUD, send to Mia for rent", "Mia"),
+    ("Dùng CNY chuyển cho Mia để họ nhận 100 AUD", "Mia"),
+    ("CNY로 Mia에게 송금해서 상대가 100 AUD를 받게, 용도: 생활비", "Mia"),
+])
+def test_unregistered_name_prefills_the_form(local, message, name):
+    reply = Agent(local).chat(message, "nm", "zh-CN")
+    step = reply["trace"][-1]
+    assert step["tool"] == "request_recipient_details" and step["result"]["prefill"]["name"] == name
+    assert "面板" in reply["message"]

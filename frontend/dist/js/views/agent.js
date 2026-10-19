@@ -57,7 +57,7 @@ function card(step) {
       const cta = r.status === 'draft' ? (isOwner() ? t('agent.review_authorize') : t('agent.view')) : t('agent.view');
       const lacking = (r.checks || []).find(c => c.id === 'available_funds' && c.status === 'fail');
       const fund = lacking && isOwner() && b.rail !== 'evm' ? `<button class="button sm ghost" data-action="fund" data-currency="${esc(b.source)}">${icons.plus}${t('agent.add_funds', {c: b.source})}</button>` : '';
-      return `<div class="rcard draft"><div class="kv"><span class="env env-${esc(b.rail)}"><i></i>${esc(envLabel(b))}</span>${chip(r.status)}</div><div class="flow-amt">${amt(b.value, b.source, 'lg')}<span>${icons.arrow}</span>${amt(b.receive, b.target, 'lg')}</div><small class="muted">${esc(b.recipient.name)} · ${esc(b.purpose)} · ${t('detail.fee')} ${esc(money(b.fee, b.source))} ${esc(b.source)}</small><div class="row-actions"><button class="button primary sm" data-action="detail" data-id="${esc(r.id)}">${cta} ${icons.arrow}</button>${fund}</div></div>`;
+      return `<div class="rcard draft"><div class="kv"><span class="env env-${esc(b.rail)}"><i></i>${esc(envLabel(b))}</span>${chip(r.status)}</div><div class="flow-amt"><span class="flow-side"><small>${t('detail.you_send')}</small>${amt(b.value, b.source, 'lg')}</span><span class="flow-arrow">${icons.arrow}</span><span class="flow-side"><small>${t('detail.they_receive')} · ${esc(b.recipient.name)}</small>${amt(b.receive, b.target, 'lg')}</span></div><small class="muted">${esc(b.recipient.name)} · ${esc(b.purpose)} · ${t('detail.fee')} ${esc(money(b.fee, b.source))} ${esc(b.source)}</small><div class="row-actions"><button class="button primary sm" data-action="detail" data-id="${esc(r.id)}">${cta} ${icons.arrow}</button>${fund}</div></div>`;
     }
     case 'remember_note':
       return `<div class="rcard"><span class="eyebrow">${t('memory.saved')}</span><p>“${esc(r.text)}”</p><small class="muted">${esc(t('memory.kind.' + r.kind))}</small><button class="link" data-action="go" data-view="memory">${t('nav.memory')} ${icons.arrow}</button></div>`;
@@ -326,10 +326,13 @@ export function paintSideForm() {
   const shown = host.firstElementChild;
   if (f && shown?.dataset.key === String(f.key)) return;
   if (!f) {
-    if (shown) { shown.classList.add('leaving'); setTimeout(() => { if (!state.chat.form) host.innerHTML = ''; }, 380); }
+    if (shown) { shown.classList.add('leaving'); setTimeout(() => { if (!state.chat.form) host.innerHTML = ''; }, 460); }
     return;
   }
   host.innerHTML = sideForm();
+  // Jelly entrance: the panel springs in, then each row follows a beat later.
+  host.querySelectorAll('.side-form-head, .side-form .field, .side-form .check-label, .side-form .row-actions, .side-form .fine, .side-form .note')
+    .forEach((el, i) => { el.style.animationDelay = (260 + i * 60) + 'ms'; });
   const form = host.querySelector('#side-recipient-form');
   const name = form.querySelector('#sf-name'), id = form.querySelector('#sf-id');
   let touched = false;
