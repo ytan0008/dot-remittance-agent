@@ -9,6 +9,7 @@ purchases count once — as spending — and the repayment counts as cash leavin
 the spending of their category. A credit card's balance is what you owe, never money you have.
 """
 import csv
+import hashlib
 import io
 import json
 import re
@@ -119,6 +120,16 @@ def normalize(text):
 def merchant_key(text):
     words = [w for w in normalize(text).split() if len(w) > 1 and not w.isdigit()]
     return " ".join(words[:3])
+
+
+def same_merchant(a, b):
+    """Two descriptions of one shop, however a scan or an export spells it ("Woolworths Metro" / "WOOLWORTHS 1234 SYDNEY"):
+    they share a meaningful word, or one is empty."""
+    wa = {w for w in normalize(a).split() if len(w) >= 3 and not w.isdigit()}
+    wb = {w for w in normalize(b).split() if len(w) >= 3 and not w.isdigit()}
+    if not wa or not wb:
+        return True
+    return bool(wa & wb) or any(x in y or y in x for x in wa for y in wb if min(len(x), len(y)) >= 4)
 
 
 def brand(merchant):
@@ -419,6 +430,34 @@ class ExpensesMixin:
                 return r["id"]
         return None
 
+    def likely_recorded(self, items):
+        """For each scanned item, an entry already in the books that is probably the same purchase: same amount and currency,
+        within three days, and the same shop by any spelling. Used to untick a receipt that was scanned before."""
+        out = []
+        with self.store.read() as c:
+            for i, x in enumerate(items if isinstance(items, list) else []):
+                try:
+                    amount, d = int(x.get("amount")), date.fromisoformat(str(x.get("date")))
+                except (TypeError, ValueError):
+                    continue
+                for r in c.execute("SELECT id, date, description, amount, currency, source FROM expenses WHERE amount=? AND currency=? "
+                                   "AND status<>'skipped' AND date BETWEEN ? AND ? ORDER BY created DESC",
+                                   (amount, str(x.get("currency") or "").upper(), str(d - timedelta(days=3)), str(d + timedelta(days=3)))):
+                    if same_merchant(r["description"], x.get("description")):
+                        out.append(dict(index=i, id=r["id"], date=r["date"], description=r["description"], source=r["source"]))
+                        break
+        return out
+
+    def note_scan(self, images):
+        """Remember which exact images were read; a second read of the same picture is told when it was first read."""
+        hashes = [hashlib.sha256(str(x).encode()).hexdigest() for x in images]
+        with self.store.tx() as c:
+            c.execute("CREATE TABLE IF NOT EXISTS receipt_scans (hash TEXT PRIMARY KEY, first INTEGER NOT NULL)")
+            seen = [r[0] for h in hashes for r in c.execute("SELECT first FROM receipt_scans WHERE hash=?", (h,))]
+            for h in hashes:
+                c.execute("INSERT OR IGNORE INTO receipt_scans VALUES (?,?)", (h, now()))
+        return min(seen) if seen else None
+
     # ---------- CSV import ----------
     def import_csv(self, actor, filename, content, currency=None, account_id=None):
         self.owner(actor)
@@ -707,6 +746,12 @@ class ExpensesMixin:
         fp = self.fingerprint(str(d), amount, currency, description)
         with self.store.tx() as c:
             dup = self._dup(c, fp, str(d), amount, currency, description)
+            if not dup and source == "receipt":
+                for r in c.execute("SELECT id, description FROM expenses WHERE amount=? AND currency=? AND status<>'skipped' AND date BETWEEN ? AND ?",
+                                   (amount, currency, str(d - timedelta(days=3)), str(d + timedelta(days=3)))):
+                    if same_merchant(r["description"], description):
+                        dup = r["id"]
+                        break
             acct_type = self._account(c, account_id)["type"] if account_id else None
             kind = classify(description, amount, acct_type)
             if kind == "income" and category != "income":
@@ -767,6 +812,9 @@ class ExpensesMixin:
                     amount = -abs(value) if r["amount"] < 0 else abs(value)
                 c.execute("UPDATE expenses SET status='confirmed', category=?, amount=?, confirmed=? WHERE id=?",
                           (category, amount, now(), r["id"]))
+                if item.get("paid_by") is not None:  # who paid, chosen while reviewing (all rows at once or one by one)
+                    c.execute("UPDATE expenses SET paid_by=?, payer_name=? WHERE id=?",
+                              (*self._entry_payer(item.get("paid_by"), item.get("payer_name")), r["id"]))
                 if category != r["category"] and r["merchant"]:
                     c.execute("INSERT INTO category_rules VALUES (?,?,?) ON CONFLICT(pattern) DO UPDATE SET category=excluded.category,"
                               "updated=excluded.updated", (brand(r["merchant"]), category, now()))

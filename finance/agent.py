@@ -345,6 +345,8 @@ class Agent:
         if reply is None:
             return dict(available=False, items=[], reason="the AI model could not read the image; enter the details by hand")
         result = f.document_result(reply)
+        result["seen_before"] = f.note_scan(images)       # the very same picture was read before
+        result["recorded"] = f.likely_recorded(result.get("items") or [])  # items that are probably in the books already
         with f.store.tx() as c:
             f.store.event(c, "agent", "receipt.read", "ok" if result.get("available") else "unreadable", None,
                           kind=result.get("kind"), items=len(result.get("items") or []), images=len(images))

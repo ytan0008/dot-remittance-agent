@@ -303,6 +303,8 @@ class ReviewItem(Model):
     include: bool = True
     category: str | None = Field(None, max_length=40)
     amount: int | None = Field(None, ge=-10**12, le=10**12)
+    paid_by: str | None = Field(None, max_length=8)
+    payer_name: str | None = Field(None, max_length=20)
 
 
 class ReviewIn(Model):

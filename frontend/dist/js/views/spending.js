@@ -1,7 +1,7 @@
 import {state, t, api, toast, isOwner, invalidate, rerender, modal, closeModal, formError, bus, need} from '../core.js';
 import {indicatorPanel} from './habits.js';
 import {esc, amt, panel, icons, empty, options, segmented} from '../ui.js';
-import {money, day, lang, decimalsOf, plain} from '../i18n.js';
+import {money, day, lang, decimalsOf, plain, when} from '../i18n.js';
 
 const CATEGORIES = ['rent', 'groceries', 'dining', 'transport', 'utilities', 'phone', 'subscriptions', 'tuition', 'shopping',
   'health', 'entertainment', 'travel', 'transfer', 'fees', 'income', 'other'];
@@ -103,15 +103,17 @@ function reviewTable() {
     <p class="fine">${t('spend.review_d')}</p>
     <div class="review-tools"><label class="check-label"><input type="checkbox" id="review-all" ${rows.every(r => sel.has(r.id)) ? 'checked' : ''}> ${t('spend.select_all')}</label>
       <label class="inline-select">${t('spend.set_category')} <select id="bulk-cat"><option value="">—</option>${catOptions('')}</select></label>
+      <label class="inline-select">${t('spend.set_payer')} <select id="bulk-payer"><option value="">—</option>${payerOptions('', true)}</select></label>
       <span class="grow"></span>
       <button class="button ghost sm" data-action="spend-skip" ${sel.size ? '' : 'disabled'}>${t('spend.skip_n', {n: sel.size})}</button>
       <button class="button primary sm" data-action="spend-confirm" ${sel.size ? '' : 'disabled'}>${icons.check}${t('spend.confirm_n', {n: sel.size})}</button></div>
-    <div class="table-wrap"><table class="table review"><thead><tr><th></th><th>${t('spend.date')}</th><th>${t('spend.description')}</th><th>${t('spend.amount')}</th><th>${t('spend.category')}</th></tr></thead><tbody>
+    <div class="table-wrap"><table class="table review"><thead><tr><th></th><th>${t('spend.date')}</th><th>${t('spend.description')}</th><th>${t('spend.amount')}</th><th>${t('spend.category')}</th><th>${t('acct.payer')}</th></tr></thead><tbody>
     ${rows.map(r => `<tr class="${r.duplicate_of ? 'dup' : ''} ${r.status}"><td><input type="checkbox" data-review="${esc(r.id)}" ${sel.has(r.id) ? 'checked' : ''} aria-label="${esc(r.description)}"></td>
       <td class="nowrap">${day(r.date)}</td>
       <td><b>${esc(r.description)}</b><small>${r.status === 'expected' ? `<span class="tag">${t('spend.expected')}</span> ` : ''}${r.duplicate_of ? `<span class="tag k-dup">${t('spend.duplicate')}</span> ` : ''}${esc(t('spend.src.' + r.source))}${r.suggested === 'learned' ? ' · ' + t('spend.learned') : ''}</small></td>
       <td class="nowrap ${r.amount > 0 ? 'income' : ''}">${r.status === 'expected' ? `<input class="amt-edit" data-amount="${esc(r.id)}" inputmode="decimal" value="${esc(plain(-r.amount, r.currency))}"> ${esc(r.currency)}` : amt(Math.abs(r.amount), r.currency)}</td>
-      <td><select data-cat="${esc(r.id)}">${catOptions(r.category)}</select></td></tr>`).join('')}
+      <td><select data-cat="${esc(r.id)}">${catOptions(r.category)}</select></td>
+      <td><select data-payer="${esc(r.id)}">${payerOptions(payerKey(r), true)}</select></td></tr>`).join('')}
     </tbody></table></div>`, {cls: 'review-panel', sub: 'REVIEW'});
 }
 
@@ -351,6 +353,11 @@ export const view = {
         root.querySelectorAll('[data-review]').forEach(cb => { cb.checked = e.target.checked; e.target.checked ? ui.selected.add(cb.dataset.review) : ui.selected.delete(cb.dataset.review); });
         syncReviewButtons(root);
       }
+      if (e.target.id === 'bulk-payer' && e.target.value) {  // one choice for every selected row (or all, when none is selected)
+        const pick = ui.selected.size ? id => ui.selected.has(id) : () => true;
+        root.querySelectorAll('[data-payer]').forEach(s => { if (pick(s.dataset.payer)) { s.value = e.target.value; s.closest('tr').classList.add('flash'); } });
+        e.target.value = '';
+      }
       if (e.target.id === 'bulk-cat' && e.target.value) {
         root.querySelectorAll('[data-cat]').forEach(s => { if (ui.selected.has(s.dataset.cat)) { s.value = e.target.value; s.closest('tr').classList.add('flash'); } });
         e.target.value = '';
@@ -467,7 +474,8 @@ export const view = {
         const minor = Math.round(Number(val('amount').replace(',', '.')) * 10 ** decimalsOf(cur));
         if (!(minor > 0)) { r.classList.add('bad'); throw new Error(t('err.amount_invalid')); }
         const sign = r.dataset.in === '1' ? 1 : -1;
-        await api('/expenses', 'POST', {date: val('date'), amount: sign * minor, currency: cur, description: val('description'), category: val('category'), source: 'receipt'});
+        await api('/expenses', 'POST', {date: val('date'), amount: sign * minor, currency: cur, description: val('description'), category: val('category'), source: 'receipt',
+          ...payerBody(r.querySelector('[name=payer]').value)});
       }
       closeModal(); toast(rows.length > 1 ? t('spend.saved_n', {n: rows.length}) : t('spend.saved'), 'good'); await reload();
     },
@@ -496,6 +504,8 @@ async function submitReview(include) {
   const root = document.getElementById('view');
   const items = [...ui.selected].map(id => {
     const item = {id, include, category: root.querySelector(`[data-cat="${CSS.escape(id)}"]`)?.value};
+    const who = root.querySelector(`[data-payer="${CSS.escape(id)}"]`)?.value;
+    if (include && who) Object.assign(item, payerBody(who));
     const a = root.querySelector(`[data-amount="${CSS.escape(id)}"]`);
     if (a) { const row = [...state.data.spendExpected].find(r => r.id === id); item.amount = Math.round(Number(a.value.replace(',', '.')) * 10 ** decimalsOf(row.currency)); }
     return item;
@@ -599,14 +609,16 @@ async function shrink(file) {
   return canvas.toDataURL('image/jpeg', 0.85);
 }
 
-function scanRow(x, i) {
+function scanRow(x, i, seen) {
   const cur = x.currency || 'AUD';
-  return `<tr data-row data-in="${x.amount > 0 ? 1 : 0}"><td><input type="checkbox" name="pick" checked aria-label="${t('spend.select_all')}"></td>
+  const dup = seen ? `<small class="scan-dup">${t('spend.scan_dup', {d: day(seen.date), s: esc(seen.description)})}</small>` : '';
+  return `<tr data-row data-in="${x.amount > 0 ? 1 : 0}" class="${seen ? 'dup' : ''}"><td><input type="checkbox" name="pick" ${seen ? '' : 'checked'} aria-label="${t('spend.select_all')}"></td>
     <td><input type="date" name="date" value="${esc(x.date)}" required></td>
-    <td><input name="description" value="${esc(x.description)}" maxlength="200" required></td>
+    <td><input name="description" value="${esc(x.description)}" maxlength="200" required>${dup}</td>
     <td><input name="amount" inputmode="decimal" value="${x.amount ? esc(plain(Math.abs(x.amount), cur)) : ''}" required class="num"></td>
     <td><input name="currency" value="${esc(cur)}" maxlength="3" required class="cur"></td>
-    <td><select name="category">${catOptions(x.category || 'other')}</select></td></tr>`;
+    <td><select name="category">${catOptions(x.category || 'other')}</select></td>
+    <td><select name="payer">${payerOptions(ui.scanPayer || 'me', false)}</select></td></tr>`;
 }
 
 /** Receipts and banking screenshots: up to four images, read by the AI model together, checked as a list before saving. */
@@ -627,10 +639,20 @@ async function scanImages(files) {
   if (!fields || scanned !== images) return;
   document.querySelector('.receipt-scan')?.classList.add('done');
   const list = r.items?.length ? r.items : [{date: new Date().toISOString().slice(0, 10), amount: 0, currency: (state.data.memory || {}).display_currency || 'AUD', description: '', category: 'other'}];
+  const seen = Object.fromEntries((r.recorded || []).map(x => [x.index, x]));
+  const dups = Object.keys(seen).length;
   fields.innerHTML = `<form id="receipt-form" class="form-block">
+    ${r.seen_before ? `<p class="note warn">${t('spend.scan_seen', {d: when(r.seen_before)})}</p>` : ''}
+    ${dups ? `<p class="note warn">${t('spend.scan_dups', {n: dups})}</p>` : ''}
+    <label class="inline-select scan-payer">${t('spend.scan_payer')} <select id="scan-payer-all">${payerOptions(ui.scanPayer || 'me', false)}</select></label>
     <p class="${r.available ? 'fine' : 'note warn'}">${r.available ? t(r.kind === 'transactions' || r.kind === 'statement' ? 'spend.check_list' : 'spend.check_note', {n: r.items.length}) : t('spend.manual_note') + (r.reason ? ' · ' + esc(r.reason) : '')}</p>
-    <div class="table-wrap"><table class="table scan-table"><thead><tr><th></th><th>${t('spend.date')}</th><th>${t('spend.merchant')}</th><th>${t('spend.amount')}</th><th>${t('plans.currency')}</th><th>${t('spend.category')}</th></tr></thead>
-      <tbody>${list.map(scanRow).join('')}</tbody></table></div>
+    <div class="table-wrap"><table class="table scan-table"><thead><tr><th></th><th>${t('spend.date')}</th><th>${t('spend.merchant')}</th><th>${t('spend.amount')}</th><th>${t('plans.currency')}</th><th>${t('spend.category')}</th><th>${t('acct.payer')}</th></tr></thead>
+      <tbody>${list.map((x, i) => scanRow(x, i, seen[i])).join('')}</tbody></table></div>
     <button type="button" class="link sm" data-action="receipt-add-row">${icons.plus}${t('spend.add_row')}</button>
     <div class="form-error"></div><div class="modal-actions"><button class="button primary">${icons.check}${t('spend.save_selected')}</button></div></form>`;
+  // one choice for the whole picture sets every row; each row can still be changed
+  fields.querySelector('#scan-payer-all').addEventListener('change', e => {
+    ui.scanPayer = e.target.value;
+    fields.querySelectorAll('select[name=payer]').forEach(s => { s.value = e.target.value; });
+  });
 }

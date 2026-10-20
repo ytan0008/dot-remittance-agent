@@ -229,3 +229,23 @@ def test_term_cash_flow_counts_what_others_pay_each_month(local):
     assert abs(spent_helped - spent_alone * 0.4) <= 200  # only the 400 of 1000 a month comes out of my money
     local.set_month_budget("owner", "AUD", "400", "5000")  # more than the living costs: never counted as income
     assert local.cashflow("AUD", 3)["lowest"]["amount"] >= helped["opening"]["total"] - 100
+
+
+def test_a_receipt_scanned_twice_is_recognised(local):
+    today = str(date.today())
+    first = local.add_expense("owner", today, -4250, "AUD", "Woolworths Metro Sydney", "groceries", source="receipt")
+    again = [dict(date=today, amount=-4250, currency="AUD", description="WOOLWORTHS 1234"),  # the same purchase, spelled differently
+             dict(date=today, amount=-1200, currency="AUD", description="Coles")]          # a new one
+    seen = local.likely_recorded(again)
+    assert [(x["index"], x["id"]) for x in seen] == [(0, first["id"])]
+    second = local.add_expense("owner", today, -4250, "AUD", "WOOLWORTHS 1234", "groceries", source="receipt")
+    assert second["duplicate_of"] == first["id"]  # saved anyway on purpose: it is still flagged
+    assert local.note_scan(["data:image/png;base64,AAAA"]) is None and local.note_scan(["data:image/png;base64,AAAA"]) is not None
+
+
+def test_review_sets_who_paid(local):
+    local.import_csv("owner", "a.csv", "Date,Description,Amount\n20/10/2026,COLES,-12\n21/10/2026,UBER,-8\n", currency="AUD")
+    rows = {e["description"]: e["id"] for e in local.expenses(status="pending")}
+    local.review("owner", [{"id": rows["COLES"], "paid_by": "other", "payer_name": "Mum and Dad"}, {"id": rows["UBER"], "paid_by": "me"}])
+    paid = {e["description"]: (e["paid_by"], e["payer_name"]) for e in local.expenses(status="confirmed")}
+    assert paid["COLES"] == ("other", "Mum and Dad") and paid["UBER"] == ("me", None)

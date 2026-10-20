@@ -6,7 +6,7 @@
 
 **一个会「理解 · 规划 · 安全执行」的金融 Agent —— 比较方案、预测汇率、提醒你何时换汇，并把日常开销理清楚。**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-397%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-399%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![总览](docs/screenshots/overview.png)
 
@@ -335,7 +335,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 ## 🧪 测试
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 397 项（含两轮安全审计用例）：服务、风控、记账、AI 盯盘、转账模板、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
+.\.venv\Scripts\python -m pytest -q        # 399 项（含两轮安全审计用例）：服务、风控、记账、AI 盯盘、转账模板、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
 .\.venv\Scripts\python -m finance.demo     # 离线演示：未授权被拒 → 授权 → 执行 → 幂等 → 超时恢复
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
