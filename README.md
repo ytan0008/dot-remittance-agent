@@ -211,7 +211,7 @@ goals, bills, subscriptions, term costs and the scenario would do to each curren
 
 ### 12. Six languages
 
-English · 简体中文 · 繁體中文 · Tiếng Việt · 日本語 · 한국어 — numbers, dates and region names localized with `Intl`; backend errors arrive as stable codes and are translated in the UI.
+English · 简体中文 · 繁體中文 · Tiếng Việt · Japanese · 한국어 — numbers, dates and region names localized with `Intl`; backend errors arrive as stable codes and are translated in the UI.
 
 | 한국어 | Tiếng Việt |
 | --- | --- |
