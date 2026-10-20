@@ -57,6 +57,8 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
         self._money_schema()
         self._plans_schema()
         self._banks_schema()
+        with self.store.tx() as c:  # a confirmation interrupted by a crash: not re-run, shown for the user to check
+            c.execute("UPDATE proposals SET status='interrupted' WHERE status='applying'")
         self._expenses_schema()
         self._student_schema()
         self._motivation_schema()
@@ -66,7 +68,7 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
         self.rates = rates or Rates()
         self.sandbox = SandboxProvider(self.store, self.rates, self.config.sandbox_settle_seconds)
         self.evm, self.evm_error = provider, None
-        if self.evm is None and self.config.rpc_url:
+        if self.evm is None and self.config.rpc_url and self.config.onchain:  # a URL alone never turns the wallet on
             try:
                 self.evm = EvmProvider(self.config)
             except Denied as exc:

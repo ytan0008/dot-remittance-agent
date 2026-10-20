@@ -86,6 +86,7 @@ class Config:
     chain_id: int = 11155111
     live: bool = False
     rpc_url: str = ""
+    onchain: bool = False  # the legacy EVM wallet path: off unless ENABLE_ONCHAIN=true (never in the competition build)
     confirmations: int = 12
     max_gas_gwei: str = "30"
     max_eth: str = "0.01"
@@ -104,6 +105,7 @@ class Config:
             chain_id=int(os.getenv("EVM_CHAIN_ID", "11155111")),
             live=os.getenv("ENABLE_LIVE_PAYMENTS") == "true",
             rpc_url=os.getenv("EVM_RPC_URL", ""),
+            onchain=os.getenv("ENABLE_ONCHAIN") == "true",
             confirmations=int(os.getenv("EVM_CONFIRMATIONS", "3")),
             max_gas_gwei=os.getenv("EVM_MAX_GAS_PRICE_GWEI", "30"),
             max_eth=os.getenv("MAX_PAYMENT_ETH", "0.01"),

@@ -1,3 +1,4 @@
+import hashlib
 from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
@@ -46,7 +47,7 @@ CREATE TABLE IF NOT EXISTS sandbox_provider (ref TEXT PRIMARY KEY, transfer_id T
 COLUMNS = {
     "transfers": {"rail": "TEXT NOT NULL DEFAULT 'sandbox'", "supersedes": "TEXT", "approved_at": "INTEGER",
                   "completed_at": "INTEGER", "goal_id": "TEXT", "checks": "TEXT", "approval_note": "TEXT"},
-    "audit": {"request_id": "TEXT"},
+    "audit": {"request_id": "TEXT", "chain": "TEXT"},
 }
 
 
@@ -88,8 +89,25 @@ class Store:
 
     @staticmethod
     def event(c, actor, action, outcome, correlation=None, **detail):
-        c.execute("INSERT INTO audit(time,actor,action,outcome,correlation,detail,request_id) VALUES(?,?,?,?,?,?,?)",
-                  (now(), actor, action, outcome, correlation, canonical(detail), request_id.get()))
+        """Append one audit entry, chained to the one before: chain = SHA-256(previous chain + this entry). Changing or
+        removing any entry breaks every link after it (verify_audit finds where). Runs inside the caller's write
+        transaction, so entries are chained in commit order."""
+        row = (now(), actor, action, outcome, correlation, canonical(detail), request_id.get())
+        prev = c.execute("SELECT chain FROM audit WHERE chain IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+        link = hashlib.sha256(((prev[0] if prev else "") + "|" + canonical(list(row))).encode()).hexdigest()
+        c.execute("INSERT INTO audit(time,actor,action,outcome,correlation,detail,request_id,chain) VALUES(?,?,?,?,?,?,?,?)", (*row, link))
+
+    def verify_audit(self):
+        """Walk the chain: ok, how many entries were checked, and the first entry whose link does not match (if any)."""
+        prev, checked = "", 0
+        with self.read() as c:
+            for r in c.execute("SELECT id,time,actor,action,outcome,correlation,detail,request_id,chain FROM audit WHERE chain IS NOT NULL ORDER BY id"):
+                row = [r["time"], r["actor"], r["action"], r["outcome"], r["correlation"], r["detail"], r["request_id"]]
+                if hashlib.sha256((prev + "|" + canonical(row)).encode()).hexdigest() != r["chain"]:
+                    return dict(ok=False, checked=checked, broken_at=r["id"])
+                prev, checked = r["chain"], checked + 1
+            last = c.execute("SELECT max(id) FROM audit WHERE chain IS NOT NULL").fetchone()[0]
+        return dict(ok=True, checked=checked, head=prev, last_id=last)
 
     def setting(self, c, key, default=None):
         row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()

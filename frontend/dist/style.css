@@ -1970,3 +1970,8 @@ article.panel.panel-focus > .panel-head h2{font-size:1.1em}
 .scan-table th:nth-child(2){width:146px}.scan-table td input[name=date],.scan-table td input.num,.scan-table td input.cur{width:100%!important}
 .scan-table td input.cur{padding:0 4px}
 .scan-table td input[name=description]{width:100%!important;max-width:100%}
+/* hide parts of a picture before it is sent to the AI */
+.mask-imgs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:10px 0}
+.mask-img{position:relative;cursor:crosshair;touch-action:none;user-select:none;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;background:var(--soft)}
+.mask-img img{display:block;width:100%;height:auto;max-height:60vh;object-fit:contain;pointer-events:none}
+.mask-box{position:absolute;background:#000;border-radius:3px;box-shadow:0 0 0 1px rgba(255,255,255,.4)}

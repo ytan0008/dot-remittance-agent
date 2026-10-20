@@ -70,6 +70,15 @@ def _https(url):
     return u.geturl()[:300] if u.scheme == "https" and u.hostname and "." in u.hostname and not u.username else None
 
 
+def _site(url):
+    """The registrable part of a host: commbank.com.au, boc.cn, hsbc.com."""
+    host = (urlparse(url).hostname or "").lower()
+    labels = host.split(".")
+    if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in ("com", "net", "org", "edu", "gov", "co", "ac"):
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
+
+
 def _slug(name):
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:30]
 
@@ -161,7 +170,10 @@ class BankKnowledgeMixin:
                 if len(name) < 2 or not re.fullmatch(r"[A-Z]{2}", country):
                     continue
                 currencies = sorted({str(x).upper() for x in (b.get("currencies") or []) if re.fullmatch(r"[A-Za-z]{3}", str(x))} | {currency})
-                urls = [u for u in (_https(b.get("fee_page")), _https(b.get("website"))) if u]
+                website, fee_page = _https(b.get("website")), _https(b.get("fee_page"))
+                if fee_page and website and _site(fee_page) != _site(website):
+                    fee_page = None  # a fee page on another site is not the bank's own: dropped
+                urls = [u for u in (fee_page, website) if u]
                 home = HOME_CURRENCY.get(country, currency)  # "Bank of China" in CN is not its Sydney branch
                 known = _same_bank(name, home) or _same_bank(b.get("name_zh"), home)
                 if known in BY_ID:  # a bank we already list: only its extra pages and currencies are added

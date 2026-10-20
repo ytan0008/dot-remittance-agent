@@ -18,6 +18,7 @@ says so. Only scenarios whose figures are all sourced and that arrive in time ar
 "provisional", never "best".
 """
 import html
+from contextlib import contextmanager
 import ipaddress
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -107,22 +108,42 @@ MAX_PAGE = 1_500_000
 MAX_TEXT = 40_000
 
 
-def _public_host(host):
-    """Only fetch from public internet addresses (no localhost, private networks or metadata endpoints)."""
+def _public_ips(host):
+    """The host's addresses if every one is public (no localhost, private networks or metadata endpoints), else []."""
     try:
         infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
     except OSError:
-        return False
+        return []
+    ips = []
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
-            return False
-    return True
+            return []
+        ips.append(str(ip))
+    return ips
 
 
-def _capped_get(url, headers):
-    """GET that stops reading after MAX_PAGE bytes: a huge or endless page cannot fill memory."""
-    with httpx.stream("GET", url, timeout=15, follow_redirects=False, headers=headers) as r:
+def _public_host(host):
+    return bool(_public_ips(host))
+
+
+def _capped_get(url, headers, ip=None):
+    """GET that stops reading after MAX_PAGE bytes: a huge or endless page cannot fill memory. With `ip`, the connection
+    goes to that already-checked address (the name is not looked up again, so DNS rebinding cannot swap in a private
+    address); TLS still verifies the certificate against the real host name."""
+    extensions = {}
+    if ip:
+        parts = urlparse(url)
+        netloc = (f"[{ip}]" if ":" in ip else ip) + (f":{parts.port}" if parts.port else "")
+        headers = dict(headers, Host=parts.netloc)
+        extensions = {"sni_hostname": parts.hostname}
+        url = parts._replace(netloc=netloc).geturl()
+    if not ip:
+        stream = httpx.stream("GET", url, timeout=15, follow_redirects=False, headers=headers)
+    else:
+        client = httpx.Client(timeout=15, follow_redirects=False)
+        stream = _sent(client, client.build_request("GET", url, headers=headers, extensions=extensions))
+    with stream as r:
         body = bytearray()
         for chunk in r.iter_bytes():
             body.extend(chunk)
@@ -132,17 +153,31 @@ def _capped_get(url, headers):
         return SimpleNamespace(status_code=r.status_code, headers=r.headers, content=bytes(body[:MAX_PAGE]), encoding=r.encoding)
 
 
+@contextmanager
+def _sent(client, request):
+    """A streamed response that closes itself and its client."""
+    with client:
+        r = client.send(request, stream=True)
+        try:
+            yield r
+        finally:
+            r.close()
+
+
 def fetch_page(url, client=None):
     """GET a public https page (at most 3 redirects, size-capped) and return readable text."""
     for _ in range(4):
         parts = urlparse(url)
-        if parts.scheme != "https" or not parts.hostname or not _public_host(parts.hostname):
+        if parts.scheme != "https" or not parts.hostname:
+            raise Denied("only public https pages can be read", "bank_url_invalid")
+        ips = [] if client else _public_ips(parts.hostname)
+        if not (_public_host(parts.hostname) if client else ips):
             raise Denied("only public https pages can be read", "bank_url_invalid")
         headers = {"User-Agent": "Mozilla/5.0 (DOT student finance; reads public rate pages)", "Accept-Language": "en,zh;q=0.8"}
         if client:
             r = client.get(url, timeout=15, follow_redirects=False, headers=headers)
         else:
-            r = _capped_get(url, headers)
+            r = _capped_get(url, headers, ips[0])  # pinned to the address just checked
         if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
             url = urljoin(url, r.headers["location"])
             continue
@@ -255,6 +290,8 @@ _AMT = r"(?<![\d.,])(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\d])"
 PAIR = re.compile(rf"(?P<m1>{_MARK}|\$|¥|￥)\s?(?P<n1>{_AMT})|(?P<n2>{_AMT})\s?(?P<m2>{_MARK})")
 # a figure that is a limit, not a fee: "Minimum transfer AUD 6", "最低汇款 6 澳元"
 LIMIT = re.compile(r"minimum|maximum|\bmin\b|\bmax\b|limit|at least|up to|最低|最高|最少|最多|限额|起汇|起点")
+# a tiered price: the figure holds only for some amounts ("AUD 10 for transfers over AUD 1,000") — not certified as THE fee
+TIER = re.compile(r"\b(over|above|below|under|between|more than|less than|greater than|for amounts|for transfers of|tier)\b|以上|以下|超过|不足|之间|不超过", re.I)
 CLAUSE = re.compile(r"(?<=[.!?;])\s+|[。；！？\n|]")
 
 
@@ -277,7 +314,7 @@ def _fee_stated(quote, amount, currency):
     "Fee USD 60. AUD transfers are supported" and "Transfer fee $6" do not state an AUD 6 / AUD 60 fee."""
     for clause in CLAUSE.split(quote):
         pairs = _pairs(clause)
-        if LIMIT.search(clause) or len({c for c, _ in pairs}) > 1:
+        if LIMIT.search(clause) or TIER.search(clause) or len({c for c, _ in pairs}) > 1:
             continue
         for cur, value in pairs:
             if value != amount:

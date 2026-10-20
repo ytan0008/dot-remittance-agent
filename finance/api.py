@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .domain import Denied, new_request_id
 from .service import Finance
 from .agent import Agent
-from .auth import Users
+from .auth import Users, Sessions
 from .privacy import export_workspace
 from . import worker
 
@@ -533,7 +533,8 @@ def create_app(finance=None, agent=None, background=None):
         owner, agent_token = os.getenv("OWNER_TOKEN", ""), os.getenv("AGENT_TOKEN", "")
         if len(owner) < 24 or len(agent_token) < 24 or owner == agent_token:
             raise RuntimeError("set distinct OWNER_TOKEN and AGENT_TOKEN (at least 24 characters)")
-        if os.getenv("PUBLIC_DEPLOY") == "true" and (os.getenv("EVM_RPC_URL") or os.getenv("ENABLE_LIVE_PAYMENTS") == "true"):
+        if os.getenv("PUBLIC_DEPLOY") == "true" and (os.getenv("EVM_RPC_URL") or os.getenv("ENABLE_LIVE_PAYMENTS") == "true"
+                                                     or os.getenv("ENABLE_ONCHAIN") == "true"):
             raise RuntimeError("PUBLIC_DEPLOY=true runs the simulation only: leave EVM_RPC_URL empty and ENABLE_LIVE_PAYMENTS false")
         viewer = os.getenv("VIEWER_TOKEN", "")
         if viewer and (len(viewer) < 24 or viewer in (owner, agent_token)):
@@ -542,8 +543,9 @@ def create_app(finance=None, agent=None, background=None):
         app.state.agent = agent or Agent(app.state.finance)
         app.state.finance.exchange_judge = app.state.agent.judge
         app.state.finance.page_reader = app.state.agent.judge  # reads public bank pages into rates and fees
-        app.state.sessions = {}
         app.state.users = Users(os.path.join(os.path.dirname(os.path.abspath(app.state.finance.config.db)), "users.sqlite3"))
+        app.state.sessions = Sessions(app.state.users)
+        app.state.sessions.drop_workspaces("demo-")  # demo workspaces are removed at startup: so are their sessions
         app.state.workspaces = {"default": (app.state.finance, app.state.agent)}
         app.state.stop = stop = asyncio.Event()
         app.state.loop = asyncio.get_running_loop()
@@ -590,6 +592,10 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.middleware("http")
     async def browser_guard(request: Request, call_next):
+        # A request is either a browser session or a bearer token, never both: otherwise the role could come from one
+        # credential and the workspace from the other.
+        if request.cookies.get("finance_session") and request.headers.get("authorization"):
+            return JSONResponse(status_code=400, content={"error": "send a session cookie or a bearer token, not both", "code": "credentials_mixed"})
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             if request.cookies.get("finance_session") or request.url.path.startswith(("/session", "/auth")):
                 if request.headers.get("x-workspace-request") != "1":
@@ -621,6 +627,16 @@ def create_app(finance=None, agent=None, background=None):
                 worker.run(f, app.state.stop, alive=lambda: app.state.workspaces.get(ws, (None,))[0] is f))))
         return f, a
 
+    calls = {}
+
+    def throttle(kind, limit, per=60):
+        """At most `limit` calls of one expensive kind (model, image reading, page fetching) per workspace per `per` seconds."""
+        key, stamp = (CURRENT.get(), kind), time.time()
+        recent = [t for t in calls.get(key, []) if stamp - t < per]
+        if len(recent) >= limit:
+            raise Denied("too many requests — wait a moment", "rate_limited")
+        calls[key] = recent + [stamp]
+
     def service() -> Finance:
         return open_workspace(CURRENT.get())[0]
 
@@ -634,11 +650,10 @@ def create_app(finance=None, agent=None, background=None):
 
     def session_response(response, actor, ws="default", user=None):
         stamp = time.time()
-        app.state.sessions = {k: v for k, v in app.state.sessions.items() if v["expires"] > stamp}
         sid = secrets.token_urlsafe(32)
         app.state.sessions[sid] = {"role": actor, "expires": stamp + 28800, "ws": ws, "user": user}
         response.set_cookie("finance_session", sid, max_age=28800, httponly=True, samesite="strict",
-                            secure=os.getenv("COOKIE_SECURE") == "true")
+                            secure=os.getenv("COOKIE_SECURE") == "true" or os.getenv("PUBLIC_DEPLOY") == "true")  # public: HTTPS only
         return {"role": actor}
 
     @app.exception_handler(Denied)
@@ -688,10 +703,7 @@ def create_app(finance=None, agent=None, background=None):
         if not owner_token_ok(body.owner_token):
             raise Denied("that owner token is not right", "auth_token")
         old = app.state.users.claim_default(user["id"])
-        for v in app.state.sessions.values():
-            if (v.get("user") or {}).get("id") == user["id"]:
-                v["ws"] = "default"
-                v["user"] = dict(v["user"], workspace="default")
+        app.state.sessions.move_user(user["id"], "default")
         return {"claimed": True, "previous": old}
 
     def purge_demos(max_age=86400):
@@ -991,6 +1003,11 @@ def create_app(finance=None, agent=None, background=None):
         return service().update_rate_alert(actor, aid, body.active)
 
     # ---------- audit ----------
+    @app.get("/audit/verify")
+    def audit_verify(actor=Depends(role)):
+        service().owner(actor)
+        return service().store.verify_audit()
+
     @app.get("/audit")
     def audit(q: str | None = None, outcome: str | None = None, actor_filter: str | None = None, limit: int = 300,
               actor=Depends(role)):
@@ -1049,6 +1066,7 @@ def create_app(finance=None, agent=None, background=None):
     @app.post("/expenses/receipt")
     def receipt(body: Receipt, actor=Depends(role)):
         service().owner(actor)
+        throttle("images", 10)
         return assistant().read_documents(body.images or [body.image])
 
     @app.post("/expenses")
@@ -1203,6 +1221,7 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.post("/banks/{bank_id}/refresh")
     def refresh_bank(bank_id: str, body: BankRefresh, actor=Depends(role)):
+        throttle("pages", 20)
         return service().refresh_bank(actor, bank_id, body.source, body.target, body.urls)
 
     @app.put("/banks/{bank_id}/pricing")
@@ -1384,8 +1403,7 @@ def create_app(finance=None, agent=None, background=None):
         app.state.users.verify(body.email, body.password, client_of(request))
         ws = user["workspace"]
         # 1) nobody can reach it any more: sessions revoked, the account gone, its background work stopped
-        for sid in [k for k, v in app.state.sessions.items() if (v.get("user") or {}).get("id") == user["id"]]:
-            app.state.sessions.pop(sid, None)
+        app.state.sessions.revoke_user(user["id"])
         app.state.users.delete(user["id"])
         app.state.workspaces.pop(ws, None)  # the worker's alive() turns false
         response.delete_cookie("finance_session")
@@ -1422,12 +1440,14 @@ def create_app(finance=None, agent=None, background=None):
     def chat(body: Chat, actor=Depends(role)):
         if actor not in ("owner", "agent"):
             raise Denied("chat runs as the agent and needs owner or agent access", "permission_denied")
+        throttle("model", 20)
         return assistant().chat(body.message, body.session, body.language)
 
     @app.post("/chat/stream")
     def chat_stream(body: Chat, actor=Depends(role)):
         if actor not in ("owner", "agent"):
             raise Denied("chat runs as the agent and needs owner or agent access", "permission_denied")
+        throttle("model", 20)
         a = assistant()
         a.pages[body.session] = body.page
         a.check(body.message, body.session)

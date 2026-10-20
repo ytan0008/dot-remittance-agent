@@ -336,10 +336,27 @@ class PlanningMixin:
             return [dict(r, payload=json.loads(r["payload"])) for r in c.execute("SELECT * FROM proposals ORDER BY created DESC LIMIT 100")]
 
     def decide(self, actor, pid, accept, note=""):
+        """Claim the proposal first (pending -> applying, one conditional UPDATE): of two confirmations at once only one
+        gets past this line, so the action runs once. If the action fails the claim is released; if the process dies in
+        between, the proposal stays 'interrupted' at the next start and is never run again by itself."""
         self.owner(actor)
         p = self.proposal(pid)
-        if p["status"] != "pending":
-            raise Denied("proposal already decided", "proposal_decided")
+        with self.store.tx() as c:
+            if not c.execute("UPDATE proposals SET status='applying' WHERE id=? AND status='pending'", (pid,)).rowcount:
+                raise Denied("proposal already decided", "proposal_decided")
+        try:
+            self._apply_proposal(actor, p, accept)
+        except BaseException:
+            with self.store.tx() as c:
+                c.execute("UPDATE proposals SET status='pending' WHERE id=? AND status='applying'", (pid,))
+            raise
+        with self.store.tx() as c:
+            c.execute("UPDATE proposals SET status=?,decided_by=?,decided=?,note=COALESCE(?,note) WHERE id=?",
+                      ("confirmed" if accept else "rejected", actor, now(), note or None, pid))
+            self.store.event(c, actor, "proposal.confirm" if accept else "proposal.reject", "ok", pid, kind=p["kind"])
+        return self.proposal(pid)
+
+    def _apply_proposal(self, actor, p, accept):
         if accept:
             payload = p["payload"]
             if p["kind"] == "recipient":
@@ -356,8 +373,3 @@ class PlanningMixin:
             elif p["kind"] == "action":
                 from . import actions
                 actions.run(self, actor, payload["action"], payload["params"])
-        with self.store.tx() as c:
-            c.execute("UPDATE proposals SET status=?,decided_by=?,decided=?,note=COALESCE(?,note) WHERE id=?",
-                      ("confirmed" if accept else "rejected", actor, now(), note or None, pid))
-            self.store.event(c, actor, "proposal.confirm" if accept else "proposal.reject", "ok", pid, kind=p["kind"])
-        return self.proposal(pid)

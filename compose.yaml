@@ -9,6 +9,10 @@ services:
       - finance_data:/app/data
     restart: unless-stopped
     init: true
+    read_only: true          # the code cannot be changed at run time; only the data volume and /tmp are writable
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
   frontend:
@@ -19,6 +23,13 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID, NET_BIND_SERVICE]   # nginx starts as root to bind :80, then drops to its worker user
     security_opt:
       - no-new-privileges:true
 volumes:

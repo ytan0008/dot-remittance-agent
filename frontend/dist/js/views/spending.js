@@ -621,6 +621,64 @@ function scanRow(x, i, seen) {
     <td><select name="payer">${payerOptions(ui.scanPayer || 'me', false)}</select></td></tr>`;
 }
 
+/** Before anything leaves the device: drag boxes over the parts the AI should not see; they are painted solid black into
+ *  the image itself (not just covered on screen), so the masked pixels are never uploaded. Resolves with the images to
+ *  send, or null when the dialog is closed. */
+function maskStep(images) {
+  return new Promise(resolve => {
+    const boxes = images.map(() => []);
+    let done = false;
+    const finish = v => { if (!done) { done = true; resolve(v); } };
+    modal(t('spend.mask_title'), `<div class="mask-step"><p class="fine">${t('spend.mask_d')}</p>
+      <div class="mask-imgs">${images.map((src, i) => `<div class="mask-img" data-i="${i}"><img src="${src}" alt="" draggable="false"></div>`).join('')}</div>
+      <div class="modal-actions"><button type="button" class="link sm" id="mask-undo">${t('spend.mask_undo')}</button><span class="grow"></span>
+        <button type="button" class="button primary" id="mask-send">${icons.agent}${t('spend.mask_send')}</button></div></div>`, 'RECEIPT / HIDE BEFORE SENDING', {wide: true});
+    const root = document.querySelector('.mask-step');
+    const order = [];
+    root.querySelectorAll('.mask-img').forEach(wrap => {
+      const i = Number(wrap.dataset.i);
+      let start = null, box = null;
+      const at = e => { const r = wrap.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+      const place = (el, b) => Object.assign(el.style, {left: b.x * 100 + '%', top: b.y * 100 + '%', width: b.w * 100 + '%', height: b.h * 100 + '%'});
+      wrap.addEventListener('pointerdown', e => {
+        e.preventDefault(); wrap.setPointerCapture(e.pointerId);
+        start = at(e); box = document.createElement('span'); box.className = 'mask-box'; wrap.appendChild(box);
+        place(box, {x: start[0], y: start[1], w: 0, h: 0});
+      });
+      wrap.addEventListener('pointermove', e => {
+        if (!start) return;
+        const [x, y] = at(e);
+        place(box, {x: Math.min(x, start[0]), y: Math.min(y, start[1]), w: Math.abs(x - start[0]), h: Math.abs(y - start[1])});
+      });
+      wrap.addEventListener('pointerup', e => {
+        if (!start) return;
+        const [x, y] = at(e), b = {x: Math.min(x, start[0]), y: Math.min(y, start[1]), w: Math.abs(x - start[0]), h: Math.abs(y - start[1])};
+        start = null;
+        if (b.w < 0.01 || b.h < 0.01) { box.remove(); return; }  // a click, not a box
+        boxes[i].push(b); order.push([i, box]);
+      });
+    });
+    root.querySelector('#mask-undo').addEventListener('click', () => { const last = order.pop(); if (last) { boxes[last[0]].pop(); last[1].remove(); } });
+    root.querySelector('#mask-send').addEventListener('click', async () => {
+      const out = await Promise.all(images.map((src, i) => boxes[i].length ? paintBoxes(src, boxes[i]) : src));
+      finish(out);
+    });
+    document.getElementById('modal')?.addEventListener('close', () => finish(null), {once: true});
+  });
+}
+
+/** The image with each box painted black, at its full resolution. */
+async function paintBoxes(src, boxes) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  g.fillStyle = '#000';
+  for (const b of boxes) g.fillRect(Math.floor(b.x * c.width), Math.floor(b.y * c.height), Math.ceil(b.w * c.width) + 1, Math.ceil(b.h * c.height) + 1);
+  return c.toDataURL('image/jpeg', 0.9);
+}
+
 /** Receipts and banking screenshots: up to four images, read by the AI model together, checked as a list before saving. */
 async function scanImages(files) {
   files = files.slice(0, 4);
@@ -630,6 +688,8 @@ async function scanImages(files) {
   let images;
   try { images = await Promise.all(files.map(shrink)); }
   catch { toast(t('err.receipt_heic'), 'bad'); return; }
+  images = await maskStep(images);  // the user blacks out what the AI should not see (account numbers, names…)
+  if (!images) return;
   scanned = images;
   modal(t('spend.scan'), `<div class="receipt-scan multi"><div class="receipt-imgs">${images.map(src => `<div class="receipt-img"><img src="${src}" alt=""><span class="scan-line"></span></div>`).join('')}</div>
     <div class="receipt-fields"><div class="thinking"><span class="think-orb"><i></i></span><span class="think-text">${t('spend.reading')}</span></div></div></div>`, 'RECEIPT / CHECK BEFORE SAVING', {wide: true});

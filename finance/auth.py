@@ -7,6 +7,7 @@ Repeated wrong passwords lock that email briefly; sign-ups are rate-limited per 
 recorded and retried, and never reported as done.
 """
 import hashlib
+import json
 import hmac
 import re
 import secrets
@@ -23,6 +24,8 @@ CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQU
 CREATE TABLE IF NOT EXISTS signups (client TEXT NOT NULL, at REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS signups_client ON signups(client, at);
 CREATE TABLE IF NOT EXISTS pending_deletions (path TEXT PRIMARY KEY, since INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS sessions (key TEXT PRIMARY KEY, role TEXT NOT NULL, ws TEXT NOT NULL, user TEXT, expires REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS login_fails (key TEXT PRIMARY KEY, count INTEGER NOT NULL, since REAL NOT NULL);
 """
 SIGNUPS_PER_HOUR = 5
 EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,24}$")
@@ -37,7 +40,6 @@ class Users:
     def __init__(self, path):
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.fails = {}  # key -> (count, first_failure_time)
         c = sqlite3.connect(self.path, timeout=30)
         try:
             c.executescript(SCHEMA)
@@ -138,8 +140,10 @@ class Users:
 
     def verify(self, email, password, client=""):
         email = (email or "").strip().lower()
-        key = f"{email}|{client}"
-        count, since = self.fails.get(key, (0, 0))
+        key = hashlib.sha256(f"{email}|{client}".encode()).hexdigest()  # persisted: a restart does not reset a lockout
+        with self._db() as c:
+            r = c.execute("SELECT count, since FROM login_fails WHERE key=?", (key,)).fetchone()
+        count, since = (r["count"], r["since"]) if r else (0, 0)
         if count >= MAX_FAILS and time.time() - since < LOCK_SECONDS:
             raise Denied("too many attempts — wait a few minutes and try again", "auth_locked")
         with self._db() as c:
@@ -147,9 +151,64 @@ class Users:
             # Hash even when the email is unknown, so timing does not reveal which emails have accounts.
             salt = row["salt"] if row else b"\0" * 16
             ok = hmac.compare_digest(_hash(str(password or "")[:200], salt), row["hash"] if row else b"\1" * 32)
-            if not row or not ok:
-                self.fails[key] = (count + 1 if time.time() - since < LOCK_SECONDS else 1, since if count and time.time() - since < LOCK_SECONDS else time.time())
-                raise Denied("email or password is not right", "auth_failed")
-            self.fails.pop(key, None)
-            c.execute("UPDATE users SET last_login=? WHERE id=?", (int(time.time()), row["id"]))
-            return self.public(row)
+            if row and ok:
+                c.execute("DELETE FROM login_fails WHERE key=?", (key,))
+                c.execute("UPDATE users SET last_login=? WHERE id=?", (int(time.time()), row["id"]))
+                return self.public(row)
+        with self._db() as c:  # the miss is committed before the refusal (raising inside the transaction would undo it)
+            fresh = not count or time.time() - since >= LOCK_SECONDS
+            c.execute("INSERT INTO login_fails VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET count=excluded.count, since=excluded.since",
+                      (key, 1 if fresh else count + 1, time.time() if fresh else since))
+        raise Denied("email or password is not right", "auth_failed")
+
+
+class Sessions:
+    """Browser sessions, kept in the account database so they survive a restart and can be shared by several processes.
+    Only a SHA-256 of each session token is stored: a copy of the database does not hand out live sessions."""
+
+    def __init__(self, users):
+        self.users = users
+
+    @staticmethod
+    def _key(sid):
+        return hashlib.sha256(str(sid or "").encode()).hexdigest()
+
+    @staticmethod
+    def _row(r):
+        return dict(role=r["role"], ws=r["ws"], user=json.loads(r["user"]) if r["user"] else None, expires=r["expires"], key=r["key"])
+
+    def get(self, sid, default=None):
+        if not sid:
+            return default
+        with self.users._db() as c:
+            r = c.execute("SELECT * FROM sessions WHERE key=? AND expires>?", (self._key(sid), time.time())).fetchone()
+        return self._row(r) if r else default
+
+    def __setitem__(self, sid, v):
+        with self.users._db() as c:
+            c.execute("DELETE FROM sessions WHERE expires<=?", (time.time(),))
+            c.execute("INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?)",
+                      (self._key(sid), v["role"], v["ws"], json.dumps(v.get("user")) if v.get("user") else None, v["expires"]))
+
+    def pop(self, sid, default=None):
+        with self.users._db() as c:
+            c.execute("DELETE FROM sessions WHERE key=?", (self._key(sid),))
+        return default
+
+    def values(self):
+        with self.users._db() as c:
+            return [self._row(r) for r in c.execute("SELECT * FROM sessions WHERE expires>?", (time.time(),))]
+
+    def revoke_user(self, uid):
+        with self.users._db() as c:
+            c.execute("DELETE FROM sessions WHERE json_extract(user, '$.id')=?", (uid,))
+
+    def move_user(self, uid, ws):
+        with self.users._db() as c:
+            for r in c.execute("SELECT key, user FROM sessions WHERE json_extract(user, '$.id')=?", (uid,)).fetchall():
+                user = dict(json.loads(r["user"]), workspace=ws)
+                c.execute("UPDATE sessions SET ws=?, user=? WHERE key=?", (ws, json.dumps(user), r["key"]))
+
+    def drop_workspaces(self, prefix):
+        with self.users._db() as c:
+            c.execute("DELETE FROM sessions WHERE ws LIKE ?", (prefix + "%",))
