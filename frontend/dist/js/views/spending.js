@@ -424,8 +424,8 @@ export const view = {
   },
   submit: {
     async 'budget-month-form'(f) {
-      await api('/budget/month', 'PUT', {currency: f.querySelector('[name=currency]').value, amount: f.querySelector('[name=amount]').value.trim() || null,
-        others: f.querySelector('[name=others]').value.trim() || null});
+      await api('/budget/month', 'PUT', {currency: f.querySelector('[name=currency]').value, amount: f.querySelector('[name=amount]').value.trim(),
+        others: f.querySelector('[name=others]').value.trim()});  // an emptied field clears that budget
       closeModal(); toast(t('budget.saved'), 'good'); invalidate(['reminders']); await reload();
     },
     async 'payer-form'(f) {

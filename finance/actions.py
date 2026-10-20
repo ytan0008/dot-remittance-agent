@@ -25,7 +25,8 @@ ACTIONS = {
     "add_fx_rule": (("source", "target", "amount", "min_rate"), ("due", "mode", "bank"),
                     lambda f, a, p: f.add_fx_rule(a, p["source"], p["target"], p["amount"], p["min_rate"], p.get("due"), p.get("mode", "confirm"), p.get("bank"))),
     "cancel_fx_rule": (("rule_id",), (), lambda f, a, p: f.cancel_fx_rule(a, p["rule_id"])),
-    "set_month_budget": (("currency", "amount"), (), lambda f, a, p: f.set_month_budget(a, p["currency"], p["amount"])),
+    "set_month_budget": (("currency",), ("amount", "others"),  # my budget / the budget for what others pay; a missing one is kept
+                         lambda f, a, p: f.set_month_budget(a, p["currency"], p.get("amount"), p.get("others"))),
     "add_account": (("name", "type", "currency"), ("balance", "paid_by", "payer_name"),
                     lambda f, a, p: f.add_account(a, p["name"], p["type"], p["currency"], p.get("balance"), p.get("paid_by") or "me",
                                                   p.get("payer_name"))),

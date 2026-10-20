@@ -273,6 +273,10 @@ class DecideMixin:
         card). Either may be empty; both empty removes the budget."""
         self.owner(actor)
         currency = (currency or "").upper()
+        old = self.month_budget() or {}
+        if old.get("currency") == currency:  # a value left out (None) keeps that budget; "" or 0 clears it
+            amount = old.get("amount") and str(from_minor(old["amount"], currency)) if amount is None else amount
+            others = old.get("others_amount") and str(from_minor(old["others_amount"], currency)) if others is None else others
         blank = lambda v: v in (None, "", "0", 0)
         if blank(amount) and blank(others):
             with self.store.tx() as c:

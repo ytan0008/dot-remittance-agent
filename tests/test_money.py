@@ -249,3 +249,16 @@ def test_review_sets_who_paid(local):
     local.review("owner", [{"id": rows["COLES"], "paid_by": "other", "payer_name": "Mum and Dad"}, {"id": rows["UBER"], "paid_by": "me"}])
     paid = {e["description"]: (e["paid_by"], e["payer_name"]) for e in local.expenses(status="confirmed")}
     assert paid["COLES"] == ("other", "Mum and Dad") and paid["UBER"] == ("me", None)
+
+
+def test_changing_one_budget_keeps_the_other(local):
+    local.set_month_budget("owner", "AUD", "400", "600")
+    local.set_month_budget("owner", "AUD", "500")  # the assistant changes only my budget
+    b = local.month_budget()
+    assert (b["amount"], b["others_amount"]) == (50000, 60000)
+    local.set_month_budget("owner", "AUD", "500", "")  # the form empties the others' budget
+    assert local.month_budget()["others_amount"] == 0
+    from finance import actions
+    actions.run(local, "owner", "set_month_budget", {"currency": "AUD", "others": "300"})
+    b = local.month_budget()
+    assert (b["amount"], b["others_amount"]) == (50000, 30000)

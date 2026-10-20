@@ -566,8 +566,10 @@ def create_app(finance=None, agent=None, background=None):
         for task in app.state.tasks:
             await task
 
-    app = FastAPI(title="Remittance Agent", version="0.3.0", lifespan=lifespan, default_response_class=SafeJSONResponse,
-                  description="Single-user prototype. Local sandbox simulation plus the agent's own EVM wallet. "
+    app = FastAPI(title="DOT — cross-border & student finance assistant", version="0.4.0", lifespan=lifespan,
+                  default_response_class=SafeJSONResponse,
+                  description="Multi-account, one workspace per account. Non-on-chain: payments are a local sandbox "
+                              "simulation and no real money moves. Legacy EVM code is disabled in public mode. "
                               "Amount details use minor units.")
     bearer = HTTPBearer(auto_error=False)
 
