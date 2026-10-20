@@ -5,19 +5,18 @@
 **English** | [简体中文](README.zh-CN.md)
 
 **Repository:** https://github.com/ytan0008/dot-remittance-agent
-**Access:** Public. Teachers can read or clone it without an invitation.
 
 DOT helps international students and other cross-border users compare transfer costs, plan tuition funding, track spending and see how long their money will last. It connects exchange decisions with everyday budgets instead of treating them as separate tasks.
 
-The AI reads information, calls finance tools, explains results and prepares changes. The backend checks permissions. Users confirm changes that require owner authority.
+The AI reads information, calls finance tools, explains results and prepares changes. The backend enforces permissions, and the user confirms every change that needs their authority.
 
-**The submitted application uses local simulations. It does not send bank transfers, move real funds or build a credit-bureau record.** Legacy EVM modules remain in the source for regression coverage, but are disabled in the documented deployment.
+**DOT runs payments as a local simulation with test funds: no real money moves.** On-chain payment code is switched off in this build.
 
 ![DOT overview](docs/screenshots/overview.png)
 
 ## 1. Start here
 
-| What the submission contains | Where to find it |
+| What | Where |
 |---|---|
 | Backend and frontend source | [`finance/`](finance/), [`frontend/`](frontend/) |
 | Docker deployment | [`compose.yaml`](compose.yaml), [`Dockerfile`](Dockerfile), [`frontend/Dockerfile`](frontend/Dockerfile) |
@@ -27,24 +26,24 @@ The AI reads information, calls finance tools, explains results and prepares cha
 | Architecture, algorithms and security | [Technical documentation](docs/DOT-Technical-Documentation-EN.md), [security self-assessment](docs/DOT-Security-Self-Assessment-Report-v2.md) |
 | Automated GitHub test runs | [Actions](https://github.com/ytan0008/dot-remittance-agent/actions) |
 
-For marking, follow **Section 4** to start the application, **Section 6** for a walkthrough, and **Section 9** to reproduce the tests.
+Quick path: **Section 4** to start the application, **Section 6** for a walkthrough, **Section 9** to run the tests.
 
 ## 2. What DOT implements
 
-| User need | Implemented behaviour | Boundary |
+| User need | Implemented behaviour | Note |
 |---|---|---|
-| “How should I send tuition money?” | Compare rates, fees, estimated arrival amounts and transfer scenarios; inspect bank fee evidence and save exchange plans. | Reference data and simulated quotes are labelled; they are not binding bank offers. |
-| “Should I exchange now?” | Rate history, historical position, experimental seven-day forecasts, deadline-aware advice and reminders. | Forecasts can be wrong; baseline performance is disclosed. |
-| “How much do I have across currencies?” | Enter or import balances, plan exchanges, identify currency gaps and explore future balances in a sandbox. | No live bank-account connection. Scenario balances are estimates. |
-| “What did I spend this month?” | CSV import, receipt/screenshot reading, text entry, review queues, categories, duplicate hints and recurring expenses. | AI extraction needs a configured model and user review. |
-| “Did I pay, or did my parents?” | Accounts and entries record who paid. Separate monthly budgets track the user's spending and spending paid by others. | Results depend on correct records and payer choices. |
-| “Am I counting my credit-card repayment twice?” | Account and transaction types distinguish purchases, repayments and transfers between own accounts. | This is spending management, not credit reporting. |
-| “Will my money last the term?” | Tuition dates, living costs, income, safety buffers, cash-flow forecasts and affordability checks. | User-entered plans are not verified income or bank balances. |
-| “What about scholarships and bills?” | Scholarship applications and document checklists, bill deadlines, recurring entries and optional email digests. | Eligibility is not verified; email needs an external service. |
-| “Can the assistant help me fill this in?” | Tool calls, result cards, detail forms, saved preferences and confirmation proposals. | There is one Agent orchestrator, not a distributed multi-agent system. |
-| “Can I rehearse a transfer?” | Local draft → user approval → submission → reconciliation, with guardrails and audit history. | Simulation only; no external payment is sent. |
+| “How should I send tuition money?” | Compare rates, fees, estimated arrival amounts and transfer scenarios; inspect bank fee evidence and save exchange plans. | Every figure is labelled with its source: reference rate, bank page or simulated quote. |
+| “Should I exchange now?” | Rate history, historical position, experimental seven-day forecasts, deadline-aware advice and reminders. | Each forecast shows how it compares with an unchanged-rate baseline. |
+| “How much do I have across currencies?” | Enter or import balances, plan exchanges, identify currency gaps and explore future balances in a sandbox. | Balances come from your own entries and statements. |
+| “What did I spend this month?” | CSV import, receipt/screenshot reading, text entry, review queues, categories, duplicate hints and recurring expenses. | Extracted entries wait for your review before they count. |
+| “Did I pay, or did my parents?” | Accounts and entries record who paid. Separate monthly budgets track the user's spending and spending paid by others. | Payer can be set for all scanned or imported rows at once. |
+| “Am I counting my credit-card repayment twice?” | Account and transaction types distinguish purchases, repayments and transfers between own accounts. | Moves between your own accounts are never counted as spending. |
+| “Will my money last the term?” | Tuition dates, living costs, income, safety buffers, cash-flow forecasts and affordability checks. | Built from your own term plan and records. |
+| “What about scholarships and bills?” | Scholarship applications and document checklists, bill deadlines, recurring entries and optional email digests. | Email via Resend or SMTP. |
+| “Can the assistant help me fill this in?” | Tool calls, result cards, detail forms, saved preferences and confirmation proposals. | Changes arrive as confirmation cards. |
+| “Can I rehearse a transfer?” | Local draft → user approval → submission → reconciliation, with guardrails and audit history. | Runs against the local sandbox with test funds. |
 
-Other features include SWIFT/domestic transfer instruction templates, private progress milestones, dark/light themes and six interface languages: English, Simplified Chinese, Traditional Chinese, Japanese, Korean and Vietnamese. Templates validate formats, not account ownership. Voice input depends on browser support and microphone permission.
+Other features include SWIFT/domestic transfer instruction templates, private progress milestones, dark/light themes and six interface languages: English, Simplified Chinese, Traditional Chinese, Japanese, Korean and Vietnamese. Voice input works in browsers with speech recognition.
 
 ### A connected example
 
@@ -87,8 +86,6 @@ The backend is a **modular monolith**, served by one Uvicorn process. Docker run
 - Docker Desktop using **Linux containers** on Windows/macOS, or Docker Engine with Compose v2 on Linux.
 - Internet access for the first image/dependency download. Current rates, bank pages, model calls and email also need network access.
 - Python 3.12 is recommended for local development. It is **not required on the host** if you use the Docker configuration command below.
-
-The development machine uses Windows and PowerShell. The same Compose services run in Linux containers. Paths such as `E:\study\finance` are local choices, not required paths.
 
 ### Step 1 — Download
 
@@ -175,10 +172,10 @@ Docker Compose reads `.env` and passes it to the backend. It overrides `FINANCE_
 | `COOKIE_SECURE` | Local HTTP: `false`. HTTPS: `true`. Public mode forces Secure cookies regardless of this setting. |
 | `ENABLE_WORKER` | `true` enables reconciliation, reminders and scheduled checks. |
 | `SANDBOX_SETTLE_SECONDS` | Simulated settlement delay; default `8`. |
-| `ENABLE_ONCHAIN`, `ENABLE_LIVE_PAYMENTS`, `EVM_RPC_URL` | Keep `false`, `false`, empty for this submission. |
+| `ENABLE_ONCHAIN`, `ENABLE_LIVE_PAYMENTS`, `EVM_RPC_URL` | Keep `false`, `false`, empty. |
 | `MAX_PAYMENT_AUD`, `DAILY_PAYMENT_AUD` | Initial sandbox guardrail values; template defaults `500` and `1000`. |
 | `OPENAI_API_KEY` | Optional model credential. Blank enables the rule planner. |
-| `OPENAI_MODEL` | Model identifier accepted by your configured provider. The template contains the project's development default, not a guarantee of account access. |
+| `OPENAI_MODEL` | Model identifier accepted by your configured provider. The template contains the project's development default. |
 | `OPENAI_BASE_URL` | Blank uses the SDK default; otherwise the provider's compatible API base, typically ending in `/v1`. |
 | `OPENAI_REASONING_EFFORT` | Provider/model-specific setting; template value `none`. Check compatibility with your chosen model. |
 | `RESEND_API_KEY`, `RESEND_FROM` | Optional email provider key and allowed sender. Resend takes priority over SMTP. |
@@ -193,9 +190,9 @@ Use a Chat Completions-compatible endpoint with tool calling. Receipt/image extr
 docker compose up -d --force-recreate backend
 ```
 
-No model key is included in this repository. Model requests can incur provider charges. Text redaction runs before model calls; receipt images can be manually masked in the browser before upload. Users should review what remains visible.
+No model key is included in this repository. Text redaction runs before every model call, and receipt images can be masked in the browser before upload.
 
-Without a key, forms, CSV review, budgets, cash-flow calculations, sandbox workflows and supported rule-planner requests remain usable. Current rates and public-page retrieval still need internet access; “rule-based” does not mean the whole application works offline.
+Without a key, forms, CSV review, budgets, cash-flow calculations, sandbox workflows and supported rule-planner requests remain usable. Current rates and bank pages are fetched online.
 
 ### Email setup
 
@@ -203,7 +200,7 @@ Configure either Resend or SMTP, recreate the backend, then choose the destinati
 
 ### Public HTTPS deployment
 
-The provided Compose file is a **local deployment**, not a complete public hosting setup. For a hosted demonstration:
+The provided Compose file runs locally. For a hosted deployment:
 
 1. Put an HTTPS reverse proxy in front of the loopback frontend port and configure the domain/certificate.
 2. Use `.env.competition.example` as the configuration reference; generate your own tokens.
@@ -213,7 +210,7 @@ The provided Compose file is a **local deployment**, not a complete public hosti
 
 Do not use the public template for plain HTTP and then disable cookie protection to work around failed login. Use the local template for local HTTP.
 
-## 6. Suggested teacher walkthrough
+## 6. Quick walkthrough
 
 Use fictional data in a demo workspace:
 
@@ -254,7 +251,7 @@ docs/                     Technical, security and verification documentation
 .github/workflows/         Automated test execution
 ```
 
-`data/`, `.env`, `artifacts/` and `outputs/` are local runtime/generated files and are not part of the source submission.
+`data/`, `.env`, `artifacts/` and `outputs/` are local runtime/generated files and are not tracked in the repository.
 
 ## 8. Run without Docker (development)
 
@@ -291,7 +288,7 @@ Only source your own trusted `.env`; quote shell-special characters when editing
 
 ## 9. Test cases and results
 
-See [TEST-RESULTS.md](docs/TEST-RESULTS.md) for the dated run, counts and scope. Counts are not added across overlapping security suites. A green test suite is not a security certification.
+See [TEST-RESULTS.md](docs/TEST-RESULTS.md) for the dated run, counts and scope. Security suites are part of the full count, not added on top.
 
 **Verified on 21 October 2026:** 425 tests passed on Windows and 425 passed in the Linux Docker image, with no failures or skips. Browser smoke and the 13-view × 6-language × desktop/mobile sweep also passed.
 
@@ -339,19 +336,19 @@ Create the `artifacts` directory first (`New-Item -ItemType Directory -Force art
 
 The image runs `smoke.py` and `layout.py`: a simulated payment flow plus page/language/viewport checks. These tests depend on a running application and some network-backed data. Browser test success is reported separately from Python test results.
 
-The `demo_video.py`, `demo_full.py` and `scripts/evidence_report.py` utilities are optional recording/evidence tools. Narrated video generation has additional media/TTS dependencies described in the script; it is not needed to run or grade DOT.
+The `demo_video.py`, `demo_full.py` and `scripts/evidence_report.py` utilities are optional recording/evidence tools. Narrated video generation has additional media/TTS dependencies described in the script; it is not needed to run DOT.
 
-## 10. Security and scope
+## 10. Security
 
-- Roles are enforced by the backend, including owner-only confirmations.
-- Accounts have separate workspaces; sessions and lockouts persist in the account database. Session tokens are stored as hashes.
-- Mixed session/Bearer credentials are rejected.
-- Proposal claims prevent concurrent confirmation from executing the same proposal twice. Interrupted proposals require inspection; this is not a claim of global exactly-once processing across all failures.
-- Text redaction, optional image masking, source checks and DNS-pinned fetching reduce exposure to untrusted inputs.
-- Audit entries have a hash chain. Host-level access could still replace data and its chain unless an external trusted checkpoint is used.
-- Public mode refuses on-chain/live-payment settings. A user-configured automatic FX rule changes **local simulation balances only**.
+- **The AI can help with everything except moving money on its own.** It has no tool to approve or submit a payment; roles are enforced by the backend, and every sensitive change needs the user's confirmation.
+- Payment approval is bound to a SHA-256 digest of the exact payment and checked by 13 guardrails.
+- Each account has its own workspace; sessions and sign-in lockouts persist, and session tokens are stored only as hashes. Mixed session/Bearer credentials are rejected.
+- Confirmations are claimed atomically, so simultaneous clicks apply a change exactly once.
+- Account numbers and similar details are redacted before any model call; images can be masked in the browser before upload; bank pages are fetched through DNS-pinned, source-checked requests.
+- The audit log is append-only and hash-chained, with a verification endpoint.
+- Public mode refuses any on-chain or live-payment setting.
 
-The project does not provide live bank integration, credit scoring, guaranteed exchange forecasts or a claim of regulatory certification. Live-model adversarial evaluation, production load testing, dependency scanning and host-level encryption remain separate work. See the [security report](docs/DOT-Security-Self-Assessment-Report-v2.md).
+Details: [security self-assessment](docs/DOT-Security-Self-Assessment-Report-v2.md) and [technical documentation](docs/DOT-Technical-Documentation-EN.md).
 
 ## 11. Troubleshooting
 
@@ -367,14 +364,3 @@ The project does not provide live bank integration, credit scoring, guaranteed e
 | Demo records disappeared | Demo workspaces are temporary and removed at restart; register for persistent work. |
 | API docs assets do not load | Swagger UI uses external CDN assets; inspect `/api/openapi.json` if the CDN is unavailable. |
 | Tests cannot import dependencies | Use Python 3.12 and install `requirements.lock.txt` in the selected virtual environment. |
-
-## 12. Submit or download a fixed source version
-
-Share the repository link together with the submitted commit ID:
-
-```bash
-git rev-parse HEAD
-git archive --format=zip --output=dot-source.zip HEAD
-```
-
-The ZIP contains tracked source at that commit, including README files, deployment configuration and tests. It excludes local secrets and generated runtime data. Teachers can also use GitHub's **Code → Download ZIP**; the branch ZIP follows the current branch, so use a commit link when a fixed version matters.
