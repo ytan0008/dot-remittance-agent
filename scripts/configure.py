@@ -1,36 +1,40 @@
-"""Create or upgrade the local Docker configuration without printing or overwriting credentials."""
+"""Create local simulation settings without printing or replacing existing secrets."""
+import argparse
 from pathlib import Path
 import secrets
 
-path = Path(__file__).resolve().parents[1] / ".env"
-defaults = {
-    "OWNER_TOKEN": lambda: secrets.token_urlsafe(32),
-    "AGENT_TOKEN": lambda: secrets.token_urlsafe(32),
-    "ENABLE_DEMO_LOGIN": lambda: "true",
-    "OPENAI_API_KEY": lambda: "",
-    "OPENAI_MODEL": lambda: "gpt-6-luna",
-    "OPENAI_REASONING_EFFORT": lambda: "none",
-    "OPENAI_BASE_URL": lambda: "",
-    # The agent's own wallet on the Sepolia test network. Remove EVM_RPC_URL to run the sandbox only.
-    "EVM_RPC_URL": lambda: "",  # on-chain payments are paused; leave empty
-    "EVM_CHAIN_ID": lambda: "11155111",
-    "EVM_CONFIRMATIONS": lambda: "3",
-    "AGENT_WALLET_PASSWORD": lambda: secrets.token_urlsafe(24),
-    "ENABLE_LIVE_PAYMENTS": lambda: "false",
-}
-present = {}
-if path.exists():
-    for line in path.read_text(encoding="utf-8").splitlines():
+
+def configure(path):
+    template = Path(__file__).resolve().parents[1] / ".env.example"
+    content = path.read_text(encoding="utf-8-sig") if path.exists() else template.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    present = {}
+    for i, line in enumerate(lines):
         if "=" in line and not line.lstrip().startswith("#"):
-            present[line.split("=", 1)[0].strip()] = True
-missing = [k for k in defaults if k not in present]
-if not path.exists():
-    with path.open("x", encoding="utf-8") as f:
-        f.write("\n".join(f"{k}={defaults[k]()}" for k in defaults) + "\n")
-    print("Created .env (local sandbox + Sepolia agent wallet). Credentials were not printed.")
-elif missing:
-    with path.open("a", encoding="utf-8") as f:
-        f.write("\n# Added by scripts/configure.py\n" + "\n".join(f"{k}={defaults[k]()}" for k in missing) + "\n")
-    print("Existing .env preserved; added missing keys:", ", ".join(missing))
-else:
-    print("Existing .env preserved.")
+            key, value = line.split("=", 1)
+            present[key.strip()] = (i, value.strip())
+    defaults = dict(PUBLIC_DEPLOY="false", COOKIE_SECURE="false", ENABLE_ONCHAIN="false",
+        ENABLE_LIVE_PAYMENTS="false", EVM_RPC_URL="", ALLOW_SIGNUP="true", ENABLE_DEMO_LOGIN="true",
+        ENABLE_WORKER="true", FRONTEND_PORT="8787", FINANCE_DB="data/finance.sqlite3",
+        OPENAI_API_KEY="", OPENAI_MODEL="gpt-6-luna", OPENAI_REASONING_EFFORT="none", OPENAI_BASE_URL="")
+    for key in ("OWNER_TOKEN", "AGENT_TOKEN"):
+        value = present.get(key, (-1, ""))[1].strip(chr(34) + chr(39))
+        if not value or value.startswith("replace-with-"):
+            new_line = f"{key}={secrets.token_urlsafe(32)}"
+            if key in present:
+                lines[present[key][0]] = new_line
+            else:
+                lines.append(new_line)
+    for key, value in defaults.items():
+        if key not in present:
+            lines.append(f"{key}={value}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Configured {path.name}. Existing values preserved; blank/example tokens replaced. No secrets printed.")
+    print("Local defaults use HTTP and simulation only. Review existing deployment settings before restart.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parents[1] / ".env")
+    configure(parser.parse_args().output)

@@ -569,7 +569,7 @@ export default {
 
   'audit.title': '审计记录', 'audit.owner_only': '审计记录仅对 Owner 开放。', 'audit.search': '搜索动作、支付或请求 ID',
   'audit.outcome': '结果', 'audit.actor': '执行者', 'audit.any_outcome': '任意结果', 'audit.any_actor': '任意执行者', 'audit.detail': '详情', 'audit.empty': '没有匹配的事件。',
-  'audit.note': '按请求分组。更正以新事件记录；数据库阻止修改和删除。敏感标识已遮蔽。未做密码学封存。',
+  'audit.note': '按请求分组。更正以新事件记录；数据库阻止修改和删除，并且每条记录都与上一条用哈希串成链，事后任何改动都能被发现。敏感标识已遮蔽。',
 
   'reminder.quote_expired': '{amount} {source} 的报价已过期——授权前请重新报价。', 'reminder.quote_expiring': '有一份报价将在两分钟内过期。',
   'reminder.unresolved': '一笔已提交的支付仍为 {status}。正在核对结果，资金保持预留。', 'reminder.insufficient_funds': '可用 {currency} 低于已准备支付所需金额。',

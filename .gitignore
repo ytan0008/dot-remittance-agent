@@ -2,11 +2,19 @@
 __pycache__/
 .pytest_cache/
 .env
+.env.*
+!.env.example
+!.env.competition.example
 data/
 *.sqlite*
 *.key
 *.keystore.json
 artifacts/
+outputs/
+docs/backups/
+*.pem
+*.p12
+*.pfx
 
 # Office temp/lock files
 ~$*

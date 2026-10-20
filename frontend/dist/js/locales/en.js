@@ -569,7 +569,7 @@ export default {
 
   'audit.title': 'Audit log', 'audit.owner_only': 'The audit log is available to the owner only.', 'audit.search': 'Search action, payment or request ID',
   'audit.outcome': 'Outcome', 'audit.actor': 'Actor', 'audit.any_outcome': 'Any outcome', 'audit.any_actor': 'Any actor', 'audit.detail': 'Details', 'audit.empty': 'No events match.',
-  'audit.note': 'Grouped by request. Corrections are new events; the database blocks edits and deletions. Sensitive identifiers are masked. Not cryptographically sealed.',
+  'audit.note': 'Grouped by request. Corrections are new events; the database blocks edits and deletions, and every entry is hash-chained to the one before, so any later change is detectable. Sensitive identifiers are masked.',
 
   'reminder.quote_expired': 'A quote for {amount} {source} expired — get a fresh quote before authorizing.', 'reminder.quote_expiring': 'A quote expires in under two minutes.',
   'reminder.unresolved': 'A submitted payment is still {status}. The outcome is being checked; funds stay reserved.', 'reminder.insufficient_funds': 'Available {currency} is below what a prepared payment needs.',

@@ -569,7 +569,7 @@ export default {
 
   'audit.title': 'Nhật ký kiểm toán', 'audit.owner_only': 'Chỉ chủ sở hữu xem được nhật ký kiểm toán.', 'audit.search': 'Tìm hành động, mã thanh toán hoặc mã yêu cầu',
   'audit.outcome': 'Kết quả', 'audit.actor': 'Tác nhân', 'audit.any_outcome': 'Mọi kết quả', 'audit.any_actor': 'Mọi tác nhân', 'audit.detail': 'Chi tiết', 'audit.empty': 'Không có sự kiện phù hợp.',
-  'audit.note': 'Nhóm theo yêu cầu. Chỉnh sửa được ghi thành sự kiện mới; cơ sở dữ liệu chặn sửa và xóa. Mã nhạy cảm được che. Chưa niêm phong bằng mật mã.',
+  'audit.note': 'Nhóm theo yêu cầu. Chỉnh sửa được ghi thành sự kiện mới; cơ sở dữ liệu chặn sửa và xóa, và mỗi mục được nối chuỗi băm với mục trước, nên mọi thay đổi về sau đều bị phát hiện. Thông tin nhạy cảm được che.',
 
   'reminder.quote_expired': 'Báo giá cho {amount} {source} đã hết hạn — lấy báo giá mới trước khi ủy quyền.', 'reminder.quote_expiring': 'Một báo giá sẽ hết hạn trong vòng hai phút.',
   'reminder.unresolved': 'Một khoản đã gửi vẫn đang {status}. Kết quả đang được kiểm tra; tiền vẫn được giữ chỗ.', 'reminder.insufficient_funds': 'Số {currency} khả dụng thấp hơn mức một khoản đã chuẩn bị cần.',

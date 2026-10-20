@@ -569,7 +569,7 @@ export default {
 
   'audit.title': '監査ログ', 'audit.owner_only': '監査ログはオーナーのみ閲覧できます。', 'audit.search': '操作、支払い、リクエスト ID を検索',
   'audit.outcome': '結果', 'audit.actor': '実行者', 'audit.any_outcome': 'すべての結果', 'audit.any_actor': 'すべての実行者', 'audit.detail': '詳細', 'audit.empty': '該当するイベントはありません。',
-  'audit.note': 'リクエストごとにまとめています。訂正は新しいイベントとして記録され、データベースは編集と削除を拒否します。機微な識別子はマスクされます。暗号学的な封印はしていません。',
+  'audit.note': 'リクエストごとにまとめています。訂正は新しいイベントとして記録され、データベースは編集と削除を拒否します。各記録は直前の記録とハッシュチェーンで結ばれているため、後からの改ざんは検出できます。機密情報はマスクされています。',
 
   'reminder.quote_expired': '{amount} {source} の見積もりが期限切れです — 承認前に新しい見積もりを取得してください。', 'reminder.quote_expiring': '見積もりがまもなく（2分以内）期限切れになります。',
   'reminder.unresolved': '送信済みの支払いがまだ {status} です。結果を確認中で、資金は確保されたままです。', 'reminder.insufficient_funds': '利用可能な {currency} が、準備済みの支払いに必要な額を下回っています。',

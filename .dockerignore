@@ -2,6 +2,7 @@
 .git
 .env
 .env.*
+!.env.example
 data
 *.sqlite*
 *.keystore.json

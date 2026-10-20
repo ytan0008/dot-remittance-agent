@@ -569,7 +569,7 @@ export default {
 
   'audit.title': '감사 기록', 'audit.owner_only': '감사 기록은 소유자만 볼 수 있습니다.', 'audit.search': '작업, 결제, 요청 ID 검색',
   'audit.outcome': '결과', 'audit.actor': '행위자', 'audit.any_outcome': '모든 결과', 'audit.any_actor': '모든 행위자', 'audit.detail': '상세', 'audit.empty': '일치하는 이벤트가 없습니다.',
-  'audit.note': '요청별로 묶었습니다. 정정은 새 이벤트로 기록되며 데이터베이스가 수정과 삭제를 막습니다. 민감한 식별자는 가려집니다. 암호학적 봉인은 하지 않았습니다.',
+  'audit.note': '요청별로 묶었어요. 수정은 새 이벤트로 기록되고, 데이터베이스는 편집과 삭제를 막으며, 각 기록이 이전 기록과 해시 체인으로 연결되어 나중의 변경을 찾아낼 수 있어요. 민감한 식별 정보는 가려져 있어요.',
 
   'reminder.quote_expired': '{amount} {source} 견적이 만료되었습니다 — 승인 전에 새 견적을 받으세요.', 'reminder.quote_expiring': '견적이 2분 안에 만료됩니다.',
   'reminder.unresolved': '제출한 결제가 아직 {status} 상태입니다. 결과를 확인 중이며 자금은 예약되어 있습니다.', 'reminder.insufficient_funds': '사용 가능한 {currency}이(가) 준비된 결제에 필요한 금액보다 적습니다.',

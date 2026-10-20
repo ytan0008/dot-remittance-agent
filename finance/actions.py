@@ -107,7 +107,45 @@ def check(action, params):
     extra = set(params) - set(required) - set(optional)
     if extra:
         raise Denied("unknown details: " + ", ".join(sorted(extra)), "action_invalid", fields=sorted(extra))
-    return {k: params[k] for k in (*required, *optional) if k in params}
+    clean = {k: params[k] for k in (*required, *optional) if k in params}
+    return NORMALISE.get(action, lambda p: p)(clean)
+
+
+# ---------- values the assistant tends to word its own way: put right (or refused) before a confirm card is shown ----------
+BILL_CATEGORIES = {"rent": "rent", "tuition": "tuition", "loan": "loan", "family": "family", "subscription": "subscription",
+                   "utility": "utility", "utilities": "utility", "phone": "utility", "mobile": "utility", "internet": "utility",
+                   "electricity": "utility", "power": "utility", "gas": "utility", "water": "utility", "insurance": "other",
+                   "streaming": "subscription", "membership": "subscription", "gym": "subscription"}
+
+
+def _due(value):
+    """A bill's due date: YYYY-MM-DD, or a day of the month ("5", "5th") meaning the next such day."""
+    import re
+    from datetime import date
+    text = str(value).strip().lower()
+    m = re.fullmatch(r"(\d{1,2})(st|nd|rd|th)?", text)
+    if m and 1 <= int(m.group(1)) <= 28:
+        day, today = int(m.group(1)), date.today()
+        due = today.replace(day=day)
+        if due < today:
+            due = (due.replace(day=1).replace(month=due.month % 12 + 1, year=due.year + (due.month == 12))).replace(day=day)
+        return str(due)
+    try:
+        return str(date.fromisoformat(text))
+    except ValueError:
+        raise Denied("due_date must be YYYY-MM-DD or a day of the month", "action_invalid", field="due_date") from None
+
+
+def _bill(p):
+    category = str(p.get("category") or "other").strip().lower()
+    recurring = str(p.get("recurring") or "none").strip().lower()
+    recurring = "monthly" if recurring in ("monthly", "month", "every month", "yes", "true") else "none" if recurring in ("none", "no", "once", "false") else recurring
+    if recurring not in ("none", "monthly"):
+        raise Denied("recurring must be monthly or none", "action_invalid", field="recurring")
+    return dict(p, category=BILL_CATEGORIES.get(category, "other"), recurring=recurring, due_date=_due(p["due_date"]))
+
+
+NORMALISE = {"add_bill": _bill}
 
 
 def run(finance, actor, action, params):

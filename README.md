@@ -1,378 +1,380 @@
-<div align="center">
+# DOT — Cross-border & Student Finance Assistant
 
-**English** · [简体中文](README.zh-CN.md)
+**Team Dotopia · Topic C · Non-on-chain**
 
-# ◉ DOT · AI Cross-Border Remittance Agent
+**English** | [简体中文](README.zh-CN.md)
 
-**A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
+**Repository:** https://github.com/ytan0008/dot-remittance-agent
+**Access:** Public. Teachers can read or clone it without an invitation.
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-421%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+DOT helps international students and other cross-border users compare transfer costs, plan tuition funding, track spending and see how long their money will last. It connects exchange decisions with everyday budgets instead of treating them as separate tasks.
 
-![Overview](docs/screenshots/overview.png)
+The AI reads information, calls finance tools, explains results and prepares changes. The backend checks permissions. Users confirm changes that require owner authority.
 
-</div>
+**The submitted application uses local simulations. It does not send bank transfers, move real funds or build a credit-bureau record.** Legacy EVM modules remain in the source for regression coverage, but are disabled in the documented deployment.
 
----
+![DOT overview](docs/screenshots/overview.png)
 
-## What it is
+## 1. Start here
 
-Sending money across borders means weighing exchange rates, fees, available funds, recipient details and delivery time at once. **The amount implied by a reference rate is not what arrives after charges**, and the lowest advertised fee does not always deliver the most.
+| What the submission contains | Where to find it |
+|---|---|
+| Backend and frontend source | [`finance/`](finance/), [`frontend/`](frontend/) |
+| Docker deployment | [`compose.yaml`](compose.yaml), [`Dockerfile`](Dockerfile), [`frontend/Dockerfile`](frontend/Dockerfile) |
+| Configuration templates | [Local HTTP](.env.example), [Public HTTPS](.env.competition.example) |
+| Dependency versions | [`requirements.lock.txt`](requirements.lock.txt); supported ranges in [`requirements.txt`](requirements.txt) |
+| Automated tests | [`tests/`](tests/), [dated verification record](docs/TEST-RESULTS.md) |
+| Architecture, algorithms and security | [Technical documentation](docs/DOT-Technical-Documentation-EN.md), [security self-assessment](docs/DOT-Security-Self-Assessment-Report-v2.md) |
+| Automated GitHub test runs | [Actions](https://github.com/ytan0008/dot-remittance-agent/actions) |
 
-DOT is a natural-language AI agent that helps you:
+For marking, follow **Section 4** to start the application, **Section 6** for a walkthrough, and **Section 9** to reproduce the tests.
 
-- 💬 **Do it all by chat** — anything in the app (bills, subscriptions, balances, terms, scholarships, email digest, routes, limits…) can be asked of the assistant; it prepares a confirm card and runs only when you press *Confirm*. Paying stays in your hands
-- 🔍 **Read rates honestly** — real ECB daily reference rates with source and timestamp, and historical position interpreted for *your* transfer direction
-- ⚖️ **Compare options** — reference calculations, simulated options and the sandbox quote are kept strictly apart, ranked by amount received or speed
-- 📝 **Prepare payments** — fix the amount you send, or the amount the recipient must receive (reverse-quoted)
-- 🛡️ **Execute safely** — 13 guardrail checks plus your explicit authorization; the assistant prepares and explains, but only you ever submit a payment
-- 💱 **Plan your exchanges** — see how much you have in each currency, plan how much to exchange, simulate what it leaves in a sandbox, and get gap alerts per currency
-- ⏰ **Exchange at a good moment** — after comparing, set reminders: a target rate, a “favorable level” (top 10–30% of the last 90 days) or an exchange-by date; optional browser notifications
-- 🧾 **Keep spending in order** — import a bank CSV, scan a receipt, or quick-add by text or voice (“lunch 12.50”); suggested categories, duplicate flags, recurring expenses and one-click batch review
-- 🏛️ **Compare banks, not just rates** — the AI reads banks' public rate and fee pages (falling back to its own knowledge, clearly marked), then builds exchange scenarios: which bank converts, pay at once or split in two
-- 🎓 **Plan the term** — “Can I afford this?” checks, a term-based cash-flow planner for tuition, living costs and income, a scholarship & grant tracker with deadlines and document checklists, weekly/monthly insights with concrete suggestions, and daily, weekly or monthly email digests with urgent alerts
-- 🏦 **Bank transfer templates** — SWIFT wires and domestic formats (SEPA, BSB, FPS, ACH, CNAPS, NEFT), checked as you type, with copy-ready instructions and an MT103 preview
-- 🌱 **Stay motivated, kindly** — milestone badges, a forgiving check-in streak, short opt-in challenges, money-skill levels and celebration moments; no rankings, no pressure, nothing shared
-- 🧾 **Trace everything** — one audit trail answers who authorized what, which checks ran, and what happened next
+## 2. What DOT implements
 
-> Implements every functional module (4.1–4.15) of the product specification *AI Cross-Border Remittance Assistant* v4.0 — see the [requirements mapping](#-requirements-mapping).
+| User need | Implemented behaviour | Boundary |
+|---|---|---|
+| “How should I send tuition money?” | Compare rates, fees, estimated arrival amounts and transfer scenarios; inspect bank fee evidence and save exchange plans. | Reference data and simulated quotes are labelled; they are not binding bank offers. |
+| “Should I exchange now?” | Rate history, historical position, experimental seven-day forecasts, deadline-aware advice and reminders. | Forecasts can be wrong; baseline performance is disclosed. |
+| “How much do I have across currencies?” | Enter or import balances, plan exchanges, identify currency gaps and explore future balances in a sandbox. | No live bank-account connection. Scenario balances are estimates. |
+| “What did I spend this month?” | CSV import, receipt/screenshot reading, text entry, review queues, categories, duplicate hints and recurring expenses. | AI extraction needs a configured model and user review. |
+| “Did I pay, or did my parents?” | Accounts and entries record who paid. Separate monthly budgets track the user's spending and spending paid by others. | Results depend on correct records and payer choices. |
+| “Am I counting my credit-card repayment twice?” | Account and transaction types distinguish purchases, repayments and transfers between own accounts. | This is spending management, not credit reporting. |
+| “Will my money last the term?” | Tuition dates, living costs, income, safety buffers, cash-flow forecasts and affordability checks. | User-entered plans are not verified income or bank balances. |
+| “What about scholarships and bills?” | Scholarship applications and document checklists, bill deadlines, recurring entries and optional email digests. | Eligibility is not verified; email needs an external service. |
+| “Can the assistant help me fill this in?” | Tool calls, result cards, detail forms, saved preferences and confirmation proposals. | There is one Agent orchestrator, not a distributed multi-agent system. |
+| “Can I rehearse a transfer?” | Local draft → user approval → submission → reconciliation, with guardrails and audit history. | Simulation only; no external payment is sent. |
 
----
+Other features include SWIFT/domestic transfer instruction templates, private progress milestones, dark/light themes and six interface languages: English, Simplified Chinese, Traditional Chinese, Japanese, Korean and Vietnamese. Templates validate formats, not account ownership. Voice input depends on browser support and microphone permission.
 
-## ✨ Highlights
+### A connected example
 
-### 1. Ask, and get cards you can use
+A student holds CNY and AUD, has tuition due next month and pays rent from an Australian account. They can compare an exchange, save the tuition funding plan, review card spending and check whether that plan leaves enough AUD for rent. The assistant can explain the calculation and prepare a change; it cannot turn a chat message into payment approval.
 
-On each turn the agent first calls `record_plan` to record its **intent, extracted amounts/currencies/recipient, missing details and planned steps**, then calls tools. Results land on a **result board** as jelly cards you can drag, stack (offset so each stays readable) and open; when it needs something only you know — a recipient, bank details for a template, an exchange plan, your balance — it pops up a prefilled form beside the chat. The assistant can look things up, explain and prepare drafts, plans and templates, but it has no tool to submit or approve a payment.
-
-![AI agent](docs/screenshots/agent.png)
-
-- Without a model key, an **offline rule planner** drives the same pipeline (clearly labeled “not an AI model”). It understands common intents in 6 languages, asks for missing details and fills them from your next message.
-- Configure any **OpenAI-compatible** model with function calling and it becomes a real AI agent.
-- The model has **no** tool to approve payments or raise limits — saying “OK” never authorizes anything.
-
-### 2. Compare before you send
-
-![Comparison](docs/screenshots/compare.png)
-
-Live comparison as you type: a reference-rate benchmark, three simulated options (bank wire / online remittance / instant pickup) and the executable sandbox quote — with fixed and percentage fees, applied rate, spread, delivery estimate, loss versus reference, and **charges not included**.
-
-### 3. Authorization is a deliberate act
-
-![Authorization](docs/screenshots/authorize.png)
-
-The authorization screen shows the environment label, exact amounts, rate source, a live quote countdown, the status timeline and every guardrail check. After ticking the confirmation you must **press and hold** the ring. The approval is bound to a SHA-256 digest of the exact details — any change voids it.
-
-### 4. Your money at a glance — exchange plans, sandbox and gaps
-
-The **Overview** follows one line of thought: *how much do I have → how do I plan to exchange it → what would that leave → where am I short?*
-
-![Sandbox](docs/screenshots/sandbox.png)
-
-- **How much you have** — the latest balance per currency, typed in or read from a bank CSV, each shown big **in its own currency** (no single converted headline to confuse AUD with CNY). A **currency-mix bar** shows the share of each, and one small line gives the reference-rate total as an estimate.
-- **Exchange plans** — your intentions: “get 4,300 AUD from CNY by the 25th for tuition”, or “spend 20,000 CNY”. A plan can be set by what you receive or what you spend; tap a plan to edit it with a live preview (rate, what you pay, what each currency has left, how much of the need it covers). Suggestions come ready-made from tuition, a term's living costs and bills that nothing covers yet. Plans are only intent — nothing is exchanged — and each plan's pair is judged by the AI watch, which treats the plan's amount, date and lowest acceptable rate as hard limits. The Send page's *needs* form and the assistant (`plan_exchange`, or a pop-up plan form) create the same plans.
-- **Sandbox** (its own page in the sidebar; the overview shows a summary card) — applies your plans to your balances in numbers only and shows before/after per currency. Try a worse or better rate (−3%, −5%, +3%), add pretend money (“what if my parents send 20,000 CNY”) or leave plans out; none of it is saved. Below it, the **simulated payments** list shows what payments prepared by DOT or by you did to the pretend test balances — held while *not completed*, deducted once the simulation completes. No real money ever moves.
-- **Gaps** — per currency for the next 60 days: what you hold, plus what plans bring in, minus what they take out, against what you need (tuition, living costs, bills, purpose-only plans) plus your safety buffer. The chart shows held, planned and the hatched shortfall against the need line; the text gives the gap without exchanging, after your plans, and if rates were 3% worse. *Plan to cover it* opens a prefilled plan. Currencies with no balance entered are flagged instead of guessed.
-- **Alerts** — gaps due within 7 days, plans that need more than you hold, a rate below your limit and plans falling due become reminders; with email on they arrive at once, the rest go into the digest.
-
-### 5. AI watches the exchange rate for you
-
-Step ③ on the Send page starts with the **AI watch**. For every pair you use (active goals and recent transfers are picked up automatically), the AI judges by itself whether now is a good time: it reads the 90-day position, the gap to the 90-day average, the recent trend, the experimental 7-day forecast (and whether it beat the baseline), plus your deadline. The verdict is *good time / waiting looks reasonable / exchange soon — deadline / below your acceptable rate / no strong signal*, with a confidence level, the reasons as chips and — when a model is configured — a short explanation written by the model in your language. The worker re-checks every ten minutes and reminds you (bell, browser notification, email if enabled) when the judgment turns to “good time” or “deadline”.
-
-**You can guide it.** Your **exchange plans** (from the overview, the *needs* form here, or simply by telling the assistant) give the amount you need to receive, the date you need it by and the lowest rate you accept. These are hard limits: a rate below your floor is never called a good time, and a close deadline is never told to wait. Without a model, a transparent rule engine makes the same kind of judgment. Fixed rules — a target rate, a favorable level, an exchange-by date — remain available as an optional extra. Nothing is ever exchanged automatically.
-
-### 6. Bank transfer templates (SWIFT and domestic)
-
-The **Bank transfer templates** tab of the Send page stores the bank details you pay often, in seven formats: **SWIFT** international wire, **SEPA** (IBAN), **Australian BSB**, **UK Faster Payments** (sort code), **US ACH** (ABA routing), **China CNAPS** and **India NEFT/IMPS** (IFSC). Every field is checked as you type — BIC structure, IBAN checksum and country length, ABA checksum, BSB / sort code / IFSC / CNAPS formats, the SWIFT character set (Chinese names must use the Latin spelling on the account), a BIC/IBAN country mismatch, and a reminder that CNY wires usually need a purpose code.
-
-A confirmed template opens a **copy-ready instruction sheet** (copy each field, copy all, download .txt) and, for SWIFT, an **MT103-style field preview** (:32A:, :57A:, :59:, :70:, :71A:) for reference — your bank builds the real message; DOT never sends instructions anywhere. Account numbers are masked everywhere except the owner's sheet. Templates drafted by the assistant, and templates whose bank details change, stay **unconfirmed** until you check them against an official source — the classic “our bank details have changed” scam is called out on every sheet. *Compare & plan* switches to the comparison tab with the template's currency, amount and purpose; when you pick a recipient that has a confirmed template, the Send form links to it, and a new draft reminds you which template to use at your bank. The assistant can also fill a template from bank details you paste in the chat: the form pops up prefilled, problems are marked with ⚠ and their reason, and if you close it the draft stays on the result board to continue later.
-
-### 7. Spending you can trust
-
-![Fixed costs](docs/screenshots/spending.png)
-
-The **Spending** page is built for students: drop the CSV your bank exports (comma/semicolon, debit/credit columns, day-first dates and GBK files are detected), and every row arrives **pending** with a suggested category and a duplicate flag (same merchant and amount within ±2 days, including re-imported statements). Select, recategorize in bulk and confirm — corrections are learned per merchant. **Pictures:** drop, paste or pick up to four images — shop receipts, or screenshots of your banking or card app listing several transactions; the vision model reads every transaction (resolving “yesterday” or weekday names, `A$12,10` decimal commas, skipping rows without an amount) and you check them as a list before saving. **Quick-add** reads one line your way: `lunch 12.50`, `午饭40澳刀`, `2026年10月19号 午饭10澳元`, `午饭10澳元 打车25` (two entries), `上周五 coles 21.50`, `ランチ 1200円` and voice input. Fast offline rules read most lines instantly; when they cannot, *Read with AI* (or Enter) hands the line to the model. The same reader serves the assistant's `log_expense`. Recurring expenses (rent, phone, subscriptions) create **expected** entries a week ahead to confirm or adjust. The assistant can log expenses too (`log_expense`), but they wait in the same review queue.
-
-### 8. Term planning
-
-The **Term planning** page plans a whole term on your own figures:
-
-- **Can I afford this?** — enter a price; it is checked against cash now (ledger + holdings you entered), the term plan, upcoming tuition and extras, your safety buffer and what is left of this month's budget. The answer is *Yes / Possible, but tight / Not right now*, with the numbers, a before/after balance chart and the earliest safer date.
-- **Term cash flow** — add terms (dates, tuition and its due date, living costs and income per month). Monthly amounts are spread evenly per day, tuition lands on its date, awarded scholarships count as income on their payout date, and months outside a term use your average confirmed spending. You get the opening cash, monthly closing balances, the lowest point and the first shortfall.
-- **Scholarships & grants** — status from researching to awarded, deadline countdowns, a document checklist (transcript, CV, statement, references…), and reminders 14/7/3/1 days before a deadline while documents are missing. Tuition due dates are reminded too.
-- **Insights** (on the Spending page) — the last 7 or 30 days versus the period before and your usual level, with tips such as categories that rose, frequent small purchases, subscription totals, term-budget pace, upcoming tuition and plan shortfalls — each with an estimated saving.
-- **Email reports** — choose a **daily, weekly (on the weekday you pick) or monthly** digest: balances, currency gaps (also with rates 3% worse), exchange plans, the AI's timing view, spending and reminders. **Urgent alerts** (a gap due within 7 days, a rate below your limit, plans that need more than you hold, payment problems) can go out at once, and a digest is skipped when nothing changed. Sent through Resend or your own SMTP server to the single address you save; without either you can still preview them.
-
-Everything here is an estimate from your plan and confirmed spending, never financial advice, and nothing moves money.
-
-### 9. Progress, the encouraging way
-
-The **Progress** page adds light game mechanics that build money skills without competition:
-
-- **Badges** for 16 milestones in four skills (tracking, planning, habits, goals) — first entry, a week of logging, a term plan, a safety buffer, an application sent, all documents ready, a goal reached…
-- **A forgiving check-in streak** — logging or reviewing spending, or updating a plan, goal or scholarship counts; up to two days off in a row never break it. A gap shows “Welcome back”, never a loss; the last 8 weeks are drawn as dots.
-- **Short challenges** (7 days, optional, at most three): log on 5 days, clear the review queue, plan your term, finish one document, review subscriptions, one no-spend day, set aside a little. Measured ones complete by themselves; the others you mark done. Stopping or running out of time is “ended — no worries”, never a failure. “Set aside” suggests at most 10 units or 5% of a week's budget and refuses amounts that do not fit.
-- **Levels 1–5** describe skills, each with clear criteria shown as a checklist — never balances or rankings.
-- **Celebration moments** — a dot burst when you earn a badge, level up, finish a challenge, reach a streak milestone, complete a goal or win a scholarship. History from before the feature is acknowledged quietly.
-
-Everything comes from your own activity, nothing is compared or shared, and both progress features and celebrations can be switched off.
-
-### 10. Tools and memory
-
-**Tools** live in [`finance/tools.py`](finance/tools.py). Each tool is declared once with `@tool(name, description, params, kind)` next to its implementation (kind: view or prepare); the agent validates arguments and audits every call. There are 41 tools, including `request_details` (pop-up forms), `plan_exchange`, `simulate_exchange`, `money_overview`, `check_bank_details`, `draft_transfer_template`, `exchange_advice`, `progress_overview`, `start_challenge`, `afford_check`, `cashflow_plan`, `spending_insights`, `track_scholarship`, `log_expense` and `remember_note` — and deliberately none that submit or approve payments, raise limits or change recipients. Adding a tool is one decorated function.
-
-**Memory** lives in [`finance/memory.py`](finance/memory.py), in three layers:
-
-| Layer | What it holds | How it is used |
-| --- | --- | --- |
-| Conversation | The last 12 turns of each session | Sent with every request so follow-ups make sense |
-| Notes | Durable facts you ask it to keep — people, routines, preferences | The most relevant notes are injected each turn as *data*; the agent saves them with `remember_note`, you review and delete them on the **Memory** page |
-| Episodes | One record per turn: request, intent, tools run (and blocked), payments touched, outcome | Searchable with `recall_memory`; recent episodes give the agent continuity |
-
-Recall works across languages (word matching for Latin scripts, character bigrams for CJK). Memory refuses passwords, keys and full account or card numbers, never grants permissions, and is never treated as proof of a balance or payment.
-
-![Memory](docs/screenshots/memory.png)
-
-### 11. Black & white · dots, lines, circles · in motion
-
-| Rates · history, position and 7-day forecast | Dark mode |
-| --- | --- |
-| ![Rates](docs/screenshots/markets.png) | ![Dark](docs/screenshots/dark.png) |
-
-- The dot-grid background becomes a **magnifying lens** around the cursor; a constellation of dots, lines and circles drifts with scroll parallax
-- **Depth transitions** between pages: going forward pushes the old page away and blurs it while the new one pulls close; **swipe** between pages on mobile
-- The rate chart supports **wheel / pinch zoom and drag to pan**; result cards on the agent board are soft “jelly” tiles you can drag, stack (they fan out so each stays readable) and open
-- Modals grow out of the card that opened them; a liquid indicator follows the tabs; scroll reveal, count-up numbers, line-drawing animations
-- Respects `prefers-reduced-motion`; zero external dependencies under a strict `'self'` CSP
-
-**From sign-in to the app.** On success the sign-in dot flies to the top-left: its pupil opens into the brand ring (your
-avatar on a phone) while the app, already built underneath, fades in.
-
-### Where things are
-
-The sidebar follows what you are doing: **Assistant** (AI assistant) · **My money** (overview, sandbox with the test money) ·
-**Send money** (rates — with a table of banks' rates and wire fees —, send — with *Compare & send*, *Recipients* (incl.
-payment limits) and *Bank transfer templates* tabs —, and transfer history: your own transfers and what is about to be sent,
-without the automated test payments) · **Plan** (spending — two tabs, *Entries | Fixed costs*; fixed costs merge bills, recurring costs and subscriptions into
-one list with a chart and the payment-habits indicator on top —, term planning — term cash flow, extra income / costs /
-safety buffer, scholarships —, progress) · **System** (memory, audit log). The route manager opens from *More routes*.
-Email settings live in **Settings** (top right).
-
-**Goals are exchange plans now.** A plan can name a recipient and a purpose category; linked transfers count towards it
-(sent / on the way / left) and only what is left goes into the exchange scenarios. Existing goals are converted on upgrade
-and the originals archived, never deleted.
-
-**Accounts and sign-in.** Sign up and sign in with an email and a password (salted scrypt hashes only; five wrong tries
-lock that email for five minutes). Every account has its own database; data already on the machine is claimed only with
-the `OWNER_TOKEN` ("This computer's data is mine"). "Try the demo" opens a throw-away demo workspace, never anyone's real
-data. The language can be chosen right on the sign-in stage. The sign-in stage is a jelly dot that follows
-the cursor, can be grabbed and springs back, nods as you type, closes its eye for passwords and shakes its head (and the
-phone) on a mistake — one question at a time.
-
-**One ledger.** The overview balance is what the Send page shows as available: a completed simulated payment lowers it and
-records "updated after a payment"; only currencies you never entered use labelled test funds. Spending has **debit card,
-credit card and cash accounts**; statements are imported into an account. Card repayments and moves between your own
-accounts are paired on both sides (same amount, ±5 days) — even an unlabelled repayment is recognised from its other side —
-so 100 on the card plus a 100 repayment counts once. Refunds net against their category; the summary separates spending,
-cash out and card owed; a credit card balance never counts as money you have. An account can be **paid by someone else** (a parent's card — call them whatever you like, e.g. *Mum and Dad*): what you spend on it is still your spending, but never your cash or your debt. Each entry can also say who paid it (it overrides its account). The month has **two budgets** — *mine* and *paid by others* — each tracked and reminded on its own, and *Can I afford it?* checks the budget of whoever pays. The **term cash flow** starts from the money you hold and, each term month, lets the others' budget carry part of the living costs (never more than them). Every total is shown split — *paid by me* and *paid by Mum and Dad* — in the summary, each category bar (two shades), the budget bar and the entry list (with a filter); term projections leave their part out, *Can I afford it?* lets you choose who pays, and one tap copies a note of what their card paid for this month. The sandbox shows only the currencies you hold; add any other one by hand to try it with test money.
-
-**Deciding when.** The Rates page leads with "Is now a good time?": where today sits in the last 90 days (on your bank's
-own rate once enough days are recorded), and for YOUR amount the chance that waiting a week is better, the most likely
-gain or loss in your currency and its 80% range — saying plainly when the forecast does not beat "the rate stays the
-same". **Conditional exchange**: "when 1 CNY ≥ 0.2150 AUD, exchange up to 60,000 CNY before 10 Nov" — tell me to confirm,
-or exchange automatically (simulation: your recorded balances change); never above the cap or your balance, never twice,
-never after the date; close to the date it only warns. Afterwards: how much better than the 30-day average, ready to copy
-to your parents. Scenarios show the **rate margin in money**, apart from the fee. Spending has a **monthly budget**.
-
-**Each page has a focus; you arrange the cards.** Every component is its own card; the focus card stands out; cards that
-would only say "nothing yet" step aside; secondary detail starts folded. Drag a card by its title or the handle on top
-(it lifts above everything, leans with its speed, the others slide out of the way, a landing shadow deepens where it will fall, Esc cancels); drop it beside
-another to share the row; drag the corner to change its width; fold it, or use Alt+↑/↓. Cards pack like masonry, so the
-space between any two cards is always the same and no holes are left. **DOT on every page**: a
-draggable dot that snaps to the edge; tap it (or Ctrl+K) for the same conversation, aware of the page you are on.
-
-**Do everything by chat.** Apart from paying itself, anything in the app can be asked of the assistant: add a bill or a
-subscription, set a balance, log or recategorize spending, add a term, track a scholarship, change the email digest, toggle
-routes, set limits… It reads your records first (`read_records`), then shows a **confirm card** (`do_action`) with the action
-and its details; nothing runs until you press *Confirm*, and the server validates it again when it does. Authorizing and
-submitting a payment still happens only by your hand on the Send page.
-
-**Banks and scenarios.** On the Send page you pick the two currencies and, optionally, your sending and receiving banks.
-Sources, in order: ① the AI reads each bank's official public pages — and **every figure must come with the exact page
-text it was read from**; a figure whose quote is not on the page, or lacks the number, is dropped (page text is untrusted
-data); ② what the bank does not publish comes from Wise's public third-party comparison data, collected daily, with the
-collection time; ③ only then the model's own knowledge, labelled as an estimate; ④ typing the figures last. Opening the Rates page, or picking a pair on Send, **reads every bank for that pair automatically** (figures younger than a day are kept); the worker refreshes the pairs in your exchange plans every six hours. Bank of China
-(Australia) appears on both sides. **Bank knowledge base**: for each currency the AI looks up the main banks (monthly) and keeps them with their official pages; every read of a bank also collects every fee its pages state — sending fee, cable/telegraph charge (电讯费), exchange fee (外汇手续费), intermediary and receiving fees — found by keyword, each kept only with the exact page text, the page and the date, and replaced on every automatic read. Expand a bank on the Rates page (or under the bank picked on Send) to see them with their sources. **Your own accounts** are always *Me* (ID `me-cny`, `me-aud`…): pick one as *From* or as the recipient — the banks fill themselves in, the form says *I receive*, and money sent to your own account arrives in your balance. **Exchange scenarios** convert at the sending or the receiving bank, at once or in two
-parts. Fees stay **in their own currency**; a total converts at the reference rate and says so. Only scenarios whose every
-figure is sourced and that arrive by your date are ranked — only they can be "best"; missing fees make one "provisional",
-AI estimates sit under "for reference". With a must-arrive date, the arrival time (e.g. 1–3 business days by wire) gives a
-**latest start date**; the second part sits exactly on the forecast's date, and is flagged when it cannot arrive in time. A scenario can
-become exchange plans, or be tried in the **sandbox**, which shows what you hold today and then, by date, what plans,
-goals, bills, subscriptions, term costs and the scenario would do to each currency — each source can be left out.
-
-### 12. Six languages
-
-English · 简体中文 · 繁體中文 · Tiếng Việt · 日本語 · 한국어 — numbers, dates and region names localized with `Intl`; backend errors arrive as stable codes and are translated in the UI.
-
-| 한국어 | Tiếng Việt |
-| --- | --- |
-| <img src="docs/screenshots/mobile-ko.png" width="300"> | <img src="docs/screenshots/mobile-vi.png" width="300"> |
-
----
-
-## 🏗 Architecture
+## 3. Architecture and Agent design
 
 ```mermaid
-flowchart LR
-    U[User · 6-language UI] -->|session cookie / SSE| N[Nginx]
-    N --> API[FastAPI]
-    API --> AG[Agent<br/>understand → plan → act]
-    AG -->|whitelisted tools · never submits| S[Finance service]
-    API --> S
-    S --> G[13 guardrail checks]
-    G --> SB[Sandbox provider<br/>local simulation · async settlement]
-    S --> R[Reference rates<br/>ECB / Frankfurter]
-    S --> DB[(SQLite<br/>ledger · expenses · append-only audit)]
-    W[Background worker] -->|reconcile · reminders · exchange alerts · recurring| S
+flowchart TD
+    U[Browser: forms, charts and assistant] --> N[Nginx: static files and API proxy]
+    N --> A[FastAPI: identity and workspace selection]
+    A --> G[Agent or labelled RulePlanner]
+    G --> T[Registered tools and argument validation]
+    A --> F[Finance modules: permissions and calculations]
+    T --> F
+    F --> D[(Per-workspace SQLite)]
+    G --> M[Memory: conversations, notes and episodes]
+    M --> D
+    F --> P[Proposals requiring owner confirmation]
+    P -->|User confirms; backend checks| F
+    W[Background worker] --> F
+    G --> X[Optional model API]
+    F --> E[Rates, public bank pages and optional email]
 ```
 
-| Module | Files |
-| --- | --- |
-| Agent orchestration (model loop, streaming, episodes) | `finance/agent.py` |
-| **Tool registry** — every tool's schema, kind and implementation | `finance/tools.py` |
-| **Memory** — conversation, notes, episodes, recall | `finance/memory.py` |
-| Offline rule planner | `finance/agent_rules.py` |
-| Payments core, guardrails, approvals, routes | `finance/service.py` |
-| Comparison, scenarios, goals & budget, decisions & proposals | `finance/planning.py` |
-| Payment habits, deduplicated reminders, exchange alerts (rate / favorable level / date) | `finance/habits.py` |
-| AI exchange watch: signals, model judgment with rule fallback, your needs as hard limits | `finance/watch.py` |
-| Transfer templates: SWIFT/SEPA/BSB/FPS/ACH/CNAPS/NEFT formats, validators, instruction sheet, MT103 preview | `finance/templates.py` |
-| Spending: CSV import, categories, duplicates, review, recurring, quick-add | `finance/expenses.py` |
-| Student money: scholarships, terms, cash flow, afford check, insights, email reports | `finance/student.py`, `finance/student_i18n.py`, `finance/mailer.py` |
-| Progress: badges, forgiving streak, challenges, levels, celebrations | `finance/motivation.py` |
-| Reference rates, historical analysis, backtested forecast | `finance/rates.py` |
-| Sandbox provider | `finance/providers.py` |
-| Cash position, exchange needs | `finance/money.py` |
-| Bank rates and fees (official page → third-party → estimate), exchange scenarios | `finance/banks.py` |
-| Deciding when: wait value, conditional exchange rules, monthly budget, bank-rate history | `finance/decide.py` |
-| Exchange plans | `finance/plans.py` |
-| Accounts, sign-in, sign-up limits, owner-token claim | `finance/auth.py` |
-| Masking before the model, export | `finance/privacy.py` |
-| Chat actions behind a confirm card | `finance/actions.py` |
-| API, SSE, standalone server | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
-| Frontend shell, pages, sign-in, card deck, assistant dot (native ES modules) | `frontend/dist/js/app.js`, `views/*`, `auth.js`, `cards.js`, `assistant.js` |
+The backend is a **modular monolith**, served by one Uvicorn process. Docker runs a frontend container and a backend container. JavaScript ES modules are served directly; no Node.js build is required.
 
----
+- **Tools:** declared in `finance/tools.py` with schemas and `view`/`prepare` tiers. The model cannot supply its own role. There is no model tool to approve or submit payments.
+- **Memory:** conversations, durable notes and episode summaries in the user's workspace. Memory is context, never authority.
+- **Calculations:** domain modules handle integer minor units, rate comparisons, budgets and cash flow. Model prose does not replace the ledger.
+- **Confirmation:** selected tools may save permitted plans, pending records or memory directly. Owner-controlled actions use proposals and backend checks.
+- **Fallback:** without a model key, a labelled rule-based planner supports common requests. It is not presented as an AI model.
+- **Updates:** Server-Sent Events stream assistant progress and signal data changes to the browser.
 
-## 🚀 Getting started
+## 4. Run locally with Docker
 
-### Docker (recommended)
+### Requirements
+
+- Git, or download the repository ZIP and extract it.
+- Docker Desktop using **Linux containers** on Windows/macOS, or Docker Engine with Compose v2 on Linux.
+- Internet access for the first image/dependency download. Current rates, bank pages, model calls and email also need network access.
+- Python 3.12 is recommended for local development. It is **not required on the host** if you use the Docker configuration command below.
+
+The development machine uses Windows and PowerShell. The same Compose services run in Linux containers. Paths such as `E:\study\finance` are local choices, not required paths.
+
+### Step 1 — Download
+
+```bash
+git clone https://github.com/ytan0008/dot-remittance-agent.git
+cd dot-remittance-agent
+```
+
+### Step 2 — Create local configuration
+
+With Python installed:
+
+```bash
+python scripts/configure.py
+```
+
+Or with Docker only, from PowerShell or a POSIX shell:
+
+```bash
+docker run --rm -v "${PWD}:/workspace" -w /workspace python:3.12-slim python scripts/configure.py
+```
+
+The script creates `.env`, generates distinct random owner/agent tokens, and leaves the model key blank. It replaces blank/example tokens but preserves other existing values. **It does not reset an old deployment:** if `.env` already exists, check the settings below before continuing.
+
+For a local HTTP demonstration:
+
+```dotenv
+PUBLIC_DEPLOY=false
+COOKIE_SECURE=false
+ENABLE_ONCHAIN=false
+ENABLE_LIVE_PAYMENTS=false
+EVM_RPC_URL=
+ENABLE_DEMO_LOGIN=true
+ALLOW_SIGNUP=true
+ENABLE_WORKER=true
+FRONTEND_PORT=8787
+```
+
+Keep the generated `OWNER_TOKEN` and `AGENT_TOKEN` in `.env`. They must be different and at least 24 characters long. Do not paste them into chat or commit them.
+
+### Step 3 — Build and start
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+Wait until the backend is healthy. Open **http://localhost:8787**.
+
+- Health: http://localhost:8787/api/health
+- API documentation: http://localhost:8787/api/docs
+- OpenAPI schema: http://localhost:8787/api/openapi.json
+
+Choose **Try the demo** for a temporary workspace, or register an account for persistent records. Registration creates a separate workspace. Access to pre-existing default-workspace data requires an explicit owner-token claim.
+
+Demo workspaces are temporary: they are cleaned up after 24 hours and at backend startup. Do not use a demo session to store work you need to retain.
+
+### Step 4 — Check, update and stop
+
+```bash
+docker compose logs --tail 100 backend
+docker compose logs --tail 100 frontend
+docker compose up -d --build
+docker compose down
+```
+
+Rebuild after source changes. After `.env` changes, run `docker compose up -d --force-recreate`; restarting an existing container does not load new environment values.
+
+`docker compose down` preserves the database volume. **Do not add `-v` unless you intend to delete stored application data.**
+
+## 5. Environment configuration
+
+Docker Compose reads `.env` and passes it to the backend. It overrides `FINANCE_DB` to `/app/data/finance.sqlite3`, stored in the named `finance_data` volume. The frontend binds to `127.0.0.1`; the backend is not published as a host port.
+
+| Variable | Purpose / local value |
+|---|---|
+| `OWNER_TOKEN`, `AGENT_TOKEN` | Required, distinct API credentials, at least 24 characters. Generated by the setup script. They are not ordinary user passwords. |
+| `VIEWER_TOKEN` | Optional read-only API credential; distinct and 24+ characters if enabled. |
+| `FRONTEND_PORT` | Host port; default `8787`. |
+| `FINANCE_DB` | Python-only path; Compose uses `/app/data/finance.sqlite3`. |
+| `ALLOW_SIGNUP` | `true` allows registration; `false` closes ordinary registration. |
+| `ENABLE_DEMO_LOGIN` | `true` shows the temporary demo entry. |
+| `PUBLIC_DEPLOY` | Local HTTP: `false`. Public deployment: `true`, forcing Secure cookies and refusing on-chain/live-payment configuration. |
+| `COOKIE_SECURE` | Local HTTP: `false`. HTTPS: `true`. Public mode forces Secure cookies regardless of this setting. |
+| `ENABLE_WORKER` | `true` enables reconciliation, reminders and scheduled checks. |
+| `SANDBOX_SETTLE_SECONDS` | Simulated settlement delay; default `8`. |
+| `ENABLE_ONCHAIN`, `ENABLE_LIVE_PAYMENTS`, `EVM_RPC_URL` | Keep `false`, `false`, empty for this submission. |
+| `MAX_PAYMENT_AUD`, `DAILY_PAYMENT_AUD` | Initial sandbox guardrail values; template defaults `500` and `1000`. |
+| `OPENAI_API_KEY` | Optional model credential. Blank enables the rule planner. |
+| `OPENAI_MODEL` | Model identifier accepted by your configured provider. The template contains the project's development default, not a guarantee of account access. |
+| `OPENAI_BASE_URL` | Blank uses the SDK default; otherwise the provider's compatible API base, typically ending in `/v1`. |
+| `OPENAI_REASONING_EFFORT` | Provider/model-specific setting; template value `none`. Check compatibility with your chosen model. |
+| `RESEND_API_KEY`, `RESEND_FROM` | Optional email provider key and allowed sender. Resend takes priority over SMTP. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY` | Optional SMTP host, port (`587`) and mode (`starttls`; use `ssl` for implicit TLS). |
+| `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | SMTP credentials and permitted sender. |
+
+### Model and receipt setup
+
+Use a Chat Completions-compatible endpoint with tool calling. Receipt/image extraction also requires image input support. Add your own key and model identifier to `.env`, then recreate the backend:
+
+```bash
+docker compose up -d --force-recreate backend
+```
+
+No model key is included in this repository. Model requests can incur provider charges. Text redaction runs before model calls; receipt images can be manually masked in the browser before upload. Users should review what remains visible.
+
+Without a key, forms, CSV review, budgets, cash-flow calculations, sandbox workflows and supported rule-planner requests remain usable. Current rates and public-page retrieval still need internet access; “rule-based” does not mean the whole application works offline.
+
+### Email setup
+
+Configure either Resend or SMTP, recreate the backend, then choose the destination and digest schedule in the application. Keep `ENABLE_WORKER=true`. Without a sender service, reports can be previewed but are not delivered.
+
+### Public HTTPS deployment
+
+The provided Compose file is a **local deployment**, not a complete public hosting setup. For a hosted demonstration:
+
+1. Put an HTTPS reverse proxy in front of the loopback frontend port and configure the domain/certificate.
+2. Use `.env.competition.example` as the configuration reference; generate your own tokens.
+3. Set `PUBLIC_DEPLOY=true`, `COOKIE_SECURE=true`, `ENABLE_ONCHAIN=false`, `ENABLE_LIVE_PAYMENTS=false`, and leave `EVM_RPC_URL` empty.
+4. Preserve the host/proxy configuration and SSE streaming; test sign-in and long assistant responses through the public URL.
+5. Restrict host access, encrypt storage/backups and test a restore. Decide whether registration and demo access should remain enabled.
+
+Do not use the public template for plain HTTP and then disable cookie protection to work around failed login. Use the local template for local HTTP.
+
+## 6. Suggested teacher walkthrough
+
+Use fictional data in a demo workspace:
+
+1. Switch the interface to **English**.
+2. Enter balances such as AUD 6,200 and CNY 18,000.
+3. Add a term with tuition, a due date, monthly income and living costs.
+4. Compare a CNY/AUD exchange and save an exchange plan.
+5. Import a sample CSV or enter expenses, review the entries and set a monthly budget.
+6. Open the sandbox and term cash flow to inspect the effect of tuition and spending.
+7. Ask the assistant about the plan. Check the visible rule/model label.
+8. Inspect memory and audit records. For payment simulation, add sandbox funds and a fictional recipient, then prepare, approve and submit a small simulated payment.
+
+Adding a cash balance for planning and funding a simulated-payment balance are different operations. Use the sandbox controls when testing simulated payments.
+
+## 7. Repository map
+
+```text
+finance/
+  api.py, web.py           API and standalone development server
+  agent.py, agent_rules.py Agent orchestration and rule fallback
+  tools.py, actions.py     Tool registry and confirmable actions
+  service.py, domain.py    Finance service, permissions and money types
+  rates.py, banks.py       Reference rates and bank fee evidence
+  bank_kb.py, watch.py     Bank knowledge base and exchange monitoring
+  plans.py, planning.py    Plans, comparisons and proposals
+  expenses.py, student.py  Spending, tuition and cash flow
+  memory.py, privacy.py    Context storage and redaction
+  auth.py, store.py        Accounts, sessions, SQLite and audit records
+  worker.py, mailer.py     Background processing and optional email
+frontend/
+  dist/                   Served HTML, CSS and JavaScript modules
+  nginx.conf              API proxy, SSE and security headers
+tests/                    Unit, integration, regression and security cases
+  browser/                Playwright smoke/layout scripts and demo recording tools
+scripts/configure.py      Local configuration bootstrap
+scripts/evidence_report.py Exported demo evidence → readable reports
+docs/                     Technical, security and verification documentation
+.github/workflows/         Automated test execution
+```
+
+`data/`, `.env`, `artifacts/` and `outputs/` are local runtime/generated files and are not part of the source submission.
+
+## 8. Run without Docker (development)
+
+Use Python **3.12** and the locked dependencies. No npm installation is needed.
+
+PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.lock.txt
-.\.venv\Scripts\python scripts/configure.py      # writes .env: tokens and passwords (never printed)
-docker compose up --build -d --wait
+.\.venv\Scripts\python scripts/configure.py
+# Load simple KEY=value lines from the locally generated .env without printing values.
+Get-Content .env | ForEach-Object {
+    if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+        [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+    }
+}
+.\.venv\Scripts\python -m uvicorn finance.web:app --host 127.0.0.1 --port 8787 --workers 1
 ```
 
-Open **http://localhost:8787**, create an account (or *Try the demo*). Data already on the machine is claimed with the `OWNER_TOKEN` from `.env`.
+macOS/Linux:
 
-### Without Docker
-
-```powershell
-$env:ENABLE_DEMO_LOGIN = 'true'
-.\.venv\Scripts\python -m finance.cli serve       # UI: http://127.0.0.1:8000 · API docs: /api/docs
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.lock.txt
+.venv/bin/python scripts/configure.py
+set -a
+. ./.env
+set +a
+.venv/bin/python -m uvicorn finance.web:app --host 127.0.0.1 --port 8787 --workers 1
 ```
 
-### Connect a language model (optional)
+Only source your own trusted `.env`; quote shell-special characters when editing it for shell use. The PowerShell loader above is for the generated simple format, not a general dotenv parser. Stop the server with Ctrl+C. The standalone server is for development; it does not reproduce Nginx's deployment headers.
 
-Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenAI-compatible service) in `.env`, then run `docker compose up -d --force-recreate backend`.
+## 9. Test cases and results
 
-### Email reports (optional)
+See [TEST-RESULTS.md](docs/TEST-RESULTS.md) for the dated run, counts and scope. Counts are not added across overlapping security suites. A green test suite is not a security certification.
 
-Easiest: sign up at [resend.com](https://resend.com), create an API key and put it in `.env` as `RESEND_API_KEY` (free: 3,000 emails a month). Without a verified domain Resend sends from `onboarding@resend.dev` and only to the address you signed up with — fine for your own reports; verify a domain and set `RESEND_FROM` to mail anyone. Or use your own SMTP server (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`). Then run `docker compose up -d --force-recreate backend`. Then save your address under **Settings → Email reports** (or tell the assistant “send a weekly digest to me@example.com”). With Gmail or Outlook use an app password.
+**Verified on 21 October 2026:** 425 tests passed on Windows and 425 passed in the Linux Docker image, with no failures or skips. Browser smoke and the 13-view × 6-language × desktop/mobile sweep also passed.
 
-### Try the new features
+### Full Python suite
 
-1. **Overview** → enter your balances → adopt a suggested exchange plan (or *New plan*) → watch the sandbox and the gaps change; try −3% or add pretend money
-2. **Send** → enter an amount → step ③ shows the AI watch's verdict; save your amount, deadline and lowest acceptable rate as an exchange plan, or open *Add your own rule*
-3. **Spending** → drop a bank CSV → review the pending rows (duplicates are left unticked) → **Confirm**
-4. **Term planning** → add a term → ask “Can I afford this?” for a price; track a scholarship and tick its documents; pick a daily, weekly or monthly email digest
-5. **Spending** → type `lunch 12.50` (or press the mic) → **Save**; or **Scan a receipt** (needs a vision-capable model, otherwise fill the form yourself)
-
-### Sandbox test amounts
-
-| Amount ending in | Result |
-| --- | --- |
-| anything else | submitted → processing → completed after ~8 s, settled exactly once |
-| `.13` | provider rejects → failed, reservation released |
-| `.57` | response lost → “outcome unknown”; the original payment is found by its own ID — **never a second payment** |
-
----
-
-## 📋 Requirements mapping
-
-| Module | What is implemented |
-| --- | --- |
-| 4.1 Funds & transfer requirements | Fixed send amount or target receive amount (reverse quote never delivers less); purpose, arrival date, linked goal; missing details are asked for first |
-| 4.2 Regional & APEC routes | 21 APEC economies (currency / languages / time zones); add, enable and disable routes; payments enabled separately and only where the provider supports the pair; capabilities verified against reference data |
-| 4.3 Latest rates | ECB first, Frankfurter blended composite when ECB lacks the pair (labeled); source, direction, observation date, frequency, change, cross-rate derivation; **never invented** |
-| 4.4 Historical analysis | 30/90/365-day min, max, average, percentile, low/mid/high position, new highs/lows, coverage; read in your direction |
-| 4.5 Forecasts & scenarios | Experimental 7-day model with rolling backtest against an unchanged-rate baseline and held-out interval coverage; scenario calculator |
-| 4.6 Transfer comparison | Reference calculation / simulated option / sandbox quote kept apart; ranking by receive or speed with its basis; undisclosed charges listed |
-| 4.7 Multi-currency funds | Per-currency total / available / reserved; reference equivalents with source, labeled “not a conversion”; settle only on confirmed completion, release only on confirmed failure |
-| 4.8 Goals & budget | Completed and planned kept apart; income / expense / safety buffer / user-entered holdings; one-time vs installments and funding shortfall |
-| 4.9 Natural-language agent | Mandatory plan first; three stages streamed over SSE; data-kind labels; chat and UI share one state |
-| 4.10 Permissions & guardrails | the assistant looks up and prepares, only the owner approves and submits; 13 checks run before approval and again before submission, each recorded in the audit log |
-| 4.11 End-to-end sandbox transfer | Quote → guardrails → authorization screen → hold to authorize → idempotent submit → async tracking → settlement → receipt; failure and timeout recovery |
-| 4.12 Approvals & history | Accepting a recommendation, confirming a change and authorizing a payment are recorded separately; any change voids the old approval |
-| 4.13 Audit log | Time, actor, action, outcome, correlation ID, request ID; denials recorded too; sensitive identifiers masked; triggers block edits and deletes |
-| 4.14 Credit-building support | Obligations with monthly recurrence, on-time / late history, an internal indicator clearly labeled “not a credit score”, credit education |
-| 4.15 Reminders & receipts | Deadlines, quote expiry, unresolved payments, insufficient funds, target rates, favorable levels, exchange-by dates, expected expenses, scholarship and tuition deadlines; fingerprint deduplication; browser notifications and email; printable receipts |
-| Extra: student money | “Can I afford this?”, term cash-flow planner, scholarship & grant tracker, weekly/monthly insights with suggestions, email reports and reminders |
-| Extra: progress | Badges, forgiving streak, optional challenges, money-skill levels and celebration moments — encouraging, private, non-competitive |
-| Extra: spending | Bank CSV import with suggested categories, duplicate detection and a review step; receipt scanning; text/voice quick-add; recurring expenses; batch review |
-
----
-
-## 🔐 Security model
-
-- **Separate roles**: owner / agent / viewer tokens are distinguished server-side; browser sessions use HttpOnly + SameSite=Strict cookies and writes require a same-origin header
-- **Bound authorization**: every sandbox payment needs the owner's approval of its quote digest; any field change, recipient change or quote expiry voids it
-- **Nothing counts unconfirmed**: imported, scanned and assistant-logged expenses stay pending until the owner reviews them; receipt photos are downscaled in the browser and never stored
-- **Exact amounts**: integer minor units everywhere; values above 2^53 travel as strings and are formatted with BigInt in the browser
-- **Model constraints**: tool whitelist, argument validation, bounded rounds; messages that look like private keys or API keys are rejected
-- **Masked before the model**: account numbers, card numbers, IBANs and emails become placeholders such as `[ACCT_1 …2222]`; the real values go back only into tool arguments, on this machine. Images cannot be masked — the screen says so
-- **Outside content is data**: bank pages, receipts and statement text are untrusted; a bank figure needs its exact page quote and must be within 15% of the reference rate, or it is dropped
-- **Your data**: Settings → Privacy & your data: export everything (JSON), permanently delete conversations or memory notes, close a (new) account
-- **Signing out**: signing out, an expired session or a sign-out elsewhere all return to the sign-in stage
-- **Isolation**: one database per account; the demo is its own space; with `PUBLIC_DEPLOY=true` the server refuses to start if a chain or live payments are configured (see `.env.competition.example`)
-- **Existing data**: data already on the instance belongs to no one until claimed with `OWNER_TOKEN` (at sign-up or in Settings); each demo session gets its own throw-away workspace, deleted after 24 h
-- **Ledger integrity**: a statement balance only becomes what you have when it is the newest word — future-dated, re-imported or older-than-an-exchange balances are kept apart and you are asked to reconcile; rule executions are atomic (never twice, never after their date, never above the balance)
-- **Strict input**: real calendar dates, bounded integer amounts, typed review items; the sign-up limit is counted and reserved in one transaction; a fee figure must be written with its currency, in a sentence that names no other currency and is not a minimum or limit
-- **Audited**: two rounds of adversarial tests (157 cases: access, CSRF, SSRF, races, ledger, evidence) are part of the test suite
-- **Acceptance and usability**: [real-model tuition scenario](docs/acceptance/tuition-scenario.md) · [usability test kit](docs/usability-test.md) (Chinese)
-
----
-
-## 🧪 Tests
+PowerShell:
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 421 tests (incl. two rounds of security-audit cases): service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
-.\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
+.\.venv\Scripts\python -m pytest tests -q --junitxml=artifacts/test-results.xml
+```
 
+macOS/Linux:
+
+```bash
+.venv/bin/python -m pytest tests -q --junitxml=artifacts/test-results.xml
+```
+
+Docker, using the built backend image and a temporary database location:
+
+```bash
+docker compose run --rm --no-deps -e FINANCE_DB=/tmp/dot-tests.sqlite3 -e ENABLE_WORKER=false backend python -m pytest tests -q
+```
+
+Tests use temporary workspaces, fixed reference rates and scripted model responses. Legacy EVM tests use an in-process Ethereum tester, not a real chain or funded wallet. No model key is required for the Python suite.
+
+### Focused tests and offline simulation
+
+```bash
+python -m pytest tests/test_hardening.py tests/test_configure.py -q
+python -m finance.demo
+```
+
+Run these with the virtual environment's Python. `finance.demo` creates a temporary database and demonstrates permission denial, owner approval, idempotency and recovery.
+
+### Browser acceptance (optional, slower)
+
+Start the local Docker application with demo access and the worker enabled, then:
+
+```bash
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
-docker run --rm --network remittance-agent_default --mount "type=bind,source=$PWD/artifacts,target=/artifacts" remittance-agent-browser-test
+docker run --rm --network remittance-agent_default -v "${PWD}/artifacts:/artifacts" remittance-agent-browser-test
 ```
 
-Browser acceptance covers the full payment flow plus a sweep of 13 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
+Create the `artifacts` directory first (`New-Item -ItemType Directory -Force artifacts` in PowerShell; `mkdir -p artifacts` on macOS/Linux). The default network follows the Compose project name `remittance-agent`; adjust it if you use `docker compose -p`.
 
----
+The image runs `smoke.py` and `layout.py`: a simulated payment flow plus page/language/viewport checks. These tests depend on a running application and some network-backed data. Browser test success is reported separately from Python test results.
 
-## ⚠️ Known limits
+The `demo_video.py`, `demo_full.py` and `scripts/evidence_report.py` utilities are optional recording/evidence tools. Narrated video generation has additional media/TTS dependencies described in the script; it is not needed to run or grade DOT.
 
-- The spec's “provider-supported sandbox” needs real provider credentials; it is replaced by a **clearly labeled local simulation**. Connecting a provider means implementing `quote / submit / find / status`.
-- On-chain payments are paused: the UI and agent offer plans, forecasts and reminders, not crypto transfers. Direct bank connections depend on jurisdiction, so spending starts from CSV exports.
-- Forecasts are experimental; the habit indicator is not a credit score, and sandbox records do not build credit history.
-- Single-user development prototype. Production would still need HSM/KMS signing, identity and MFA, multi-tenancy, rate limiting, backups and compliance review.
+## 10. Security and scope
 
-<div align="center"><sub>◉ DOT — every action has a clear boundary.</sub></div>
+- Roles are enforced by the backend, including owner-only confirmations.
+- Accounts have separate workspaces; sessions and lockouts persist in the account database. Session tokens are stored as hashes.
+- Mixed session/Bearer credentials are rejected.
+- Proposal claims prevent concurrent confirmation from executing the same proposal twice. Interrupted proposals require inspection; this is not a claim of global exactly-once processing across all failures.
+- Text redaction, optional image masking, source checks and DNS-pinned fetching reduce exposure to untrusted inputs.
+- Audit entries have a hash chain. Host-level access could still replace data and its chain unless an external trusted checkpoint is used.
+- Public mode refuses on-chain/live-payment settings. A user-configured automatic FX rule changes **local simulation balances only**.
+
+The project does not provide live bank integration, credit scoring, guaranteed exchange forecasts or a claim of regulatory certification. Live-model adversarial evaluation, production load testing, dependency scanning and host-level encryption remain separate work. See the [security report](docs/DOT-Security-Self-Assessment-Report-v2.md).
+
+## 11. Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Backend exits immediately | Distinct owner/agent tokens of 24+ characters; inspect backend logs. |
+| Login does not persist on local HTTP | Use local settings: `PUBLIC_DEPLOY=false`, `COOKIE_SECURE=false`; recreate the backend. |
+| Port 8787 is occupied | Change `FRONTEND_PORT` in `.env` and recreate the frontend. |
+| Assistant says rule-based | Model key is blank, or the model path is unavailable; check model/endpoint compatibility and logs. |
+| Receipt reading is unavailable | Configure an image-capable model; manual entry and CSV remain available. |
+| No current rates | Check outbound network access and source availability; DOT does not invent missing reference data. |
+| Payment stays pending; no reminders | Ensure the worker is enabled and allow time for simulated settlement. |
+| Demo records disappeared | Demo workspaces are temporary and removed at restart; register for persistent work. |
+| API docs assets do not load | Swagger UI uses external CDN assets; inspect `/api/openapi.json` if the CDN is unavailable. |
+| Tests cannot import dependencies | Use Python 3.12 and install `requirements.lock.txt` in the selected virtual environment. |
+
+## 12. Submit or download a fixed source version
+
+Share the repository link together with the submitted commit ID:
+
+```bash
+git rev-parse HEAD
+git archive --format=zip --output=dot-source.zip HEAD
+```
+
+The ZIP contains tracked source at that commit, including README files, deployment configuration and tests. It excludes local secrets and generated runtime data. Teachers can also use GitHub's **Code → Download ZIP**; the branch ZIP follows the current branch, so use a commit link when a fixed version matters.

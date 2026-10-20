@@ -230,3 +230,21 @@ def test_R14_fees_and_rounding_never_create_or_lose_a_cent(f, amount):
         assert s["total_spend"] == int(Decimal(amount) * 100)            # exactly what was put in
         assert sum(leg["spend"] for leg in s["legs"]) == s["total_spend"]  # parts add up
         assert s["total_receive"] >= 0
+
+
+def test_a_bill_proposed_in_free_words_is_confirmable():
+    from datetime import date
+    from finance import actions
+    p = actions.check("add_bill", {"title": "Phone bill", "amount": "35", "currency": "AUD", "due_date": "5", "category": "phone", "recurring": "Monthly"})
+    assert p["category"] == "utility" and p["recurring"] == "monthly"
+    due = date.fromisoformat(p["due_date"])
+    assert due.day == 5 and due >= date.today()
+    with pytest.raises(Denied):
+        actions.check("add_bill", {"title": "x", "amount": "1", "currency": "AUD", "due_date": "next week"})
+
+
+def test_the_confirmed_bill_is_created(f):
+    from finance import actions
+    p = actions.check("add_bill", {"title": "Phone bill", "amount": "35", "currency": "AUD", "due_date": "5th", "category": "internet", "recurring": "monthly"})
+    actions.run(f, "owner", "add_bill", p)
+    assert any(o["title"] == "Phone bill" for o in f.obligations())

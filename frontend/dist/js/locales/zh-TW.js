@@ -569,7 +569,7 @@ export default {
 
   'audit.title': '稽核紀錄', 'audit.owner_only': '稽核紀錄僅對 Owner 開放。', 'audit.search': '搜尋動作、支付或請求 ID',
   'audit.outcome': '結果', 'audit.actor': '執行者', 'audit.any_outcome': '任意結果', 'audit.any_actor': '任意執行者', 'audit.detail': '詳情', 'audit.empty': '沒有匹配的事件。',
-  'audit.note': '按請求分組。更正以新事件紀錄；資料庫阻止修改和刪除。敏感標識已遮蔽。未做密碼學封存。',
+  'audit.note': '依請求分組。更正以新事件記錄；資料庫阻止修改和刪除，並且每筆記錄都與上一筆以雜湊串成鏈，事後任何改動都能被發現。敏感識別資訊已遮蔽。',
 
   'reminder.quote_expired': '{amount} {source} 的報價已過期——授權前請重新報價。', 'reminder.quote_expiring': '有一份報價將在兩分鐘內過期。',
   'reminder.unresolved': '一筆已提交的支付仍為 {status}。正在核對結果，資金保持預留。', 'reminder.insufficient_funds': '可用 {currency} 低於已準備支付所需金額。',

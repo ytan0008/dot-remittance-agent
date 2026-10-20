@@ -1951,7 +1951,7 @@ article.panel.panel-focus > .panel-head h2{font-size:1.1em}
 /* two budgets, one under the other: mine in ink, what others pay in the lighter shade */
 .budgets{display:grid;gap:8px;margin-bottom:14px}.budgets .budget-bar{margin:0}.budgets > .link{justify-self:end}
 .budget-track .bar-fill.other{background:color-mix(in srgb,var(--ink) 35%,transparent)}
-.quick-bar .quick-payer{flex:none;width:auto!important;max-width:120px;height:34px!important;border-radius:999px;padding:0 26px 0 12px!important;font-size:12.5px!important}
+.quick-bar .quick-payer{flex:none;width:auto!important;max-width:150px;height:34px!important;border-radius:999px;padding:0 26px 0 12px!important;font-size:12.5px!important}
 .payer-inline{max-width:92px}
 /* an entry row: what, then two small pickers (category, who paid), the amount and the delete — on one line */
 @media (min-width:861px){.spend-list .row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto auto;align-items:center;flex-wrap:nowrap}.spend-list .row > div{min-width:0;overflow:hidden;overflow-wrap:anywhere}}
@@ -1972,6 +1972,8 @@ article.panel.panel-focus > .panel-head h2{font-size:1.1em}
 .scan-table td input[name=description]{width:100%!important;max-width:100%}
 /* hide parts of a picture before it is sent to the AI */
 .mask-imgs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:10px 0}
-.mask-img{position:relative;cursor:crosshair;touch-action:none;user-select:none;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;background:var(--soft)}
-.mask-img img{display:block;width:100%;height:auto;max-height:60vh;object-fit:contain;pointer-events:none}
+/* the drawing area is exactly the picture (no letterbox), so a box lands on the pixels it covers on screen */
+.mask-imgs{justify-items:center}
+.mask-img{position:relative;width:fit-content;max-width:100%;cursor:crosshair;touch-action:none;user-select:none;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;background:var(--soft)}
+.mask-img img{display:block;width:auto;height:auto;max-width:100%;max-height:60vh;pointer-events:none}
 .mask-box{position:absolute;background:#000;border-radius:3px;box-shadow:0 0 0 1px rgba(255,255,255,.4)}

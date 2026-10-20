@@ -5,6 +5,9 @@ COPY requirements.lock.txt .
 RUN pip install --no-cache-dir -r requirements.lock.txt && useradd --create-home --uid 10001 finance
 COPY finance ./finance
 COPY tests ./tests
+COPY frontend/dist/js/locales ./frontend/dist/js/locales
+COPY scripts ./scripts
+COPY .env.example ./.env.example
 RUN mkdir -p /app/data && chown finance:finance /app/data
 USER finance
 EXPOSE 8000
