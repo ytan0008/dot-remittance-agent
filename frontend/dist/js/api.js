@@ -11,6 +11,28 @@ function translate(code, fallback, data) {
   return fallback || t('err.generic');
 }
 
+/** The middle rate of the last 90 days for a pair (half the days were above it, half below), cached per pair. */
+const medians = {};
+export function medianRate(source, target) {
+  if (!source || !target || source === target) return Promise.resolve(null);
+  const k = source + '-' + target;
+  medians[k] ??= api(`/rates?source=${source}&target=${target}&days=90`).then(r => Number(r.median) || null, () => { delete medians[k]; return null; });
+  return medians[k];
+}
+
+/** A "lowest acceptable rate" field shows that median in grey as a starting point — a suggestion, never a value. */
+export function suggestMinRate(form, pair) {
+  const input = form?.querySelector('[name=min_rate]');
+  if (!input) return;
+  const fill = async () => {
+    const [s, t] = pair(), m = await medianRate(s, t);
+    const [s2, t2] = pair();
+    if (s2 === s && t2 === t) input.placeholder = m ? m.toFixed(m >= 100 ? 2 : 4) : '';
+  };
+  form.addEventListener('change', e => { if (['source', 'target'].includes(e.target.name)) fill(); });
+  fill();
+}
+
 export async function api(path, method = 'GET', body) {
   let res;
   try {

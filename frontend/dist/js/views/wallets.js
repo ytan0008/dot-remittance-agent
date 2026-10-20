@@ -22,9 +22,15 @@ export function mountLedger(root) {
   });
 }
 
+const SANDBOX_CURRENCIES = ['AUD', 'CNY', 'USD', 'EUR', 'GBP', 'JPY', 'HKD', 'NZD', 'CAD', 'SGD', 'KRW', 'VND'];
+
 function ledger() {
   const list = (state.data.balances || []).filter(b => b.rail === 'sandbox');
   const eq = Object.fromEntries((state.data.equivalents || []).map(e => [e.currency, e]));
+  // only what you hold (from the overview) or added here yourself; anything else is one tap away
+  const add = isOwner() ? `<button class="button sm ghost" data-action="sandbox-add">${icons.plus}${t('wallets.add_currency')}</button>` : '';
+  if (!list.length) return `<div class="ledger-empty"><p>${t('wallets.ledger_empty')}</p><div class="row-actions">${add}
+    <button class="link sm" data-action="go" data-view="overview">${t('wallets.ledger_record')} ${icons.arrow}</button></div></div>`;
   return `<div class="ledger">${list.map(b => {
     const ratio = Number(b.total) > 0 ? Number(b.reserved) / Number(b.total) : 0;
     const e = eq[b.currency];
@@ -33,14 +39,40 @@ function ledger() {
         <div class="split-bar"><i class="bar-fill" data-ratio="${(1 - ratio).toFixed(4)}"></i></div>
         <div class="ledger-facts"><span>${t('wallets.total')} ${esc(money(b.total, b.currency))}</span><span>${t('wallets.reserved')} ${esc(money(b.reserved, b.currency))}</span>
         ${e && b.currency !== state.display ? `<span class="equiv">${e.total !== null ? `≈ ${esc(money(e.total, state.display))} ${esc(state.display)} <small>${t('wallets.equiv_label', {p: esc(e.provider || ''), d: day(e.observed)})}</small>` : t('wallets.equiv_unavailable')}</span>` : ''}</div></div>
-      ${isOwner() ? `<button class="button sm ghost" data-action="fund" data-currency="${esc(b.currency)}">${icons.plus}${t('wallets.fund')}</button>` : ''}</div>`;
+      ${isOwner() ? `<div class="ledger-acts"><button class="button sm ghost" data-action="fund" data-currency="${esc(b.currency)}">${icons.plus}${t('wallets.fund')}</button>
+        ${b.basis === 'test_funds' && b.reserved === '0' ? `<button class="link sm" data-action="sandbox-remove" data-currency="${esc(b.currency)}">${t('wallets.remove_currency')}</button>` : ''}</div>` : ''}</div>`;
   }).join('')}</div>
-  <div class="toolbar"><label class="inline-select">${t('wallets.display')} <select id="display-currency">${options(['AUD', 'USD', 'CNY', 'EUR', 'JPY', 'VND'].map(c => [c, c]), state.display)}</select></label><span class="fine">${t('wallets.ledger_note')}</span></div>`;
+  <div class="toolbar">${add}<label class="inline-select">${t('wallets.display')} <select id="display-currency">${options(['AUD', 'USD', 'CNY', 'EUR', 'JPY', 'VND'].map(c => [c, c]), state.display)}</select></label><span class="fine">${t('wallets.ledger_note')}</span></div>`;
+}
+
+const last4 = a => a ? ' ····' + String(a).slice(-4) : '';
+const ME_BANKS = ['中国银行', 'Bank of China (Australia)', '工商银行', '建设银行', '招商银行', 'Commonwealth Bank', 'Westpac', 'ANZ', 'NAB'];
+
+/** My own accounts: always "me", one per bank card; a payment between them is a move of my own money. */
+function myAccounts() {
+  const list = (state.data.recipients || []).filter(r => r.kind === 'self');
+  return `<div class="my-accounts"><div class="my-head"><b>${t('wallets.my_accounts')}</b><small>${t('wallets.my_accounts_d')}</small></div>
+    ${list.length ? `<ul class="list">${list.map(r => `<li class="row"><span class="initial me">${esc(t('recipient.me_short'))}</span><div><b>${esc(t('recipient.me'))} · ${esc(r.bank || '—')}</b>
+      <small>${esc(r.currency)}${r.country ? ' · ' + esc(region(r.country)) : ''}${esc(last4(r.account))} · <span class="mono">${esc(r.id)}</span></small></div>
+      <button class="x" data-action="own-remove" data-id="${esc(r.id)}" aria-label="${t('common.delete')}" ${isOwner() ? '' : 'disabled'}>×</button></li>`).join('')}</ul>` : ''}
+    <button class="button sm ghost" data-action="own-account" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('wallets.add_mine')}</button></div>`;
+}
+
+/** Add one of my own bank accounts. The name is fixed ("me"); only the bank, currency and number are mine to fill in. */
+export function ownAccountForm({currency = '', country = '', pick = ''} = {}) {
+  if (!isOwner()) { toast(t('err.owner_required'), 'bad'); return; }
+  modal(t('wallets.add_mine'), `<form id="own-form" class="form-block" data-pick="${esc(pick)}"><p class="intro">${t('wallets.own_note')}</p>
+      <div class="grid-2">${field('o-name', t('wallets.r_name'), `<input id="o-name" value="${esc(t('recipient.me'))}" disabled>`, t('wallets.own_fixed'))}
+        ${field('o-currency', t('wallets.r_currency'), `<select id="o-currency" name="currency" required>${options([...new Set(Object.values(CUR))].map(c => [c, c]), currency || 'AUD')}</select>`)}</div>
+      <div class="grid-2">${field('o-bank', t('wallets.own_bank'), `<input id="o-bank" name="bank" maxlength="80" list="own-banks" required placeholder="${t('wallets.own_bank_ph')}"><datalist id="own-banks">${ME_BANKS.map(b => `<option value="${esc(b)}">`).join('')}</datalist>`)}
+        ${field('o-country', t('wallets.r_country'), `<select id="o-country" name="country"><option value="">—</option>${options(ECON.map(c => [c, region(c)]), country)}</select>`)}</div>
+      ${field('o-account', t('wallets.r_account'), `<input id="o-account" name="account" maxlength="34" placeholder="${t('wallets.r_account_ph')}">`, t('wallets.r_account_hint'))}
+      <div class="form-error"></div><div class="modal-actions"><button class="button primary">${t('wallets.save_mine')} ${icons.arrow}</button></div></form>`, 'ME / MY ACCOUNT');
 }
 
 function recipients() {
-  const list = (state.data.recipients || []).filter(r => r.rail !== 'evm');
-  return `${list.length ? `<ul class="list">${list.map(r => `<li class="row ${r.enabled ? '' : 'disabled'}"><span class="initial">${esc((r.name || '?').slice(0, 1))}</span><div><b>${esc(r.name)}</b><small>${esc(r.id)} · ${esc(r.currency)}${r.country ? ' · ' + esc(region(r.country)) : ''}${r.account ? ' · •••• ' + esc(r.account.slice(-4)) : ''} · ${esc(t('recipient.' + (r.kind || 'individual')))}</small></div>
+  const list = (state.data.recipients || []).filter(r => r.rail !== 'evm' && r.kind !== 'self');
+  return `${myAccounts()}${list.length ? `<ul class="list">${list.map(r => `<li class="row ${r.enabled ? '' : 'disabled'}"><span class="initial">${esc((r.name || '?').slice(0, 1))}</span><div><b>${esc(r.name)}</b><small>${esc(r.id)} · ${esc(r.currency)}${r.country ? ' · ' + esc(region(r.country)) : ''}${r.account ? ' · •••• ' + esc(r.account.slice(-4)) : ''} · ${esc(t('recipient.' + (r.kind || 'individual')))}</small></div>
       <button class="link sm" data-action="toggle-recipient" data-id="${esc(r.id)}" ${isOwner() ? '' : 'disabled'}>${r.enabled ? t('wallets.disable') : t('wallets.enable')}</button></li>`).join('')}</ul>` : empty(t('wallets.no_recipients'))}
     <p class="fine">${t('wallets.recipient_note')}</p>`;
 }
@@ -86,6 +118,12 @@ export const view = {
   },
   actions: {
     'new-recipient'(el) { recipientForm({currency: el.dataset.currency || '', country: el.dataset.country || ''}); },
+    'own-account'(el) { ownAccountForm({currency: el.dataset.currency || '', country: el.dataset.country || ''}); },
+    async 'own-remove'(el) {
+      if (!confirm(t('wallets.own_remove_q'))) return;
+      await api(`/recipients/me/${encodeURIComponent(el.dataset.id)}`, 'DELETE');
+      invalidate(['recipients']); rerender();
+    },
     async 'toggle-recipient'(el) {
       const r = state.data.recipients.find(x => x.id === el.dataset.id);
       await api('/recipients', 'POST', {recipient_id: r.id, name: r.name, address: r.address || '', currency: r.currency || '', country: r.country || '', account: r.account || '', kind: r.kind || 'individual', enabled: !r.enabled});
@@ -97,6 +135,18 @@ export const view = {
         <div class="form-error"></div><div class="modal-actions"><button class="button primary">${t('wallets.fund')}</button></div></form>`, 'SANDBOX / TEST FUNDS');
     },
     async copy(el) { try { await navigator.clipboard.writeText(el.dataset.value); toast(t('common.copied'), 'good'); } catch { toast(el.dataset.value); } },
+    'sandbox-add'() {
+      const have = new Set((state.data.balances || []).map(b => b.currency));
+      const choices = SANDBOX_CURRENCIES.filter(c => !have.has(c));
+      modal(t('wallets.add_currency'), `<form id="sandbox-add-form" class="form-block"><p class="intro">${t('wallets.add_currency_note')}</p>
+        <div class="grid-2">${field('sa-currency', t('wallets.r_currency'), `<select id="sa-currency" name="currency" required>${options(choices.map(c => [c, `${c} · ${currencyName(c)}`]), choices[0])}</select>`)}
+        ${field('sa-amount', t('wallets.add_currency_amount'), `<input id="sa-amount" name="amount" inputmode="decimal" placeholder="0">`)}</div>
+        <div class="form-error"></div><div class="modal-actions"><button class="button primary">${icons.plus}${t('wallets.add_currency')}</button></div></form>`, 'SANDBOX / CURRENCY');
+    },
+    async 'sandbox-remove'(el) {
+      await api(`/sandbox/currencies/${encodeURIComponent(el.dataset.currency)}`, 'DELETE');
+      invalidate(['balances', 'equivalents']); toast(t('wallets.removed_currency', {c: el.dataset.currency})); rerender();
+    },
   },
   submit: {
     async 'limit-form'(f) {
@@ -110,6 +160,16 @@ export const view = {
         country: value(f, 'country'), account: value(f, 'account').replace(/\s+/g, ''), kind: value(f, 'kind'), enabled: true});
       if (state.view === 'send' && state.send) state.send.recipient = id;  // added from the Send form: pick it right away
       invalidate(['recipients']); closeModal(); toast(t('wallets.saved'), 'good'); rerender();
+    },
+    async 'sandbox-add-form'(f) {
+      await api('/sandbox/currencies', 'POST', {currency: value(f, 'currency'), amount: value(f, 'amount') || null});
+      invalidate(['balances', 'equivalents']); closeModal(); toast(t('wallets.added_currency', {c: value(f, 'currency')}), 'good'); rerender();
+    },
+    async 'own-form'(f) {
+      const r = await api('/recipients/me', 'POST', {currency: value(f, 'currency'), bank: value(f, 'bank'), account: value(f, 'account').replace(/\s+/g, ''), country: value(f, 'country')});
+      if (state.send && f.dataset.pick === 'recipient') state.send.recipient = r.id;  // added from the Send form: picked at once
+      if (state.send && f.dataset.pick === 'from_account') state.send.from = r.id;
+      invalidate(['recipients']); closeModal(); toast(t('wallets.saved_mine'), 'good'); rerender();
     },
     async 'fund-form'(f) {
       await api('/sandbox/fund', 'POST', {currency: f.dataset.currency, amount: value(f, 'amount')});

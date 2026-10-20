@@ -26,7 +26,7 @@ PASSWORD = "local-audit-Password-42"
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     for key in ("OPENAI_API_KEY", "OPENAI_MODEL", "EVM_RPC_URL", "EVM_KEYSTORE_PASSWORD",
-                "SMTP_HOST", "PUBLIC_DEPLOY", "ENABLE_LIVE_PAYMENTS"):
+                "SMTP_HOST", "RESEND_API_KEY", "PUBLIC_DEPLOY", "ENABLE_LIVE_PAYMENTS"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("FINANCE_DB", str(tmp_path / "import-only.db"))
     monkeypatch.setenv("OWNER_TOKEN", "test-owner-token-" * 3)

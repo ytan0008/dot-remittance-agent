@@ -26,29 +26,36 @@ async function autoRead(source, target) {
   let st;
   try { st = await api('/banks/auto', 'POST', {source, target}); } catch { return; }
   if (!st.model || !st.pending.length) { delete auto[k]; return; }
-  auto[k] = {running: true, total: st.pending.length + st.done.length + st.failed.length, pending: st.pending.length};
+  const count = x => ({total: x.pending.filter(b => b !== 'discovering').length + x.done.length + x.failed.length,
+    pending: x.pending.filter(b => b !== 'discovering').length, discovering: x.pending.includes('discovering')});
+  auto[k] = {running: true, ...count(st)};
   repaint();
   let seen = st.done.length + st.failed.length;
   while (auto[k]) {
     await new Promise(r => setTimeout(r, 3000));
     try { st = await api(`/banks/auto?source=${source}&target=${target}`); } catch { break; }
-    const finished = st.done.length + st.failed.length;
-    if (finished !== seen || !st.pending.length) {
+    const finished = st.done.length + st.failed.length, changed = finished !== seen;  // a bank's figures arrived
+    if (changed || !st.pending.length) {
       seen = finished;
       await loadBanks(source, target, true);
       if (state.send) state.send.scen = null;  // scenarios are recomputed with the new figures
     }
-    auto[k].pending = st.pending.length;
+    Object.assign(auto[k], count(st));  // the AI may have found more banks for this pair: the total grows
     if (!st.pending.length) { delete auto[k]; repaint(); break; }
-    repaint();
+    if (changed) repaint(); else progressLine(source, target);  // only the "reading 6 of 11" line moves
   }
+}
+/** Update the progress line where it is, without rebuilding the page. */
+function progressLine(source, target) {
+  const html = autoLine(source, target);
+  document.querySelectorAll('.bank-auto').forEach(el => { el.outerHTML = html; });
 }
 const repaint = () => { if (['send', 'markets'].includes(state.view)) (bus.render || rerender)(); };  // only where banks are on screen; waits for typing or a drag
 
 /** "Reading 3 of 11 banks…" while the automatic read runs; nothing otherwise. */
 export function autoLine(source, target) {
   const a = auto[key(source, target)];
-  return a ? `<span class="bank-auto"><span class="pulse"></span>${t('bank.auto', {n: a.total - a.pending, m: a.total})}</span>` : '';
+  return a ? `<span class="bank-auto"><span class="pulse"></span>${a.discovering ? t('bank.discovering', {s: source, t: target}) : t('bank.auto', {n: a.total - a.pending, m: a.total})}</span>` : '';
 }
 
 /** The bank's name in the reader's language where we know it (中国银行 rather than Bank of China). */
@@ -82,6 +89,20 @@ export function pricingLine(b) {
   return `${bits.join(' · ') || t('bank.nothing')} <small class="muted">· ${origin(p)} ${when(p.updated)}</small>`;
 }
 
+/** The bank's fee knowledge: every fee its pages state, each with the exact text, the page and when it was read. */
+const host = u => { try { return new URL(u).hostname; } catch { return ''; } };
+const kbValue = k => [k.amount && `${num(k.amount, 2)} ${esc(k.currency || '')}`, k.pct && `${num(k.pct, 3)}%`,
+  (k.min || k.max) && t('bank.kb_range', {a: k.min ? num(k.min, 2) : '—', b: k.max ? num(k.max, 2) : '—'})].filter(Boolean).join(' · ');
+export function knowledgeList(b) {
+  const list = b?.knowledge || [];
+  if (!list.length) return '';
+  return `<details class="kb"><summary>${t('bank.kb_title', {n: list.length})}</summary><ul class="kb-list">${list.map(k => `<li>
+      <div><span class="tag k-fee">${t('bank.k.' + k.kind)}</span> <b>${esc(k.label)}</b> <span class="kb-val">${kbValue(k)}</span></div>
+      <q class="bank-quote">${esc(k.quote)}</q>
+      <small class="muted"><a href="${esc(k.url)}" target="_blank" rel="noopener noreferrer">${esc(host(k.url))}</a> · ${t('bank.kb_read', {d: when(k.fetched)})}</small></li>`).join('')}</ul>
+    <p class="fine">${t('bank.kb_note')}</p></details>`;
+}
+
 const actions = (b, s, t2) => isOwner() ? `<button class="link sm" data-action="bank-refresh" data-bank="${esc(b.id)}" data-s="${esc(s)}" data-t="${esc(t2)}">${icons.agent}${t('bank.read')}</button>
   ${needsHand(b.pricing) ? `<button class="link sm" data-action="bank-edit" data-bank="${esc(b.id)}" data-s="${esc(s)}" data-t="${esc(t2)}">${t('bank.edit')}</button>` : ''}` : '';
 
@@ -89,11 +110,11 @@ const actions = (b, s, t2) => isOwner() ? `<button class="link sm" data-action="
 export function bankPanel(source, target) {
   const list = (banksFor(source, target) || []).filter(b => b.side);
   const body = list.length ? `<div class="table-wrap"><table class="table bank-table"><thead><tr><th>${t('bank.bank')}</th><th>${t('bank.side')}</th><th>${t('bank.rate')} <small>${esc(target)} / 1 ${esc(source)}</small></th><th>${t('bank.fees')}</th><th>${t('bank.source')}</th><th></th></tr></thead><tbody>
-    ${list.map(b => { const p = b.pricing || {}; return `<tr class="${p.status === 'ok' ? '' : 'dim'}"><td><b>${esc(bankName(b))}</b><small class="muted block">${esc(b.country)}</small></td>
+    ${list.map(b => { const p = b.pricing || {}; return `<tr class="${p.status === 'ok' ? '' : 'dim'}"><td><b>${esc(bankName(b))}</b><small class="muted block">${esc(b.country)}${b.origin === 'ai' ? ` · <span class="tag k-ai">${t('bank.found_ai')}</span>${b.website ? ` <a href="${esc(b.website)}" target="_blank" rel="noopener noreferrer">${esc(host(b.website))}</a>` : ''}` : ''}</small></td>
       <td>${(b.sides || [b.side]).map(x => t('bank.side_' + x)).join(' / ')}</td><td class="num">${p.rate ? num(p.rate, 4) + (p.rate_origin === 'third_party' ? `<small class="muted block">${t('bank.rate_third', {d: p.rate_date || '—'})}</small>` : '') : p.rate_margin_pct ? `<small>${t('bank.margin', {p: num(p.rate_margin_pct, 2)})}</small>` : '—'}</td>
       <td><small>${[p.fee_send && `${t('bank.fee_send')} ${fee(p.fee_send)}`, p.fee_pct && `${num(p.fee_pct, 2)}%`, p.intermediary && `${t('bank.intermediary')} ${fee(p.intermediary)}`, p.fee_receive && `${t('bank.fee_receive')} ${fee(p.fee_receive)}`].filter(Boolean).join('<br>') || '—'}</small></td>
       <td><small>${p.updated ? `${origin(p)} · ${when(p.updated)}` : t('bank.none')}${(p.sources || []).filter(u => u.startsWith('https://')).map(u => `<br><a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(new URL(u).hostname)}</a>`).join('')}${evidence(p)}</small></td>
-      <td class="nowrap">${actions(b, source, target)}</td></tr>`; }).join('')}</tbody></table></div>`
+      <td class="nowrap">${actions(b, source, target)}</td></tr>${(b.knowledge || []).length ? `<tr class="kb-row"><td colspan="6">${knowledgeList(b)}</td></tr>` : ''}`; }).join('')}</tbody></table></div>`
     : empty(t('bank.no_banks'));
   return panel(t('bank.title'), `${autoLine(source, target)}${body}<p class="fine">${t('bank.note')}</p>`, {cls: 'bank-panel', id: 'bank-panel', sub: `${esc(source)} → ${esc(target)}`});
 }

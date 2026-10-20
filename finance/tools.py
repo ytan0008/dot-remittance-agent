@@ -171,9 +171,10 @@ def _lang(ctx):
 
 @tool("afford_check", "“Can I afford this?” — checks a purchase against cash, the term plan, upcoming costs (tuition, bills), the "
       "safety buffer and this month's budget. Verdict yes/careful/no with reasons and the earliest safer date. date: YYYY-MM-DD or "
-      "empty for today. " + UNIT, {"amount": S, "currency": S, "date": S, "label": S}, ["amount", "currency"])
-def afford_check(ctx, amount, currency, date="", label=""):
-    r = ctx.finance.afford(ctx.actor, amount, up(currency) or None, date or None, label)
+      "empty for today. payer: me (own money, default) or other (someone else pays, e.g. a parent's card: only the monthly budget decides). " + UNIT,
+      {"amount": S, "currency": S, "date": S, "label": S, "payer": S}, ["amount", "currency"])
+def afford_check(ctx, amount, currency, date="", label="", payer="me"):
+    r = ctx.finance.afford(ctx.actor, amount, up(currency) or None, date or None, label, payer if payer in ("me", "other") else "me")
     r.pop("series", None)
     return r
 

@@ -6,7 +6,7 @@
 
 **A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-386%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-394%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -42,7 +42,7 @@ DOT is a natural-language AI agent that helps you:
 
 ### 1. Ask, and get cards you can use
 
-On each turn the agent first calls `record_plan` to record its **intent, extracted amounts/currencies/recipient, missing details and planned steps**, then calls tools. Results land on a **result board** as jelly cards you can drag, join (to ask how two results connect) and open; when it needs something only you know — a recipient, bank details for a template, an exchange plan, your balance — it pops up a prefilled form beside the chat. The assistant can look things up, explain and prepare drafts, plans and templates, but it has no tool to submit or approve a payment.
+On each turn the agent first calls `record_plan` to record its **intent, extracted amounts/currencies/recipient, missing details and planned steps**, then calls tools. Results land on a **result board** as jelly cards you can drag, stack (offset so each stays readable) and open; when it needs something only you know — a recipient, bank details for a template, an exchange plan, your balance — it pops up a prefilled form beside the chat. The assistant can look things up, explain and prepare drafts, plans and templates, but it has no tool to submit or approve a payment.
 
 ![AI agent](docs/screenshots/agent.png)
 
@@ -100,7 +100,7 @@ The **Term planning** page plans a whole term on your own figures:
 - **Term cash flow** — add terms (dates, tuition and its due date, living costs and income per month). Monthly amounts are spread evenly per day, tuition lands on its date, awarded scholarships count as income on their payout date, and months outside a term use your average confirmed spending. You get the opening cash, monthly closing balances, the lowest point and the first shortfall.
 - **Scholarships & grants** — status from researching to awarded, deadline countdowns, a document checklist (transcript, CV, statement, references…), and reminders 14/7/3/1 days before a deadline while documents are missing. Tuition due dates are reminded too.
 - **Insights** (on the Spending page) — the last 7 or 30 days versus the period before and your usual level, with tips such as categories that rose, frequent small purchases, subscription totals, term-budget pace, upcoming tuition and plan shortfalls — each with an estimated saving.
-- **Email reports** — choose a **daily, weekly (on the weekday you pick) or monthly** digest: balances, currency gaps (also with rates 3% worse), exchange plans, the AI's timing view, spending and reminders. **Urgent alerts** (a gap due within 7 days, a rate below your limit, plans that need more than you hold, payment problems) can go out at once, and a digest is skipped when nothing changed. Sent over your own SMTP server to the single address you save; without SMTP you can still preview them.
+- **Email reports** — choose a **daily, weekly (on the weekday you pick) or monthly** digest: balances, currency gaps (also with rates 3% worse), exchange plans, the AI's timing view, spending and reminders. **Urgent alerts** (a gap due within 7 days, a rate below your limit, plans that need more than you hold, payment problems) can go out at once, and a digest is skipped when nothing changed. Sent through Resend or your own SMTP server to the single address you save; without either you can still preview them.
 
 Everything here is an estimate from your plan and confirmed spending, never financial advice, and nothing moves money.
 
@@ -140,7 +140,7 @@ Recall works across languages (word matching for Latin scripts, character bigram
 
 - The dot-grid background becomes a **magnifying lens** around the cursor; a constellation of dots, lines and circles drifts with scroll parallax
 - **Depth transitions** between pages: going forward pushes the old page away and blurs it while the new one pulls close; **swipe** between pages on mobile
-- The rate chart supports **wheel / pinch zoom and drag to pan**; result cards on the agent board are soft “jelly” tiles you can drag, join and open
+- The rate chart supports **wheel / pinch zoom and drag to pan**; result cards on the agent board are soft “jelly” tiles you can drag, stack (they fan out so each stays readable) and open
 - Modals grow out of the card that opened them; a liquid indicator follows the tabs; scroll reveal, count-up numbers, line-drawing animations
 - Respects `prefers-reduced-motion`; zero external dependencies under a strict `'self'` CSP
 
@@ -173,7 +173,7 @@ records "updated after a payment"; only currencies you never entered use labelle
 credit card and cash accounts**; statements are imported into an account. Card repayments and moves between your own
 accounts are paired on both sides (same amount, ±5 days) — even an unlabelled repayment is recognised from its other side —
 so 100 on the card plus a 100 repayment counts once. Refunds net against their category; the summary separates spending,
-cash out and card owed; a credit card balance never counts as money you have.
+cash out and card owed; a credit card balance never counts as money you have. An account can be **paid by someone else** (a parent's card — call them whatever you like, e.g. *Mum and Dad*): what you spend on it is still your spending and sits in your one monthly budget, but never in your cash or your debt. Every total is shown split — *paid by me* and *paid by Mum and Dad* — in the summary, each category bar (two shades), the budget bar and the entry list (with a filter); term projections leave their part out, *Can I afford it?* lets you choose who pays, and one tap copies a note of what their card paid for this month. The sandbox shows only the currencies you hold; add any other one by hand to try it with test money.
 
 **Deciding when.** The Rates page leads with "Is now a good time?": where today sits in the last 90 days (on your bank's
 own rate once enough days are recorded), and for YOUR amount the chance that waiting a week is better, the most likely
@@ -185,7 +185,7 @@ to your parents. Scenarios show the **rate margin in money**, apart from the fee
 
 **Each page has a focus; you arrange the cards.** Every component is its own card; the focus card stands out; cards that
 would only say "nothing yet" step aside; secondary detail starts folded. Drag a card by its title or the handle on top
-(it leans with its speed, the others slide out of the way, the free slot draws it in, Esc cancels); drop it beside
+(it lifts above everything, leans with its speed, the others slide out of the way, a landing shadow deepens where it will fall, Esc cancels); drop it beside
 another to share the row; drag the corner to change its width; fold it, or use Alt+↑/↓. Cards pack like masonry, so the
 space between any two cards is always the same and no holes are left. **DOT on every page**: a
 draggable dot that snaps to the edge; tap it (or Ctrl+K) for the same conversation, aware of the page you are on.
@@ -201,7 +201,7 @@ Sources, in order: ① the AI reads each bank's official public pages — and **
 text it was read from**; a figure whose quote is not on the page, or lacks the number, is dropped (page text is untrusted
 data); ② what the bank does not publish comes from Wise's public third-party comparison data, collected daily, with the
 collection time; ③ only then the model's own knowledge, labelled as an estimate; ④ typing the figures last. Opening the Rates page, or picking a pair on Send, **reads every bank for that pair automatically** (figures younger than a day are kept); the worker refreshes the pairs in your exchange plans every six hours. Bank of China
-(Australia) appears on both sides. **Exchange scenarios** convert at the sending or the receiving bank, at once or in two
+(Australia) appears on both sides. **Bank knowledge base**: for each currency the AI looks up the main banks (monthly) and keeps them with their official pages; every read of a bank also collects every fee its pages state — sending fee, cable/telegraph charge (电讯费), exchange fee (外汇手续费), intermediary and receiving fees — found by keyword, each kept only with the exact page text, the page and the date, and replaced on every automatic read. Expand a bank on the Rates page (or under the bank picked on Send) to see them with their sources. **Your own accounts** are always *Me* (ID `me-cny`, `me-aud`…): pick one as *From* or as the recipient — the banks fill themselves in, the form says *I receive*, and money sent to your own account arrives in your balance. **Exchange scenarios** convert at the sending or the receiving bank, at once or in two
 parts. Fees stay **in their own currency**; a total converts at the reference rate and says so. Only scenarios whose every
 figure is sourced and that arrive by your date are ranked — only they can be "best"; missing fees make one "provisional",
 AI estimates sit under "for reference". With a must-arrive date, the arrival time (e.g. 1–3 business days by wire) gives a
@@ -263,26 +263,6 @@ flowchart LR
 
 ---
 
-## 👥 For teammates: run it after cloning
-
-**You need:** access to this private repository (ask the owner to add you as a collaborator), [Git](https://git-scm.com/), [Python 3.10+](https://www.python.org/downloads/) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running).
-
-```bash
-git clone https://github.com/ytan0008/dot-remittance-agent.git
-cd dot-remittance-agent
-python scripts/configure.py          # creates your own .env (tokens and passwords); prints no secrets
-docker compose up --build -d --wait  # first build takes a few minutes
-```
-
-Open **http://localhost:8787** — you are signed in automatically as the local owner.
-
-- **AI model (optional):** put *your own* key in `.env` → `OPENAI_API_KEY=sk-...` (model `gpt-6-luna` is preset), save, then `docker compose up -d --force-recreate backend`. Without a key the agent runs in the labeled offline rule mode. Never commit `.env` or share keys in chat.
-- **Your data is yours:** each clone gets its own database and test funds; nothing is shared with other teammates.
-- **Port busy?** add `FRONTEND_PORT=8799` to `.env` and open that port instead.
-- **Update to the latest code:** `git pull` then `docker compose up --build -d --wait`.
-- **Stop / start:** `docker compose stop` / `docker compose up -d`. Reset all local data: `docker compose down -v`.
-- **Run tests without Docker:** `python -m venv .venv`, then `.venv\Scripts\pip install -r requirements.lock.txt` (macOS/Linux: `.venv/bin/pip`), then `python -m pytest -q`.
-
 ## 🚀 Getting started
 
 ### Docker (recommended)
@@ -294,7 +274,7 @@ python -m venv .venv
 docker compose up --build -d --wait
 ```
 
-Open **http://localhost:8787**. Local demo mode signs you in as the owner automatically.
+Open **http://localhost:8787**, create an account (or *Try the demo*). Data already on the machine is claimed with the `OWNER_TOKEN` from `.env`.
 
 ### Without Docker
 
@@ -309,7 +289,7 @@ Set `OPENAI_API_KEY`, `OPENAI_MODEL` and optionally `OPENAI_BASE_URL` (any OpenA
 
 ### Email reports (optional)
 
-Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) and run `docker compose up -d --force-recreate backend`. Then save your address under **Settings → Email reports** (or tell the assistant “send a weekly digest to me@example.com”). With Gmail or Outlook use an app password.
+Easiest: sign up at [resend.com](https://resend.com), create an API key and put it in `.env` as `RESEND_API_KEY` (free: 3,000 emails a month). Without a verified domain Resend sends from `onboarding@resend.dev` and only to the address you signed up with — fine for your own reports; verify a domain and set `RESEND_FROM` to mail anyone. Or use your own SMTP server (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`). Then run `docker compose up -d --force-recreate backend`. Then save your address under **Settings → Email reports** (or tell the assistant “send a weekly digest to me@example.com”). With Gmail or Outlook use an app password.
 
 ### Try the new features
 
@@ -377,7 +357,7 @@ Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP
 ## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 386 tests (incl. two rounds of security-audit cases): service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
+.\.venv\Scripts\python -m pytest -q        # 394 tests (incl. two rounds of security-audit cases): service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
 .\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .

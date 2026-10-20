@@ -6,6 +6,7 @@ composite of central-bank sources, labeled as such. Nothing here is ever synthes
 from datetime import datetime, timezone, timedelta, date
 from decimal import Decimal
 import math
+import statistics
 import re
 import threading
 import time
@@ -133,7 +134,7 @@ class Rates:
                     requested_days=days, first=data[0]["date"], last=data[-1]["date"], observations=len(data),
                     coverage_pct=str(min(100, round(len(data) * 100 / expected))),
                     latest=str(latest), minimum=str(low), maximum=str(high),
-                    average=str(sum(values) / len(values)), percentile=str(percentile),
+                    average=str(sum(values) / len(values)), median=str(statistics.median(values)), percentile=str(percentile),
                     trend_pct=str(round((latest - values[0]) / values[0] * 100, 3)),
                     position=position, new_high=len(values) > 1 and latest == high and values.count(high) == 1,
                     new_low=len(values) > 1 and latest == low and values.count(low) == 1,

@@ -139,7 +139,7 @@ class PlanningMixin:
         new_receive = floor_minor(from_minor(send - fee, source) * new_rate, target)
         required = to_minor((from_minor(base_receive, target) / new_rate + fixed) / (1 - pct), source)
         with self.store.read() as c:
-            row = c.execute("SELECT total FROM balances WHERE currency=?", (source,)).fetchone()
+            row = c.execute("SELECT total FROM balances WHERE currency=?", (source,)).fetchone() if self._in_sandbox(c, source) else None
             reserved = sum(json.loads(r[0])["reserve"] for r in
                            c.execute("SELECT body FROM transfers WHERE status IN ('pending','unknown')")
                            if json.loads(r[0])["source"] == source)

@@ -66,6 +66,10 @@ CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL, ty
     balance INTEGER, balance_date TEXT, active INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL);
 """
 ACCOUNT_TYPES = ("debit", "credit", "cash")
+# Who pays what is spent from an account: you, or someone else (a parent's card you use — named as you like: "Mum and Dad",
+# "Grandma"…). Spending someone else pays is still YOUR spending — it counts in categories, insights and your one monthly
+# budget, where it is shown apart — but it is never your money or your debt.
+PAYERS = ("me", "other")
 EXPENSE_COLUMNS = {"account_id": "TEXT", "kind": "TEXT", "match_id": "TEXT", "match_hint": "TEXT"}
 # Paying off a card, seen from either side (the debit statement or the card statement).
 REPAY_WORDS = ["credit card payment", "card repayment", "repayment", "payment thank you", "payment - thank you", "thank you payment",
@@ -198,6 +202,12 @@ class ExpensesMixin:
             for name, kind in EXPENSE_COLUMNS.items():
                 if name not in present:
                     c.execute(f"ALTER TABLE expenses ADD COLUMN {name} {kind}")
+            columns = {r["name"] for r in c.execute("PRAGMA table_info(accounts)")}
+            if "paid_by" not in columns:
+                c.execute("ALTER TABLE accounts ADD COLUMN paid_by TEXT NOT NULL DEFAULT 'me'")
+            if "payer_name" not in columns:
+                c.execute("ALTER TABLE accounts ADD COLUMN payer_name TEXT")
+            c.execute("UPDATE accounts SET paid_by='other' WHERE paid_by='family'")  # the first name of this idea
 
     # ---------- accounts ----------
     def accounts(self):
@@ -205,24 +215,49 @@ class ExpensesMixin:
             out = []
             for r in c.execute("SELECT * FROM accounts WHERE active=1 ORDER BY created"):
                 a = dict(r)
-                if a["type"] == "credit":  # what you owe on the card, from the entries you imported and confirmed
+                if a["type"] == "credit" and a["paid_by"] != "other":  # what you owe on the card, from the entries you imported and confirmed
                     a["owed"] = -sum(x[0] for x in c.execute("SELECT amount FROM expenses WHERE account_id=? AND status='confirmed'", (a["id"],)))
+                if a["paid_by"] == "other":  # not your debt: what they paid for you this month
+                    a["others_month"] = -sum(x[0] for x in c.execute(
+                        "SELECT amount FROM expenses WHERE account_id=? AND status='confirmed' AND amount<0 AND substr(date,1,7)=? "
+                        "AND COALESCE(kind,'spend') NOT IN ('card_repayment','own_transfer')", (a["id"], date.today().strftime("%Y-%m"))))
                 out.append(a)
             return out
 
-    def add_account(self, actor, name, type, currency, balance=None):
+    @staticmethod
+    def _payer(paid_by, payer_name):
+        paid_by = paid_by or "me"
+        if paid_by not in PAYERS:
+            raise Denied("paid_by must be me or other", "account_invalid")
+        return paid_by, (str(payer_name or "").strip()[:20] or None) if paid_by == "other" else None
+
+    def add_account(self, actor, name, type, currency, balance=None, paid_by="me", payer_name=None):
         self.owner(actor)
         name, currency = (name or "").strip()[:60], (currency or "").upper()
         if not name or type not in ACCOUNT_TYPES or not re.fullmatch(r"[A-Z]{3}", currency):
             raise Denied("an account needs a name, a type (debit, credit or cash) and a currency", "account_invalid")
+        paid_by, payer_name = self._payer(paid_by, payer_name)
         aid = str(uuid.uuid4())
         with self.store.tx() as c:
-            c.execute("INSERT INTO accounts(id,name,type,currency,active,created) VALUES (?,?,?,?,1,?)", (aid, name, type, currency, now()))
-            self.store.event(c, actor, "account.add", "ok", aid, type=type, currency=currency)
+            c.execute("INSERT INTO accounts(id,name,type,currency,active,created,paid_by,payer_name) VALUES (?,?,?,?,1,?,?,?)",
+                      (aid, name, type, currency, now(), paid_by, payer_name))
+            self.store.event(c, actor, "account.add", "ok", aid, type=type, currency=currency, paid_by=paid_by)
             if balance not in (None, "") and type != "credit":
                 minor = int((Decimal(str(balance)) * 10 ** decimals(currency)).to_integral_value())
                 self._set_account_balance(c, actor, aid, minor, str(date.today()))
         return next(a for a in self.accounts() if a["id"] == aid)
+
+    def set_account_payer(self, actor, aid, paid_by, payer_name=None):
+        """Say who pays for an account you already use (e.g. it is your parents' card), and what to call them."""
+        self.owner(actor)
+        paid_by, payer_name = self._payer(paid_by, payer_name)
+        with self.store.tx() as c:
+            acct = self._account(c, aid)
+            c.execute("UPDATE accounts SET paid_by=?, payer_name=? WHERE id=?", (paid_by, payer_name, aid))
+            self.store.event(c, actor, "account.payer", "ok", aid, paid_by=paid_by)
+            if acct["type"] != "credit" and acct["balance"] is not None:  # your balance is re-summed without (or with) it
+                self._set_account_balance(c, actor, aid, acct["balance"], acct["balance_date"] or str(date.today()))
+        return self.accounts()
 
     def remove_account(self, actor, aid):
         self.owner(actor)
@@ -244,8 +279,10 @@ class ExpensesMixin:
         if acct["type"] == "credit":
             return  # a card balance is what you owe, not money you have
         c.execute("UPDATE accounts SET balance=?, balance_date=? WHERE id=?", (int(minor), as_of, aid))
-        rows = c.execute("SELECT balance FROM accounts WHERE currency=? AND type<>'credit' AND active=1 AND balance IS NOT NULL",
-                         (acct["currency"],)).fetchall()
+        rows = c.execute("SELECT balance FROM accounts WHERE currency=? AND type<>'credit' AND active=1 AND balance IS NOT NULL "
+                         "AND paid_by<>'other'", (acct["currency"],)).fetchall()
+        if not rows and acct.get("paid_by") == "other":
+            return  # only accounts someone else pays in this currency: nothing of yours to record
         total = sum(r[0] for r in rows)
         self._record_cash(c, actor, acct["currency"], total, as_of, "csv", f"{len(rows)} account(s)" if len(rows) > 1 else acct["name"])
 
@@ -296,7 +333,8 @@ class ExpensesMixin:
             with self.store.tx() as c2:
                 return self.match_transfers(c2)
         types = {r["id"]: r["type"] for r in c.execute("SELECT id, type FROM accounts")}
-        rows = [dict(r) for r in c.execute("SELECT * FROM expenses WHERE match_id IS NULL AND status<>'skipped' AND account_id IS NOT NULL")]
+        rows = [dict(r) for r in c.execute("SELECT * FROM expenses WHERE match_id IS NULL AND status<>'skipped' AND account_id IS NOT NULL "
+                                           "AND account_id NOT IN (SELECT id FROM accounts WHERE paid_by='other')")]
         ins = [r for r in rows if r["amount"] > 0 and r["kind"] != "refund"]
         outs = [r for r in rows if r["amount"] < 0 and r["kind"] in ("card_repayment", "own_transfer", "spend", None)]
         used, matched = set(), 0
@@ -816,11 +854,22 @@ class ExpensesMixin:
         prev = (first - timedelta(days=1)).strftime("%Y-%m")
         with self.store.read() as c:
             types = {r["id"]: r["type"] for r in c.execute("SELECT id, type FROM accounts")}
+            others = {r["id"]: r["payer_name"] or "" for r in c.execute("SELECT id, payer_name FROM accounts WHERE paid_by='other'")}
+        mine, theirs = {}, {}  # this month: (currency, category) -> what you paid; -> {payer name: what they paid}
 
-        def totals(m):
+        def totals(m, record=False):
             out, cash_out = {}, {}
             for e in self.expenses(status="confirmed", month=m, limit=5000):
                 k = kind_of(e)
+                payer = others.get(e["account_id"])
+                if payer is not None:  # someone else paid: your spending, not your cash
+                    if k in ("spend", "refund") and e["category"] not in ("transfer", "income"):
+                        key = (e["currency"], e["category"])
+                        out[key] = out.get(key, 0) - e["amount"]
+                        if record:
+                            theirs.setdefault(key, {})
+                            theirs[key][payer] = theirs[key].get(payer, 0) - e["amount"]
+                    continue
                 if k in ("card_repayment", "own_transfer"):
                     if e["amount"] < 0 and types.get(e["account_id"]) != "credit" and k == "card_repayment":
                         cash_out[e["currency"]] = cash_out.get(e["currency"], 0) - e["amount"]
@@ -829,15 +878,14 @@ class ExpensesMixin:
                     cash_out[e["currency"]] = cash_out.get(e["currency"], 0) - e["amount"]
                 if e["category"] in ("transfer", "income"):
                     continue
-                if k == "spend" and e["amount"] < 0:
+                if (k == "spend" and e["amount"] < 0) or k == "refund":
                     key = (e["currency"], e["category"])
                     out[key] = out.get(key, 0) - e["amount"]
-                elif k == "refund":
-                    key = (e["currency"], e["category"])
-                    out[key] = out.get(key, 0) - e["amount"]
+                    if record:
+                        mine[key] = mine.get(key, 0) - e["amount"]
             return {k: v for k, v in out.items() if v > 0}, cash_out
 
-        (now_t, cash_now), (prev_t, _) = totals(month), totals(prev)
+        (now_t, cash_now), (prev_t, _) = totals(month, record=True), totals(prev)
         by_currency = {}
         for (cur, cat), v in now_t.items():
             by_currency.setdefault(cur, {"total": 0, "categories": {}})
@@ -846,11 +894,24 @@ class ExpensesMixin:
         for cur, d in by_currency.items():
             d["previous"] = sum(v for (c2, _), v in prev_t.items() if c2 == cur)
             d["cash_out"] = cash_now.get(cur, 0)
-        cards = [dict(id=a["id"], name=a["name"], currency=a["currency"], owed=a["owed"]) for a in self.accounts() if a["type"] == "credit"]
+            # the same total, split: what you paid, what each other payer paid — overall and per category
+            d["mine"] = sum(v for (c2, _), v in mine.items() if c2 == cur)
+            d["others"] = {}
+            d["category_split"] = {}
+            for cat in d["categories"]:
+                paid = theirs.get((cur, cat), {})
+                for name, v in paid.items():
+                    d["others"][name] = d["others"].get(name, 0) + v
+                d["category_split"][cat] = dict(mine=mine.get((cur, cat), 0), others=sum(paid.values()))
+            d["others_by_category"] = {name: {cat: v[name] for (c2, cat), v in theirs.items() if c2 == cur and v.get(name, 0) > 0}
+                                       for name in d["others"]}
+        cards = [dict(id=a["id"], name=a["name"], currency=a["currency"], owed=a["owed"]) for a in self.accounts()
+                 if a["type"] == "credit" and a["paid_by"] != "other"]
         counts = {s: len(self.expenses(status=s, limit=5000)) for s in ("pending", "expected")}
         with self.store.read() as c:
             unmatched = c.execute("SELECT count(*) FROM expenses WHERE status<>'skipped' AND kind IN ('card_repayment','own_transfer') "
-                                  "AND match_id IS NULL").fetchone()[0]
+                                  "AND match_id IS NULL AND (account_id IS NULL OR account_id NOT IN "
+                                  "(SELECT id FROM accounts WHERE paid_by='other'))").fetchone()[0]
         # One figure across currencies: converted at the reference rate, and the rates are listed.
         display = self._currency_default()
         total, rates, missing = 0, {}, []
@@ -863,7 +924,10 @@ class ExpensesMixin:
             if ref:
                 rates[cur] = dict(rate=ref["rate"], observed=ref.get("observed"))
         b = self.month_budget()
-        budget = dict(b, spent=(by_currency.get(b["currency"]) or {}).get("total", 0)) if b else None
+        spent_in = by_currency.get(b["currency"]) or {} if b else {}
+        # one budget for everything you spend; inside it, how much of it others paid
+        budget = dict(b, spent=spent_in.get("total", 0), others_spent=sum(spent_in.get("others", {}).values()),
+                      others=spent_in.get("others", {})) if b else None
         return dict(month=month, previous_month=prev, currencies=by_currency, cash_out=cash_now, cards=cards, unmatched_transfers=unmatched, budget=budget,
                     combined=dict(currency=display, amount=total, rates=rates, unconverted=missing) if by_currency else None,
                     pending=counts["pending"], expected=counts["expected"],

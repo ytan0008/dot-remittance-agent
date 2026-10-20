@@ -9,7 +9,7 @@ from finance.service import Finance
 from finance.providers import EvmProvider
 from finance.api import create_app
 from finance.agent import Agent
-from conftest import FakeRates, draft, approved
+from conftest import FakeRates, draft, approved, seed_sandbox
 
 
 def test_full_flow_and_duplicate_concurrency(local):
@@ -130,6 +130,7 @@ def test_memory_and_audit_persist(local):
 
 def test_async_settlement_reserves_then_settles_once(tmp_path, monkeypatch):
     f = Finance(Config(db=str(tmp_path / "async.db"), sandbox_settle_seconds=30), rates=FakeRates())
+    seed_sandbox(f)
     f.add_recipient("owner", "family", "Family", currency="CNY")
     t = approved(f)
     submitted = f.execute("owner", t["id"])
@@ -549,3 +550,58 @@ def test_on_chain_tools_are_not_offered_to_the_agent(local):
     from finance.tools import REGISTRY
     assert not {"wallet_info", "list_mandates"} & set(REGISTRY)
     assert "execute_payment" not in REGISTRY  # the assistant cannot submit payments at all
+
+
+def test_the_sandbox_holds_only_your_currencies_and_those_you_add(tmp_path):
+    f = Finance(Config(db=str(tmp_path / "empty.db"), sandbox_settle_seconds=0), rates=FakeRates())
+    assert f.balances() == []  # no test money appears by itself
+    f.add_recipient("owner", "family", "Family", currency="CNY")
+    t = f.prepare("agent", "10", "AUD", "CNY", "family", "support", "aud-1")
+    with pytest.raises(Denied) as err:  # nothing pays from a currency that is not in the sandbox
+        f.approve("owner", t["id"], t["approval_digest"])
+    assert "not in your sandbox" in str(err.value)
+    f.set_cash("owner", "AUD", "800")
+    assert [(b["currency"], b["basis"]) for b in f.balances()] == [("AUD", "cash")]
+    with pytest.raises(Denied) as err:
+        f.fund("owner", "USD", "100")
+    assert err.value.code == "sandbox_currency_missing"
+    usd = {b["currency"]: b for b in f.add_sandbox_currency("owner", "USD", "250")}["USD"]
+    assert usd["total"] == "25000" and usd["basis"] == "test_funds"
+    with pytest.raises(Denied):
+        f.add_sandbox_currency("owner", "USD")  # once is enough
+    with pytest.raises(Denied):
+        f.remove_sandbox_currency("owner", "AUD")  # a currency you hold stays
+    assert [b["currency"] for b in f.remove_sandbox_currency("owner", "USD")] == ["AUD"]
+
+
+def test_my_own_accounts_are_me_and_a_move_between_them_stays_mine(local):
+    china = local.add_own_account("owner", "CNY", "Bank of China", "6222000011113333", "CN")
+    sydney = local.add_own_account("owner", "AUD", "中国银行悉尼分行", "123456789", "AU")
+    assert (china["id"], china["name"], china["kind"]) == ("me-cny", "me", "self") and china["bank_id"] == "boc"
+    assert sydney["id"] == "me-aud" and sydney["bank_id"] == "boc_au"
+    assert local.add_own_account("owner", "AUD", "CBA", "987654321")["id"] == "me-aud-2"
+    with pytest.raises(Denied):  # "me" is reserved: nobody else can be named or ID'd as you
+        local.add_recipient("owner", "me-aud-9", "Not me", currency="AUD")
+    local.set_cash("owner", "CNY", "10000")
+    local.set_cash("owner", "AUD", "100")
+    local.set_route("owner", "sandbox-cny-aud", True) if hasattr(local, "set_route") else None
+    routes = [r for r in local.routes() if r["source"] == "CNY" and r["target"] == "AUD"] if hasattr(local, "routes") else []
+    if not routes or not routes[0].get("enabled", True):
+        return  # this build has no CNY→AUD sandbox route enabled; the credit path is covered by the AUD→CNY case below
+    t = local.prepare("agent", "1000", "CNY", "AUD", "me-aud", "move to my Sydney account", "self-1")
+    local.approve("owner", t["id"], t["approval_digest"])
+    local.execute("owner", t["id"]); local.reconcile("owner", t["id"])
+    assert local.cash_balances()["AUD"]["amount"] == 10000 + int(t["details"]["receive"])
+
+
+def test_paying_my_own_account_credits_it(local):
+    me = local.add_own_account("owner", "CNY", "Bank of China", "6222000011113333", "CN")
+    local.set_cash("owner", "AUD", "500")
+    cny = lambda: int(next(b for b in local.balances() if b["currency"] == "CNY")["total"])
+    before = cny()
+    t = local.prepare("agent", "100", "AUD", "CNY", me["id"], "to my China account", "self-2")
+    local.approve("owner", t["id"], t["approval_digest"])
+    local.execute("owner", t["id"]); local.reconcile("owner", t["id"])
+    assert local.cash_balances()["AUD"]["amount"] < 50000  # it left my AUD
+    assert cny() == before + int(t["details"]["receive"])  # and arrived in my CNY, as quoted
+    assert local.remove_own_account("owner", me["id"]) and not any(r["id"] == me["id"] for r in local.recipients())

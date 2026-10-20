@@ -3,9 +3,9 @@ import {esc, amt, tag, panel, field, options, segmented, icons, empty} from '../
 import {money, num, day, pct, region, decimalsOf, phrase, when, lang, currencyName} from '../i18n.js';
 import {renderDetail} from './payments.js';
 import {view as templatesView} from './templates.js';
-import {recipientsPanels, recipientForm} from './wallets.js';
+import {recipientsPanels, recipientForm, ownAccountForm} from './wallets.js';
 import {modal, need, bus} from '../core.js';
-import {loadBanks, banksFor, pricingLine, ensureBank, bankName, autoLine} from './banks.js';
+import {loadBanks, banksFor, pricingLine, ensureBank, bankName, autoLine, knowledgeList} from './banks.js';
 
 const onTemplates = () => state.send.tab === 'templates';
 const onRecipients = () => state.send.tab === 'recipients';
@@ -43,7 +43,7 @@ function pairCard(route) {
     <div class="pair-sides">
       <label class="pair-select"><span>${t('send.you_pay')}</span><select id="pair-source" data-pair="source">${pairOptions(route.source, route.target)}</select><small>${esc(currencyName(route.source))}</small></label>
       <button class="swap" type="button" data-action="pair-swap" aria-label="${t('markets.swap')}">${icons.swap}</button>
-      <label class="pair-select"><span>${t('send.they_receive')}</span><select id="pair-target" data-pair="target">${pairOptions(route.target, route.source)}</select><small>${esc(currencyName(route.target))}</small></label>
+      <label class="pair-select"><span>${toMe() ? t('send.i_receive') : t('send.they_receive')}</span><select id="pair-target" data-pair="target">${pairOptions(route.target, route.source)}</select><small>${esc(currencyName(route.target))}</small></label>
       <span class="pair-cap">${route.capabilities.sandbox_payment ? `<span class="tag k-sandbox_quote">${t('send.payable')}</span>` : ''}
         <button type="button" class="link sm" data-action="routes-open">${t('send.more_routes')}</button></span>
     </div>
@@ -51,10 +51,12 @@ function pairCard(route) {
     <div class="pair-banks">
       <div class="field"><label for="bank-send">${t('send.bank_send')} <small class="muted">${t('tf.optional')}</small></label>
         <select id="bank-send" data-bank-pick="send_bank"><option value="">${t('send.bank_any')}</option>${options(senders.map(b => [b.id, bankName(b)]), s.send_bank)}</select>
-        <small class="bank-line">${s.send_bank ? pricingLine(pick(s.send_bank, senders)) + bankButtons(pick(s.send_bank, senders), route) : t('send.bank_hint')}</small></div>
+        <small class="bank-line">${s.send_bank ? pricingLine(pick(s.send_bank, senders)) + bankButtons(pick(s.send_bank, senders), route) : t('send.bank_hint')}</small>
+        ${s.send_bank ? knowledgeList(pick(s.send_bank, senders)) : ''}</div>
       <div class="field"><label for="bank-recv">${t('send.bank_receive')} <small class="muted">${t('tf.optional')}</small></label>
         <select id="bank-recv" data-bank-pick="receive_bank"><option value="">${t('send.bank_any')}</option>${options(receivers.map(b => [b.id, bankName(b)]), s.receive_bank)}</select>
-        <small class="bank-line">${s.receive_bank ? pricingLine(pick(s.receive_bank, receivers)) + bankButtons(pick(s.receive_bank, receivers), route) : t('send.bank_hint')}</small></div>
+        <small class="bank-line">${s.receive_bank ? pricingLine(pick(s.receive_bank, receivers)) + bankButtons(pick(s.receive_bank, receivers), route) : t('send.bank_hint')}</small>
+        ${s.receive_bank ? knowledgeList(pick(s.receive_bank, receivers)) : ''}</div>
     </div></div>`;
 }
 
@@ -117,6 +119,15 @@ function paintScenarios(route) {
   if (box && route) { box.innerHTML = scenariosHtml(route); box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop'); }
 }
 
+/* ---------- me: my own accounts are "me", on both sides of a payment ---------- */
+const mine = currency => (state.data.recipients || []).filter(r => r.kind === 'self' && r.enabled && r.currency === currency);
+const last4 = a => a ? ' ····' + String(a).slice(-4) : '';
+export const ownLabel = r => `${t('recipient.me')} · ${r.bank || r.currency}${last4(r.account)}`;
+const chosen = () => (state.data.recipients || []).find(r => r.id === state.send.recipient);
+const toMe = () => chosen()?.kind === 'self';
+/** "I receive" when the money goes to my own account, "Anna receives" for someone else, "They receive" before choosing. */
+const receiveWord = () => toMe() ? t('send.mode_receive_me') : chosen() ? t('send.mode_receive_x', {n: chosen().name}) : t('send.mode_receive');
+
 /* No one to pay in this currency yet: fill the recipient in right here instead of leaving the page. */
 function inlineRecipient(route) {
   const owner = isOwner() ? '' : 'disabled';
@@ -126,25 +137,34 @@ function inlineRecipient(route) {
       ${field('ir-account', t('wallets.r_account'), `<input id="ir-account" maxlength="34" autocomplete="off" placeholder="${t('wallets.r_account_ph')}" ${owner}>`)}</div>
     <p class="form-error" id="ir-error"></p>
     <button type="button" class="button sm" data-action="inline-recipient" data-currency="${esc(route.target)}" data-country="${esc(route.receive || '')}" ${owner}>${icons.plus}${t('wallets.save_recipient')}</button>
+    <button type="button" class="link sm" data-action="own-account" data-currency="${esc(route.target)}" data-country="${esc(route.receive || '')}" ${owner}>${t('send.its_me')}</button>
   </fieldset>`;
 }
 
 function form(route) {
   const s = state.send;
   const recipients = (state.data.recipients || []).filter(r => r.enabled && r.rail === 'sandbox' && r.currency === route.target);
+  const myTo = recipients.filter(r => r.kind === 'self'), others = recipients.filter(r => r.kind !== 'self'), myFrom = mine(route.source);
   // A payment can count toward one of your exchange plans for this pair (it shows as that plan's progress).
   const goals = (state.data.sendPlans || []).filter(g => g.source === route.source && g.target === route.target)
     .map(g => ({id: g.id, title: `${g.purpose || g.source + '→' + g.target} · ${money(g.total ?? g.amount, g.amount_currency)} ${g.amount_currency}`}));
   const currency = s.mode === 'send' ? route.source : route.target;
   return `<form id="send-form" class="send-form" autocomplete="off">
-    <p class="direction-line">${t('send.direction', {s: route.source, t: route.target})}</p>
-    ${segmented('mode', [['send', t('send.mode_send')], ['receive', t('send.mode_receive')]], s.mode, 'send-mode')}
+    <p class="direction-line">${t(toMe() ? 'send.direction_me' : 'send.direction', {s: route.source, t: route.target})}</p>
+    ${segmented('mode', [['send', t('send.mode_send')], ['receive', receiveWord()]], s.mode, 'send-mode')}
     <div class="amount-field"><label for="send-amount">${t(s.mode === 'send' ? 'send.amount' : 'send.receive_amount')}</label>
       <div class="amount-input"><input id="send-amount" name="amount" inputmode="decimal" placeholder="${decimalsOf(currency) ? '100.00' : '1000000'}" value="${esc(s.mode === 'send' ? s.amount : s.receive)}" maxlength="24" required><span>${esc(currency)}</span></div>
       <small>${t('send.decimals', {n: decimalsOf(currency)})}</small></div>
-    ${recipients.length
-      ? field('send-recipient', t('send.recipient'), `<select id="send-recipient" name="recipient" required><option value="">${t('send.choose_recipient')}</option>${options(recipients.map(r => [r.id, `${r.name} · ${r.id}`]), s.recipient)}<option value="__new">${t('send.r_new')}</option></select>`)
-      : inlineRecipient(route)}
+    <div class="grid-2 from-to">
+      ${field('send-from', t('send.from'), `<select id="send-from" name="from_account"><option value="">${t('send.from_any')}</option>${options(myFrom.map(r => [r.id, ownLabel(r)]), s.from || '')}<option value="__me">${t('send.add_mine', {c: route.source})}</option></select>`)}
+      ${recipients.length
+        ? field('send-recipient', t('send.recipient'), `<select id="send-recipient" name="recipient" required><option value="">${t('send.choose_recipient')}</option>
+          ${myTo.length ? `<optgroup label="${esc(t('send.to_me'))}">${options(myTo.map(r => [r.id, ownLabel(r)]), s.recipient)}</optgroup>` : ''}
+          ${others.length ? `<optgroup label="${esc(t('send.to_others'))}">${options(others.map(r => [r.id, `${r.name} · ${r.id}`]), s.recipient)}</optgroup>` : ''}
+          <option value="__me">${t('send.add_mine', {c: route.target})}</option><option value="__new">${t('send.r_new')}</option></select>`)
+        : ''}</div>
+    ${recipients.length ? '' : inlineRecipient(route)}
+    ${toMe() ? `<p class="note">${t('send.self_note', {c: route.target})}</p>` : ''}
     <p class="fine tpl-hint" id="tpl-hint">${tplHint(s.recipient)}</p>
     ${field('send-purpose', t('send.purpose'), `<input id="send-purpose" name="purpose" maxlength="200" required placeholder="${t('send.purpose_ph')}" value="${esc(s.purpose)}">`)}
     <div class="grid-2">
@@ -240,7 +260,7 @@ function needsForm(route, info) {
     <div class="needs-grid">
       ${field('nd-amount', t('watch.amount', {c: route.target}), `<input id="nd-amount" name="amount" inputmode="decimal" value="${esc(amount)}" placeholder="0">`)}
       ${field('nd-deadline', t('watch.deadline'), `<input id="nd-deadline" name="deadline" type="date" value="${esc(s.arrival || '')}">`)}
-      ${field('nd-rate', t('watch.min_rate'), `<input id="nd-rate" name="min_rate" inputmode="decimal" value="${esc(n.min_rate || '')}" placeholder="${esc(info?.latest?.rate ? num(info.latest.rate * 0.99, 4) : '')}">`)}
+      ${field('nd-rate', t('watch.min_rate'), `<input id="nd-rate" name="min_rate" inputmode="decimal" value="${esc(n.min_rate || '')}" placeholder="${esc(info?.history?.median ? num(info.history.median, 4) : '')}">`)}
       ${field('nd-note', t('watch.note_field'), `<input id="nd-note" name="note" maxlength="120" value="${esc(s.purpose || '')}">`)}
     </div><div class="form-error"></div><button class="button sm" ${isOwner() ? '' : 'disabled'}>${icons.check}${t('watch.save')}</button></form>`;
 }
@@ -327,7 +347,23 @@ export const view = {
       if (name === 'recipient' && e.target.value === '__new') {  // "+ New recipient…": add one without leaving, it is picked when saved
         e.target.value = s.recipient || ''; recipientForm({currency: route.target, country: route.receive || ''}); return;
       }
-      if (name === 'recipient') { s.recipient = e.target.value; const hint = root.querySelector('#tpl-hint'); if (hint) hint.innerHTML = tplHint(s.recipient); }
+      if ((name === 'recipient' || name === 'from_account') && e.target.value === '__me') {  // add one of my own accounts here
+        e.target.value = (name === 'recipient' ? s.recipient : s.from) || '';
+        ownAccountForm({currency: name === 'recipient' ? route.target : route.source, country: name === 'recipient' ? route.receive || '' : route.send || '', pick: name});
+        return;
+      }
+      if (name === 'recipient') {
+        const wasMe = toMe();
+        s.recipient = e.target.value; const hint = root.querySelector('#tpl-hint'); if (hint) hint.innerHTML = tplHint(s.recipient);
+        const r = chosen(), bank = r?.kind === 'self' && r.bank_id && banksFor(route.source, route.target)?.some(b => b.id === r.bank_id) ? r.bank_id : null;
+        if (bank && bank !== s.receive_bank) { s.receive_bank = bank; s.scen = null; scheduleScenarios(0); }
+        if (bank || wasMe !== toMe()) (bus.repaint || rerender)();  // the labels say "I receive" now
+      }
+      if (name === 'from_account') {
+        s.from = e.target.value;
+        const r = (state.data.recipients || []).find(x => x.id === s.from);
+        if (r?.bank_id && banksFor(route.source, route.target)?.some(b => b.id === r.bank_id)) { s.send_bank = r.bank_id; s.scen = null; scheduleScenarios(0); (bus.repaint || rerender)(); }
+      }
       if (name === 'purpose') s.purpose = e.target.value;
       if (name === 'arrival') s.arrival = e.target.value;
       if (name === 'goal') s.goal = e.target.value;
@@ -394,6 +430,7 @@ export const view = {
         timing: x.timing, legs: x.legs.map(l => ({date: l.date, spend: l.spend, receive: l.receive}))};
       location.hash = 'sandbox';
     },
+    'own-account'(el) { ownAccountForm({currency: el.dataset.currency, country: el.dataset.country, pick: 'recipient'}); },
     'send-mode'(el) { state.send.mode = el.dataset.value; state.send.result = null; rerender(); schedule(0); },
     'send-rank'(el) { state.send.rank = el.dataset.value; schedule(0); },
     async 'watch-toggle'() {

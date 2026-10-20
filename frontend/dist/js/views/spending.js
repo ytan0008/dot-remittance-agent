@@ -20,15 +20,26 @@ function summary() {
     const cats = Object.entries(d.categories).sort((a, b) => b[1] - a[1]);
     const top = cats[0]?.[1] || 1;
     const delta = d.previous ? Math.round((d.total - d.previous) / d.previous * 100) : null;
+    const others = Object.entries(d.others || {}), split = d.category_split || {};
+    const splitRows = others.length ? `<ul class="payer-split"><li><i class="sw mine"></i>${t('acct.paid_me')}<b>${esc(money(d.mine, cur))}</b></li>
+        ${others.map(([n, v]) => `<li><i class="sw other"></i>${t('acct.paid_by_x', {n: esc(payerName(n))})}<b>${esc(money(v, cur))}</b></li>`).join('')}</ul>` : '';
+    const bar = (c, v) => {
+      const s = split[c], mineRatio = s && others.length ? s.mine / top : v / top;
+      return `<span class="cat-track ${others.length ? 'two' : ''}">${others.length ? `<i class="bar-fill other" data-ratio="${(v / top).toFixed(3)}"></i>` : ''}<i class="bar-fill mine" data-ratio="${mineRatio.toFixed(3)}"></i></span>`;
+    };
+    const note = (c, v) => others.length && split[c]?.others ? `<small class="split-note">${t('acct.split_note', {m: money(split[c].mine, cur), o: money(split[c].others, cur), n: esc(others.length === 1 ? payerName(others[0][0]) : t('acct.other_default'))})}</small>` : '';
     return `<div class="spend-cur"><div class="spend-total"><span class="eyebrow">${esc(cur)} · ${t('acct.spent')}</span>${amt(d.total, cur, 'xl')}
         <small>${delta === null ? t('spend.no_prev') : t(delta > 0 ? 'spend.more' : 'spend.less', {p: Math.abs(delta)})}</small>
-        <small>${t('acct.cash_out')} ${esc(money(d.cash_out || 0, cur))} ${esc(cur)}</small></div>
-      <ul class="cat-bars">${cats.map(([c, v]) => `<li><span class="cat-name"><i class="cat-dot c-${c}"></i>${esc(t('cat.' + c))}</span><span class="cat-track"><i class="bar-fill" data-ratio="${(v / top).toFixed(3)}"></i></span>${amt(v, cur)}</li>`).join('')}</ul></div>`;
+        ${splitRows || `<small>${t('acct.cash_out')} ${esc(money(d.cash_out || 0, cur))} ${esc(cur)}</small>`}</div>
+      <ul class="cat-bars">${cats.map(([c, v]) => `<li><span class="cat-name"><i class="cat-dot c-${c}"></i>${esc(t('cat.' + c))}${note(c, v)}</span>${bar(c, v)}${amt(v, cur)}</li>`).join('')}</ul>
+      ${others.map(([n]) => `<button class="link sm others-copy" data-action="others-copy" data-cur="${esc(cur)}" data-name="${esc(n)}">${t('acct.copy_for', {n: esc(payerName(n))})}</button>`).join('')}</div>`;
   }).join('') : empty(t('spend.empty_month'));
   const b = s?.budget, used = b ? Math.min(999, Math.round(b.spent * 100 / Math.max(1, b.amount))) : 0;
+  const othersIn = b && b.others_spent ? Object.entries(b.others || {}) : [];
   const budget = b ? `<div class="budget-bar ${used >= 100 ? 'over' : used >= 85 ? 'near' : ''}"><div><b>${t('budget.month', {a: money(b.amount, b.currency), c: esc(b.currency)})}</b>
-      <small>${t('budget.used', {p: used, a: money(Math.max(0, b.amount - b.spent), b.currency), c: esc(b.currency)})}</small></div>
-      <span class="budget-track"><i class="bar-fill" data-ratio="${Math.min(1, used / 100).toFixed(3)}"></i></span>
+      <small>${t('budget.used', {p: used, a: money(Math.max(0, b.amount - b.spent), b.currency), c: esc(b.currency)})}${othersIn.length
+        ? ' · ' + othersIn.map(([n, v]) => t('budget.others_in', {n: esc(payerName(n)), p: Math.round(v * 100 / Math.max(1, b.amount))})).join(' · ') : ''}</small></div>
+      <span class="budget-track ${othersIn.length ? 'two' : ''}">${othersIn.length ? `<i class="bar-fill other" data-ratio="${Math.min(1, used / 100).toFixed(3)}"></i>` : ''}<i class="bar-fill mine" data-ratio="${Math.min(1, (b.spent - (b.others_spent || 0)) / Math.max(1, b.amount)).toFixed(3)}"></i></span>
       <button class="link sm" data-action="budget-edit">${t('budget.edit')}</button></div>`
     : `<button class="link sm budget-set" data-action="budget-edit" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('budget.set')}</button>`;
   const extra = !s ? '' : [
@@ -186,7 +197,12 @@ function fixedList(items) {
 export const openFixed = () => { ui.tab = 'fixed'; };
 
 /* ---------- accounts: debit cards, credit cards and cash kept apart, so a card repayment is never spending twice ---------- */
-const acctName = id => { const a = (state.data.accounts || []).find(x => x.id === id); return a ? ` · ${esc(a.name)}` : ''; };
+const acctOf = id => (state.data.accounts || []).find(x => x.id === id);
+const acctName = id => { const a = acctOf(id); return a ? ` · ${esc(a.name)}` : ''; };
+/** What to call whoever pays an account (their name as you wrote it, or simply "someone else"). */
+export const payerName = name => name || t('acct.other_default');
+const paidByOther = r => acctOf(r.account_id)?.paid_by === 'other';
+const payerTag = r => paidByOther(r) ? ` · <span class="kind-tag k-other">${t('acct.paid_by_x', {n: esc(payerName(acctOf(r.account_id).payer_name))})}</span>` : '';
 const kindTag = r => (['card_repayment', 'own_transfer', 'refund'].includes(r.kind)
   ? ` · <span class="kind-tag k-${esc(r.kind)}">${t('acct.k.' + r.kind)}${r.match_id ? ' ✓' : ''}</span>` : '')
   + (r.match_id && isOwner() ? ` <button class="link sm" data-action="unmatch" data-id="${esc(r.id)}">${t('acct.unmatch')}</button>` : '')
@@ -196,13 +212,36 @@ function accountsBar() {
   const list = state.data.accounts || [];
   const owner = isOwner() ? '' : 'disabled';
   return `<div class="accounts-bar"><span class="eyebrow">${t('acct.title')}</span>
-    <div class="acct-chips">${list.map(a => `<span class="acct-chip t-${esc(a.type)}"><b>${esc(a.name)}</b><small>${t('acct.t.' + a.type)} · ${esc(a.currency)}${a.type === 'credit'
-      ? ` · ${t(a.owed > 0 ? 'acct.owed' : 'acct.in_credit')} ${esc(money(Math.abs(a.owed || 0), a.currency))}` : a.balance != null ? ` · ${esc(money(a.balance, a.currency))}` : ''}</small>
+    <div class="acct-chips">${list.map(a => `<span class="acct-chip t-${esc(a.type)} ${a.paid_by === 'other' ? 'by-other' : ''}"><b>${esc(a.name)}</b><small>${t('acct.t.' + a.type)} · ${esc(a.currency)}${a.paid_by === 'other'
+      ? ` · ${t('acct.paid_by_x', {n: esc(payerName(a.payer_name))})} · ${t('acct.this_month', {a: money(a.others_month || 0, a.currency)})}`
+      : a.type === 'credit' ? ` · ${t(a.owed > 0 ? 'acct.owed' : 'acct.in_credit')} ${esc(money(Math.abs(a.owed || 0), a.currency))}` : a.balance != null ? ` · ${esc(money(a.balance, a.currency))}` : ''}</small>
+      ${isOwner() ? `<button class="link sm" data-action="acct-payer" data-id="${esc(a.id)}">${t('acct.payer_change')}</button>` : ''}
       <button class="x" data-action="acct-remove" data-id="${esc(a.id)}" aria-label="${t('common.delete')}" ${owner}>×</button></span>`).join('')}
       <button type="button" class="button sm ghost" data-action="acct-add" ${owner}>${icons.plus}${t('acct.add')}</button></div>
     ${list.length ? `<label class="acct-pick"><small>${t('acct.import_to')}</small><select id="csv-account">${options([['', t('acct.none')], ...list.map(a => [a.id, `${a.name} · ${t('acct.t.' + a.type)}`])], ui.account || '')}</select></label>`
       : `<small class="muted">${t('acct.hint')}</small>`}</div>`;
 }
+
+/** Who pays: me, or someone else — named from the suggestions (Mum and Dad, someone else) or anything you type. */
+function payerFields(paidBy, name) {
+  return `<div class="field payer-field"><label>${t('acct.payer')}</label><div class="segmented ac-payer" role="radiogroup">
+      <label><input type="radio" name="paid_by" value="me" ${paidBy !== 'other' ? 'checked' : ''}> ${t('acct.payer_me')}</label>
+      <label><input type="radio" name="paid_by" value="other" ${paidBy === 'other' ? 'checked' : ''}> ${t('acct.payer_other')}</label></div>
+    <div class="payer-name" ${paidBy === 'other' ? '' : 'hidden'}><input name="payer_name" maxlength="20" list="payer-names" value="${esc(name || t('acct.name_parents'))}" aria-label="${t('acct.payer_name')}">
+      <datalist id="payer-names"><option value="${esc(t('acct.name_parents'))}"><option value="${esc(t('acct.other_default'))}"></datalist>
+      <small class="fine">${t('acct.payer_name_hint')}</small></div>
+    <small class="fine">${t('acct.payer_hint')}</small></div>`;
+}
+const payerValue = f => {
+  const paidBy = f.querySelector('[name=paid_by]:checked')?.value || 'me';
+  return {paid_by: paidBy, payer_name: paidBy === 'other' ? (f.querySelector('[name=payer_name]').value.trim() || t('acct.other_default')) : null};
+};
+// the name field shows only when someone else pays
+addEventListener('change', e => {
+  if (e.target.name !== 'paid_by') return;
+  const box = e.target.closest('form')?.querySelector('.payer-name');
+  if (box) box.hidden = e.target.value !== 'other';
+});
 
 function accountForm() {
   modal(t('acct.add'), `<form id="account-form" class="form-block" autocomplete="off">
@@ -210,6 +249,7 @@ function accountForm() {
       <div class="field"><label for="ac-type">${t('acct.type')}</label><select id="ac-type" name="type">${options(['debit', 'credit', 'cash'].map(x => [x, t('acct.t.' + x)]), 'debit')}</select></div></div>
     <div class="grid-2"><div class="field"><label for="ac-cur">${t('plans.currency')}</label><select id="ac-cur" name="currency">${options(['AUD', 'CNY', 'USD', 'EUR', 'GBP', 'JPY', 'KRW', 'VND', 'NZD', 'SGD', 'HKD'].map(c => [c, c]), (state.data.memory || {}).display_currency || 'AUD')}</select></div>
       <div class="field"><label for="ac-bal">${t('acct.balance')} <small class="muted">${t('tf.optional')}</small></label><input id="ac-bal" name="balance" inputmode="decimal" maxlength="24"></div></div>
+    ${payerFields('me', '')}
     <p class="fine">${t('acct.form_note')}</p>
     <div class="form-error"></div><div class="modal-actions"><button class="button primary">${t('acct.save')} ${icons.arrow}</button></div></form>`, 'ACCOUNT');
 }
@@ -220,11 +260,14 @@ function tabs() {
 }
 
 function recentList() {
-  const rows = (state.data.spendMonth || []).filter(r => r.status === 'confirmed');
-  return panel(`${t('spend.recent')} <span class="muted">/ ${rows.length}</span>`, rows.length ? `<ul class="list spend-list">${rows.slice(0, 60).map(r => `<li class="row"><span class="cat-dot c-${esc(r.category)}"></span><div><b>${esc(r.description)}</b><small>${day(r.date)} · ${esc(t('spend.src.' + r.source))}${acctName(r.account_id)}${kindTag(r)}</small></div>
+  const all = (state.data.spendMonth || []).filter(r => r.status === 'confirmed');
+  const anyOther = all.some(paidByOther), who = anyOther ? ui.payer || 'all' : 'all';
+  const rows = all.filter(r => who === 'all' || (who === 'other') === paidByOther(r));
+  const filter = anyOther ? `<div class="segmented sm">${['all', 'me', 'other'].map(v => `<button type="button" class="${who === v ? 'on' : ''}" data-action="spend-payer" data-v="${v}">${t('acct.show_' + v)}</button>`).join('')}</div>` : '';
+  return panel(`${t('spend.recent')} <span class="muted">/ ${rows.length}</span>`, rows.length ? `<ul class="list spend-list">${rows.slice(0, 60).map(r => `<li class="row"><span class="cat-dot c-${esc(r.category)}"></span><div><b>${esc(r.description)}</b><small>${day(r.date)} · ${esc(t('spend.src.' + r.source))}${acctName(r.account_id)}${payerTag(r)}${kindTag(r)}</small></div>
       <select class="cat-inline" data-recat="${esc(r.id)}" ${isOwner() ? '' : 'disabled'}>${catOptions(r.category)}</select>
       <span class="${r.amount > 0 ? 'income' : ''}">${r.amount > 0 ? '+' : ''}${amt(Math.abs(r.amount), r.currency)}</span>
-      <button class="x" data-action="spend-delete" data-id="${esc(r.id)}" aria-label="${t('common.delete')}" ${isOwner() ? '' : 'disabled'}>×</button></li>`).join('')}</ul>` : empty(t('spend.empty_list')));
+      <button class="x" data-action="spend-delete" data-id="${esc(r.id)}" aria-label="${t('common.delete')}" ${isOwner() ? '' : 'disabled'}>×</button></li>`).join('')}</ul>` : empty(t('spend.empty_list')), {actions: filter});
 }
 
 export const view = {
@@ -306,6 +349,19 @@ export const view = {
     async 'insight-period'(el) { ui.period = el.dataset.value; await reload(); },
     async 'spend-month'(el) { ui.month = shiftMonth(ui.month, Number(el.dataset.n)); await reload(); },
     'acct-add'() { accountForm(); },
+    'acct-payer'(el) {
+      const a = acctOf(el.dataset.id);
+      modal(t('acct.payer_change'), `<form id="payer-form" class="form-block" data-id="${esc(a.id)}"><p class="intro"><b>${esc(a.name)}</b></p>
+        ${payerFields(a.paid_by, a.payer_name)}<div class="form-error"></div><div class="modal-actions"><button class="button primary">${t('common.save')}</button></div></form>`, 'ACCOUNT / PAYER');
+    },
+    async 'others-copy'(el) {  // a plain note for whoever paid: what their card paid for this month, by category
+      const cur = el.dataset.cur, name = el.dataset.name, d = state.data.spendSummary.currencies[cur];
+      const cats = Object.entries(d.others_by_category?.[name] || {}).sort((a, b) => b[1] - a[1]);
+      const text = [t('acct.others_note', {m: monthLabel(ui.month), a: money(d.others[name], cur), c: cur}),
+        ...cats.map(([c, v]) => `· ${t('cat.' + c)} ${money(v, cur)} ${cur}`)].join('\n');
+      try { await navigator.clipboard.writeText(text); toast(t('common.copied'), 'good'); } catch { toast(text); }
+    },
+    'spend-payer'(el) { ui.payer = el.dataset.v; rerender(); },
     async 'match-yes'(el) { await api(`/expenses/${encodeURIComponent(el.dataset.id)}/match`, 'POST', {accept: true}); await reload(); },
     async 'match-no'(el) { await api(`/expenses/${encodeURIComponent(el.dataset.id)}/match`, 'POST', {accept: false}); await reload(); },
     async 'unmatch'(el) { await api(`/expenses/${encodeURIComponent(el.dataset.id)}/unmatch`, 'POST', {}); await reload(); },
@@ -339,9 +395,16 @@ export const view = {
       await api('/budget/month', 'PUT', {currency: f.querySelector('[name=currency]').value, amount: f.querySelector('[name=amount]').value.trim() || null});
       closeModal(); toast(t('budget.saved'), 'good'); invalidate(['reminders']); await reload();
     },
+    async 'payer-form'(f) {
+      const v = payerValue(f);
+      await api(`/accounts/${encodeURIComponent(f.dataset.id)}/payer`, 'PUT', v);
+      closeModal(); toast(t(v.paid_by === 'other' ? 'acct.payer_set_other' : 'acct.payer_set_me', {n: payerName(v.payer_name)}), 'good');
+      invalidate(['money']); await reload();
+    },
     async 'account-form'(f) {
       const v = n => f.querySelector(`[name=${n}]`).value.trim();
-      const a = await api('/accounts', 'POST', {name: v('name'), type: v('type'), currency: v('currency'), balance: v('balance') || null});
+      const a = await api('/accounts', 'POST', {name: v('name'), type: v('type'), currency: v('currency'), balance: v('balance') || null,
+        ...payerValue(f)});
       ui.account = a.id; closeModal(); toast(t('acct.saved'), 'good'); invalidate(['money']); await reload();
     },
     async 'fixed-form'(f) {

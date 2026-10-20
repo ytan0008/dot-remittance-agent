@@ -8,7 +8,9 @@ const CURRENCIES = ['AUD', 'USD', 'CNY', 'GBP', 'EUR', 'CAD', 'NZD', 'JPY', 'KRW
 const STAGES = ['researching', 'preparing', 'submitted', 'interview', 'awarded', 'rejected'];
 const KINDS = ['scholarship', 'grant', 'bursary', 'prize'];
 const DOCS = ['transcript', 'cv', 'statement', 'references', 'enrolment', 'id', 'financial', 'portfolio'];
-const ui = {currency: null, afford: null, form: {amount: '', currency: '', date: '', label: ''}};
+const ui = {currency: null, afford: null, form: {amount: '', currency: '', date: '', label: '', payer: 'me'}};
+// what the "someone else" option is called: the name on an account someone else pays, else "someone else"
+const otherName = () => (state.data.accounts || []).find(a => a.paid_by === 'other')?.payer_name || t('acct.other_default');
 const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };  // local date
 const owner = () => isOwner() ? '' : 'disabled';
 
@@ -28,7 +30,7 @@ function reasonText(r, cur) {
   const m = x => `${money(x, cur)} ${cur}`;
   const p = {amount: r.amount !== undefined ? m(r.amount) : '', date: r.date ? day(r.date) : '', remaining: r.remaining !== undefined ? m(r.remaining) : '',
     budget: r.budget !== undefined ? m(r.budget) : '', label: r.kind === 'tuition' ? t('study.tuition_of', {t: r.label}) : r.label || ''};
-  return t('afford.r.' + r.code, p);
+  return t('afford.r.' + r.code, {...p, n: esc(otherName())});
 }
 
 function affordChart(a) {
@@ -51,15 +53,18 @@ function affordResult() {
   return `<div class="afford-result v-${a.verdict}">
     <div class="verdict">${verdictMark(a.verdict)}<div><span class="eyebrow">${esc(a.label || t('afford.this'))} · ${amt(a.amount, cur)}</span>
       <h3>${t('afford.v.' + a.verdict)}</h3>${a.wait_until ? `<p class="wait">${t('afford.wait', {d: day(a.wait_until)})}</p>` : ''}</div></div>
-    <div class="afford-facts">
+    ${a.payer === 'other' ? `<div class="afford-facts">
+      <div><span class="eyebrow">${t('afford.payer')}</span><b>${t('acct.paid_by_x', {n: esc(otherName())})}</b></div>
+      <div><span class="eyebrow">${t('afford.month_left')}</span>${a.month_remaining === null ? '<b>—</b>' : amt(a.month_remaining, cur)}</div>
+    </div>` : `<div class="afford-facts">
       <div><span class="eyebrow">${t('afford.cash')}</span>${amt(a.cash, cur)}</div>
       <div><span class="eyebrow">${t('afford.lowest')}</span>${amt(a.lowest_after, cur)}<small>${day(a.lowest_date)}</small></div>
       <div><span class="eyebrow">${t('afford.buffer')}</span>${amt(a.buffer, cur)}</div>
       <div><span class="eyebrow">${t('afford.month_left')}</span>${a.month_remaining === null ? '<b>—</b>' : amt(a.month_remaining, cur)}</div>
-    </div>
+    </div>`}
     ${affordChart(a)}
     <ul class="reasons">${a.reasons.map(r => `<li class="r-${esc(r.code)}">${esc(reasonText(r, cur))}</li>`).join('')}</ul>
-    <p class="fine">${t('afford.note')}${a.notes.includes('holdings_unverified') ? ' ' + t('study.note.holdings_unverified') : ''}</p></div>`;
+    <p class="fine">${a.payer === 'other' ? t('afford.note_other', {n: esc(otherName())}) : t('afford.note')}${a.notes.includes('holdings_unverified') ? ' ' + t('study.note.holdings_unverified') : ''}</p></div>`;
 }
 
 function affordPanel() {
@@ -67,6 +72,7 @@ function affordPanel() {
   return panel(t('afford.title'), `<form id="afford-form" class="afford-form" autocomplete="off">
       <div class="afford-input"><input name="amount" inputmode="decimal" required placeholder="0.00" value="${esc(f.amount)}" aria-label="${t('spend.amount')}">
         <select name="currency" aria-label="${t('plans.currency')}">${options(currencies().map(c => [c, c]), cur)}</select></div>
+      <div class="segmented afford-payer" role="radiogroup" aria-label="${t('afford.payer')}">${['me', 'other'].map(p => `<label class="${f.payer === p ? 'on' : ''}"><input type="radio" name="payer" value="${p}" ${f.payer === p ? 'checked' : ''}> ${p === 'me' ? t('afford.payer_me') : t('acct.paid_by_x', {n: esc(otherName())})}</label>`).join('')}</div>
       <input name="label" maxlength="80" placeholder="${t('afford.label_ph')}" value="${esc(f.label)}" aria-label="${t('afford.label')}">
       <input name="date" type="date" min="${today()}" value="${esc(f.date || today())}" aria-label="${t('afford.date')}">
       <button class="button primary">${t('afford.check')} ${icons.arrow}</button>
@@ -182,12 +188,20 @@ function budgetPanel() {
 }
 
 /* ---------- email reports (shown in Settings) ---------- */
+/** Redraw the email section in place (it lives in the Settings dialog) — visible at once, not waiting for an entrance. */
+async function repaintEmail() {
+  try { state.data.email = await api('/email'); } catch { return; }
+  const box = document.querySelector('.email-sec');
+  if (!box) return;
+  box.innerHTML = emailPanel();
+  box.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
+}
 export function emailPanel() {
   if (!isOwner()) return '';
   const e = state.data.email;
   if (!e) return panel(t('email.title'), empty(state.errors.email || t('common.loading')));
   return panel(t('email.title'), `
-    <p class="note ${e.configured ? '' : 'warn'}">${e.configured ? t('email.ready') : t('email.unconfigured')}</p>
+    <p class="note ${e.configured ? '' : 'warn'}">${e.configured ? t('email.ready') + (e.provider ? ` · ${e.provider === 'resend' ? 'Resend' : 'SMTP'}` : '') : t('email.unconfigured')}</p>
     <form id="email-form" class="form-block">
       ${field('em-address', t('email.address'), `<input id="em-address" name="address" type="email" maxlength="254" value="${esc(e.address)}" placeholder="you@university.edu">`)}
       <div class="grid-2">${field('em-digest', t('email.digest'), `<select id="em-digest" name="digest">${options(['off', 'daily', 'weekly', 'monthly'].map(x => [x, t('email.d.' + x)]), e.digest)}</select>`)}
@@ -211,7 +225,7 @@ export const view = {
   needs: ['balances', 'budget'],
   async load() {
     const cur = ui.currency ? '?currency=' + encodeURIComponent(ui.currency) : '';
-    const jobs = {scholarships: api('/scholarships'), terms: api('/terms'), cashflow: api('/cashflow' + cur)};
+    const jobs = {scholarships: api('/scholarships'), terms: api('/terms'), cashflow: api('/cashflow' + cur), accounts: api('/accounts')};
     if (isOwner()) jobs.email = api('/email');
     const keys = Object.keys(jobs), results = await Promise.allSettled(Object.values(jobs));
     keys.forEach((k, i) => { if (results[i].status === 'fulfilled') { state.data[k] = results[i].value; delete state.errors[k]; } else state.errors[k] = results[i].reason?.message; });
@@ -226,6 +240,9 @@ export const view = {
     root.querySelector('#em-digest')?.addEventListener('change', e => { const wd = root.querySelector('#em-weekday'); if (wd) wd.disabled = e.target.value !== 'weekly'; });
     root.querySelectorAll('.bar-fill[data-ratio]').forEach(el => el.style.setProperty('--ratio', el.dataset.ratio));
     root.querySelector('#afford-form')?.addEventListener('input', e => { if (e.target.name) ui.form[e.target.name] = e.target.value; });
+    root.querySelector('#afford-form')?.addEventListener('change', e => {  // the chosen payer lights up
+      if (e.target.name === 'payer') e.currentTarget.querySelectorAll('.afford-payer label').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+    });
     root.querySelector('#cf-currency')?.addEventListener('change', async e => { ui.currency = e.target.value; await view.load(); rerender(); });
     root.querySelector('.sch-panel')?.addEventListener('change', async e => {
       const el = e.target;
@@ -250,14 +267,23 @@ export const view = {
       modal(r.subject, `<pre class="email-preview">${esc(r.text)}</pre>`, 'EMAIL / PREVIEW', {wide: true});
     },
     async 'email-send'() {
-      const r = await api('/email/send', 'POST', {period: {daily: 'day', monthly: 'month'}[state.data.email?.digest] || 'week'});
-      toast(t('email.sent_to', {to: r.to}), 'good'); await reload();
+      let r;
+      try { r = await api('/email/send', 'POST', {period: {daily: 'day', monthly: 'month'}[state.data.email?.digest] || 'week'}); }
+      catch (error) {  // say why, after the log is redrawn (redrawing first would wipe the message)
+        await repaintEmail();
+        const box = document.querySelector('.email-sec .form-error');
+        if (box) box.textContent = error.message;
+        toast(error.message, 'bad');
+        return;
+      }
+      await repaintEmail();
+      toast(t('email.sent_to', {to: r.to}), 'good');
     },
   },
   submit: {
     async 'afford-form'(f) {
       const v = Object.fromEntries(new FormData(f));
-      ui.afford = await api('/afford', 'POST', {amount: String(v.amount).replace(',', '.'), currency: v.currency, date: v.date || null, label: v.label});
+      ui.afford = await api('/afford', 'POST', {amount: String(v.amount).replace(',', '.'), currency: v.currency, date: v.date || null, label: v.label, payer: v.payer || 'me'});
       const out = document.getElementById('afford-out');
       if (out) { out.innerHTML = affordResult(); out.querySelector('.afford-result')?.classList.add('pop-in'); }
     },
@@ -283,9 +309,7 @@ export const view = {
       await api('/email', 'PUT', {address: value(f, 'address'), digest: value(f, 'digest'), reminders: f.reminders.checked, language: lang,
         weekday: Number(value(f, 'weekday') || state.data.email?.weekday || 0), skip_quiet: f.skip_quiet.checked});
       toast(t('email.saved'), 'good');
-      state.data.email = await api('/email');
-      const box = document.querySelector('.email-sec');  // it lives in the Settings dialog now
-      if (box) box.innerHTML = emailPanel();
+      await repaintEmail();
     },
   },
 };

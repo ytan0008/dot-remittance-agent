@@ -5,7 +5,7 @@ import {authScreen} from './auth.js';
 import {field as dotField, transition, reveal, interactive, countUp, swipe, progress, reduced} from './motion.js';
 import {deformTitles} from './deform.js';
 import {liquid, gesturePages, dragDismiss, expandFrom} from './tactile.js';
-import {deck} from './cards.js';
+import {deck, refit} from './cards.js';
 import {mountAssistant, syncAssistant} from './assistant.js';
 bus.expandFrom = expandFrom;
 import {view as overview} from './views/overview.js';
@@ -99,6 +99,7 @@ function paint(quiet = false) {
   else root.innerHTML = heading(state.view) + v.render();
   enhance(root, quiet);
   if (state.role) v.mount?.(root);
+  refit(root);  // charts drawn by mount change card heights: settle the layout before the frame is painted
   status();
   if (quiet) requestAnimationFrame(() => requestAnimationFrame(() => { delete html.dataset.quiet; }));
 }
@@ -108,18 +109,30 @@ const editing = () => document.activeElement?.closest?.('#view') && document.act
 const arranging = () => !!document.querySelector('#view.arranging, #view .card-block.resizing');
 addEventListener('dot:arranged', () => bus.flush());
 
+/** Rebuild the page in place without it moving: the old height holds while the new page is built (so the browser
+ *  never pulls the scroll position back), and the position is restored at once — the page scrolls smoothly for the
+ *  user, but a refresh must not animate a jump up and back down. */
+function steady(rebuild) {
+  const root = $('#view'), y = scrollY;
+  root.style.minHeight = root.offsetHeight + 'px';
+  rebuild();
+  scrollTo({top: y, behavior: 'instant'});
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    root.style.minHeight = '';
+    if (Math.abs(scrollY - y) > 1) scrollTo({top: y, behavior: 'instant'});
+  }));
+}
+
 function render() {
   // Never rebuild the page under a streaming answer or while the user types; catch up afterwards.
   // Nor under a card being dragged or resized: a live-rate refresh would rebuild the deck and drop it mid-flight.
   if (editing() || arranging() || (state.chat.streaming && ['agent', 'overview'].includes(state.view))) { pendingPaint = true; return; }
-  const y = scrollY;
-  paint(true);
-  scrollTo(0, y);
+  steady(() => paint(true));
 }
 bus.render = render;
 bus.flush = () => { if (pendingPaint) render(); };
 // After an explicit user action the page must update even if a field keeps focus; restore that focus afterwards.
-bus.repaint = () => { const id = document.activeElement?.id, y = scrollY; paint(true); scrollTo(0, y); if (id) document.getElementById(id)?.focus({preventScroll: true}); };
+bus.repaint = () => { const id = document.activeElement?.id; steady(() => paint(true)); if (id) document.getElementById(id)?.focus({preventScroll: true}); };
 
 async function show(id, mode = 'forward') {
   if (id === 'send' && state.view !== 'send') state.send.tab = 'compare';  // a plain visit opens the main tab
@@ -153,12 +166,15 @@ bus.refresh = async () => { const v = BY_ID[state.view]; await Promise.all([need
 
 async function refresh(force = false) {
   if (!state.role) return;
+  const before = JSON.stringify(state.data);
   invalidate();
   const v = BY_ID[state.view];
   try {
     await Promise.all([need([...v.needs, 'reminders'], force), v.load?.()]);
     state.connected = true;
   } catch { state.connected = false; }
+  const same = !force && JSON.stringify(state.data) === before;  // nothing this page shows has changed: leave it be
+  if (same) { status(); return; }
   if (!$('#modal').open || force) render(); else pendingPaint = true;
   status();
   celebrate();

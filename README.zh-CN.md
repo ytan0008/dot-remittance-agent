@@ -1,4 +1,4 @@
-<div align="center">
+**银行知识库**：AI 每月为每个币种查找主要银行，连同官网地址存进数据库；每次读取银行官网时，按关键词收集页面上写明的所有费用——汇款手续费、电讯费/电报费、外汇手续费、中间行费用、收款手续费——每条只在附有原文、网址和读取日期时才保存，并在每次自动读取时更新。在汇率页展开某家银行（或在汇款页选中的银行下方）就能看到这些费用和出处。**我自己的账户**固定叫“我”（标识 me-cny、me-aud…）：在“从”或收款人里选它，银行会自动带出，表单显示“我收到”，转进自己账户的钱会加回你的余额。<div align="center">
 
 [English](README.md) · **简体中文**
 
@@ -6,7 +6,7 @@
 
 **一个会「理解 · 规划 · 安全执行」的金融 Agent —— 比较方案、预测汇率、提醒你何时换汇，并把日常开销理清楚。**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-386%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-394%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![总览](docs/screenshots/overview.png)
 
@@ -42,7 +42,7 @@ DOT 是一个自然语言 AI Agent，帮你：
 
 ### 1. 问一句，得到能用的卡片
 
-Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种收款人、缺失信息、计划步骤**，再调用工具。结果以果冻卡片落在**结果面板**上，可以拖拽、合并（问 DOT 两个结果有什么关系）和点开；需要只有你知道的信息时——收款人、模板的银行信息、换钱计划、你的余额——会在聊天旁弹出预填好的表单。AI 助手能查询、解释，准备草稿、计划和模板，但没有任何提交或批准汇款的工具。
+Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种收款人、缺失信息、计划步骤**，再调用工具。结果以果冻卡片落在**结果面板**上，可以拖拽、叠放（叠在一起时错开，每张都看得见）和点开；需要只有你知道的信息时——收款人、模板的银行信息、换钱计划、你的余额——会在聊天旁弹出预填好的表单。AI 助手能查询、解释，准备草稿、计划和模板，但没有任何提交或批准汇款的工具。
 
 ![AI 助手](docs/screenshots/agent.png)
 
@@ -100,7 +100,7 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 - **学期现金流**——添加学期（起止日期、学费及截止日、每月生活费和收入）。每月金额按天平摊，学费按日期计入，已获得的奖学金按发放日计为收入，学期以外的月份按你已确认开销的平均值估算。结果包括期初现金、每月月末余额、最低点和首次缺口。
 - **奖学金与助学金**——从“了解中”到“已获得”的状态、截止倒计时、材料清单（成绩单、简历、个人陈述、推荐信……），材料未齐时在截止前 14/7/3/1 天提醒；学费截止日同样提醒。
 - **消费洞察**（在「记账」页）——最近 7 天或 30 天与上一期及平时水平对比，给出建议：哪类开销上升、频繁的小额消费、订阅总额、学期预算进度、即将到期的学费和计划缺口，并估算能省多少。
-- **邮件报告**——可选**每日、每周（自选星期几）或每月**摘要：各币种余额、货币缺口（含汇率差 3% 的情况）、换钱计划、AI 对换汇时机的判断、消费与提醒。**紧急情况立即提醒**（7 天内到期的缺口、汇率低于你的底线、计划换出超过持有、支付异常）可以不等摘要直接发送；没有变化时会跳过摘要。通过你自己的 SMTP 服务器只发给你保存的那一个地址；没配置 SMTP 也能预览。
+- **邮件报告**——可选**每日、每周（自选星期几）或每月**摘要：各币种余额、货币缺口（含汇率差 3% 的情况）、换钱计划、AI 对换汇时机的判断、消费与提醒。**紧急情况立即提醒**（7 天内到期的缺口、汇率低于你的底线、计划换出超过持有、支付异常）可以不等摘要直接发送；没有变化时会跳过摘要。通过 Resend 或你自己的 SMTP 服务器只发给你保存的那一个地址；两者都没配置也能预览。
 
 这里的一切都是基于你的计划和已确认开销的估算，不构成理财建议，也不会动用任何资金。
 
@@ -140,7 +140,7 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 
 - 点阵背景随鼠标形成**放大镜**，点线圆星群缓慢漂移、随滚动视差
 - 页面切换的**景深过渡**：前进时旧页推远模糊、新页拉近；手机**左右滑动**切页
-- 汇率图支持**滚轮/双指缩放、拖拽平移**；助手结果面板上的卡片是柔软的“果冻”方块，可拖动、合并、点开
+- 汇率图支持**滚轮/双指缩放、拖拽平移**；助手结果面板上的卡片是柔软的“果冻”方块，可拖动、叠放（错开露出每张）、点开
 - 弹窗从打开它的卡片里展开；液态指示块跟随标签；滚动揭示、数字滚动、绘线动画
 - 登录成功后，登录页的圆点飞到左上角，瞳孔张开成 dot 标志的圆环（手机上变成头像），应用在它下面淡入
 - 尊重 `prefers-reduced-motion`；零外部依赖，严格 CSP（仅 `'self'`）
@@ -162,7 +162,7 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 **一本账。**总览里的余额就是汇款页的“可用”：模拟付款完成后自动从余额里扣除并记一笔“汇款后自动更新”；没填过余额的币种才使用测试资金，并明确标注。
 记账里可以添加**借记卡、信用卡、现金账户**，导入账单时选择账户。信用卡还款和本人账户互转会在两边自动配对（金额相同、±5 天），
 连没写“还款”的也能从另一边认出来，所以刷卡 100 再还款 100 只算一次消费；退款冲减对应类别；统计分开显示“消费”“现金流出”和“信用卡待还”；
-信用卡余额永远不算作你的钱，币种余额 = 所有借记卡和现金账户之和。
+信用卡余额永远不算作你的钱，币种余额 = 所有借记卡和现金账户之和。账户可以设为**他人付**（比如爸妈的卡，名字随你起，如“爸妈”）：上面的开销仍是你的消费，也算进你唯一的月度预算，但不算你的钱，也不算你的欠款。每个总数都会拆开显示——“我自己付”和“爸妈付”——汇总、每个分类条（深浅两色）、预算条和明细列表（可筛选）里都有；学期现金流不把他人付的部分算进去，「我买得起吗」可以选谁来付，还能一键复制本月这张卡替你付了什么发给对方。沙盒只显示你账上有的币种，其他币种要手动添加才能用测试资金试。
 
 **帮你决定什么时候换。**汇率页的焦点是“现在换合适吗？”：今天在过去 90 天里的位置（有足够天数时按你银行自己的牌价）、
 按你要换的金额算出“再等 7 天有百分之几的可能更好，最可能多/少多少钱，80% 区间”，预测跑不赢“汇率不变”时直接说明。
@@ -241,26 +241,6 @@ flowchart LR
 
 ---
 
-## 👥 组员：从 GitHub 下载后如何运行
-
-**需要：** 本私有仓库的访问权限（请仓库所有者把你加为 Collaborator）、[Git](https://git-scm.com/)、[Python 3.10+](https://www.python.org/downloads/)、[Docker Desktop](https://www.docker.com/products/docker-desktop/)（保持运行）。
-
-```bash
-git clone https://github.com/ytan0008/dot-remittance-agent.git
-cd dot-remittance-agent
-python scripts/configure.py          # 生成你自己的 .env（令牌和密码），不会显示任何密钥
-docker compose up --build -d --wait  # 第一次构建需要几分钟
-```
-
-打开 **http://localhost:8787** —— 会自动以本机 Owner 身份进入。
-
-- **接入 AI 模型（可选）：** 在 `.env` 中填写*你自己的* Key：`OPENAI_API_KEY=sk-...`（已预设 `gpt-6-luna`），保存后执行 `docker compose up -d --force-recreate backend`。不填 Key 时 Agent 以标注清楚的离线规则模式运行。不要提交 `.env`，也不要在聊天里分享 Key。
-- **数据互不影响：** 每个人的副本都有独立的数据库和测试资金。
-- **端口被占用？** 在 `.env` 加一行 `FRONTEND_PORT=8799`，改用这个端口打开。
-- **更新到最新代码：** `git pull`，然后 `docker compose up --build -d --wait`。
-- **停止 / 启动：** `docker compose stop` / `docker compose up -d`。清空本地全部数据：`docker compose down -v`。
-- **不用 Docker 跑测试：** `python -m venv .venv`，再 `.venv\Scripts\pip install -r requirements.lock.txt`（macOS/Linux 用 `.venv/bin/pip`），然后 `python -m pytest -q`。
-
 ## 🚀 快速开始
 
 ### Docker（推荐）
@@ -272,7 +252,7 @@ python -m venv .venv
 docker compose up --build -d --wait
 ```
 
-打开 **http://localhost:8787**。本机演示模式会自动以 Owner 身份登录。
+打开 **http://localhost:8787**，注册一个账户（或点“先看看演示”）。本机原有的数据用 `.env` 里的 `OWNER_TOKEN` 认领。
 
 ### 不用 Docker
 
@@ -287,7 +267,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 
 ### 邮件报告（可选）
 
-在 `.env` 中填写 SMTP（`SMTP_HOST`、`SMTP_PORT`、`SMTP_SECURITY`、`SMTP_USER`、`SMTP_PASSWORD`、`SMTP_FROM`），然后运行 `docker compose up -d --force-recreate backend`，再到右上角「设置 → 邮件报告」保存你的邮箱（或者直接对助手说“每周摘要发到 me@example.com”）。Gmail / Outlook 请使用应用专用密码。
+最简单：到 [resend.com](https://resend.com) 注册、创建一个 API Key，填到 `.env` 的 `RESEND_API_KEY`（免费每月 3000 封）。没有验证域名时从 `onboarding@resend.dev` 发出，且只能发到你注册 Resend 用的邮箱——发给自己的报告足够；要发给任何人，就验证一个域名并设置 `RESEND_FROM`。也可以用自己的 SMTP（`SMTP_HOST`、`SMTP_PORT`、`SMTP_SECURITY`、`SMTP_USER`、`SMTP_PASSWORD`、`SMTP_FROM`）。然后运行 `docker compose up -d --force-recreate backend`，再到右上角「设置 → 邮件报告」保存你的邮箱（或者直接对助手说“每周摘要发到 me@example.com”）。Gmail / Outlook 请使用应用专用密码。
 
 ### 试试新功能
 
@@ -355,7 +335,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 ## 🧪 测试
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 386 项（含两轮安全审计用例）：服务、风控、记账、AI 盯盘、转账模板、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
+.\.venv\Scripts\python -m pytest -q        # 394 项（含两轮安全审计用例）：服务、风控、记账、AI 盯盘、转账模板、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
 .\.venv\Scripts\python -m finance.demo     # 离线演示：未授权被拒 → 授权 → 执行 → 幂等 → 超时恢复
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .

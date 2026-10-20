@@ -1,5 +1,5 @@
 import {state, t, toast, isOwner, canPrepare, invalidate, api, bus} from '../core.js';
-import {stream} from '../api.js';
+import {stream, suggestMinRate} from '../api.js';
 import {esc, chip, amt, tag, icons, panel, field, options} from '../ui.js';
 import {lang, money, num, day, pct, has, region} from '../i18n.js';
 import {sparkline} from '../charts.js';
@@ -197,12 +197,6 @@ function boardPanel() {
     </div>`, {cls: 'board-panel', sub: t('agent.board_sub')});
 }
 
-/** Joining two cards is a question: what do these two mean together? */
-function combinePill(a, b) {
-  const x = a.dataset.title, y = b.dataset.title;
-  return `<b>${esc(x)} + ${esc(y)}</b><button class="button sm" data-action="prompt" data-prompt="${esc(t('agent.combine_prompt', {a: x, b: y}))}">${t('agent.combine')} ${icons.arrow}</button>`;
-}
-
 function syncBoard() {
   const el = document.getElementById('agent-board');
   if (!el) return;
@@ -353,7 +347,8 @@ function formBody(fm) {
     case 'afford':
       return `<div class="grid-2">${f('amount', t('spend.amount'), inp('amount', p.amount, 'required inputmode="decimal"'))}${f('currency', t('plans.currency'), sel('currency', CURRENCIES, pickCurrency(p.currency)))}</div>`
         + f('label', t('afford.label'), inp('label', p.label, `maxlength="80" placeholder="${t('afford.label_ph')}"`))
-        + f('date', t('afford.date'), inp('date', p.date, 'type="date"'));
+        + `<div class="grid-2">${f('payer', t('afford.payer'), sel('payer', [['me', t('afford.payer_me')], ['other', t('afford.payer_other')]], p.payer === 'other' ? 'other' : 'me'))}`
+        + `${f('date', t('afford.date'), inp('date', p.date, 'type="date"'))}</div>`;
     default:
       return '';
   }
@@ -419,6 +414,7 @@ export function paintSideForm() {
   if (!again) host.querySelectorAll('.side-form-head, .side-form .field, .side-form .af-formats, .side-form .check-label, .side-form .row-actions, .side-form .note')
     .forEach((el, i) => { el.style.animationDelay = (220 + Math.min(i, 10) * 55) + 'ms'; });
   const form = host.querySelector('#side-form');
+  if (form?.elements.source && form.elements.target) suggestMinRate(form, () => [form.elements.source.value, form.elements.target.value]);
   if (fm.kind === 'recipient') {
     const name = form.querySelector('#af-name'), id = form.querySelector('#af-recipient_id');
     let touched = false;
@@ -530,7 +526,8 @@ const SUBMIT = {
     return t('af.expense.done', {text: val(form, 'text')});
   },
   async afford(form) {
-    return t('af.afford.done', {amount: val(form, 'amount'), currency: val(form, 'currency'), label: val(form, 'label') || '—'});
+    return t('af.afford.done', {amount: val(form, 'amount'), currency: val(form, 'currency'), label: val(form, 'label') || '—'})
+      + (val(form, 'payer') === 'other' ? ' ' + t('af.afford.by_other') : '');
   },
 };
 
@@ -555,7 +552,7 @@ export const view = {
     if (host && state.chat.form) { host.innerHTML = ''; paintSideForm(); }
     const stage = root.querySelector('#agent-stage');
     board?.stop();
-    board = stage ? jellyBoard(stage, {link: combinePill, fixed: true}) : null;
+    board = stage ? jellyBoard(stage, {fixed: true}) : null;
   },
   actions: {
     /* One-click owner decisions inside the chat; the assistant then continues on its own. */
@@ -609,7 +606,7 @@ export const view = {
       board?.focus(tile);
       if (matchMedia('(max-width: 1280px)').matches) tile.scrollIntoView({behavior: 'smooth', block: 'center'});
     },
-    'agent-scatter'() { board?.scatter(); },
+    'agent-scatter'() { board?.tidy(); },
   },
   render() {
     return `<div class="agent-layout">

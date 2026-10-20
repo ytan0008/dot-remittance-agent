@@ -233,16 +233,20 @@ class StudentMixin:
         return sorted(rows, key=lambda t: t["start"])
 
     # ---------- spending baseline ----------
-    def _spending(self, currency, start, end):
+    def _spending(self, currency, start, end, own_only=False):
+        """Confirmed day-to-day spending. own_only: only what left YOUR money — not what someone else paid by card."""
+        sql = "SELECT * FROM expenses WHERE status='confirmed' AND amount<0 AND currency=? AND date BETWEEN ? AND ?"
+        if own_only:
+            sql += " AND (account_id IS NULL OR account_id NOT IN (SELECT id FROM accounts WHERE paid_by='other'))"
         with self.store.read() as c:
-            rows = c.execute("SELECT * FROM expenses WHERE status='confirmed' AND amount<0 AND currency=? AND date BETWEEN ? AND ?",
-                             (currency, str(start), str(end))).fetchall()
+            rows = c.execute(sql, (currency, str(start), str(end))).fetchall()
         return [dict(r) for r in rows if r["category"] not in NOT_SPENDING]
 
     def _baseline_monthly(self, currency):
-        """Average monthly day-to-day spending over the last 90 days (or since the first entry), confirmed entries only."""
+        """Average monthly day-to-day spending out of your own money over the last 90 days (or since the first entry),
+        confirmed entries only: what someone else pays by card never lowers your projected cash."""
         today = date.today()
-        rows = self._spending(currency, today - timedelta(days=89), today)
+        rows = self._spending(currency, today - timedelta(days=89), today, own_only=True)
         if not rows:
             return 0
         span = max(30, (today - min(date.fromisoformat(r["date"]) for r in rows)).days + 1)
@@ -351,8 +355,12 @@ class StudentMixin:
         return total
 
     # ---------- can I afford this? ----------
-    def afford(self, actor, amount, currency=None, day=None, label=""):
+    def afford(self, actor, amount, currency=None, day=None, label="", payer="me"):
+        """payer "me": your cash, plan, buffer and this month's budget. payer "other" (e.g. a parent's card): not your money,
+        so only this month's budget decides — it still counts as your spending."""
         self.require(actor, "view")
+        if payer not in ("me", "other"):
+            raise Denied("payer must be me or other", "student_invalid", field="payer")
         currency = _currency(currency or self._plan_currency())
         price = units(str(amount), decimals(currency))
         today = date.today()
@@ -369,10 +377,15 @@ class StudentMixin:
         first_negative = next((str(d) for d, b in window if b - price < 0), None)
         buffer = plan["buffer"]
         month_budget = self._month_budget(currency, when)
+        set_budget = self.month_budget()  # a monthly budget you set on the Spending page wins over the term's living costs
+        if set_budget and set_budget["currency"] == currency:
+            month_budget = set_budget["amount"]
         month_spent = 0
         if when.strftime("%Y-%m") == today.strftime("%Y-%m"):
             month_spent = -sum(r["amount"] for r in self._spending(currency, today.replace(day=1), today))
         remaining = month_budget - month_spent if month_budget else None
+        if payer == "other":
+            return self._afford_other(price, currency, when, label, month_budget, month_spent, remaining)
         if low_after < 0:
             verdict = "no"
         elif low_after < buffer or (remaining is not None and price > remaining):
@@ -413,6 +426,28 @@ class StudentMixin:
                     shortfall=max(0, max(buffer, 0) - low_after) if verdict != "yes" else 0,
                     series=[(str(d), b, b - price) for d, b in window[::step]], notes=plan["notes"],
                     note="an estimate from your plan and confirmed spending, not advice; it never moves money")
+
+    def _afford_other(self, price, currency, when, label, month_budget, month_spent, remaining):
+        """Someone else pays (e.g. your parents' card): your own cash is untouched; the only question is your monthly budget."""
+        reasons = [dict(code="other_pays")]
+        wait_until = None
+        if remaining is None:
+            verdict = "yes"
+            reasons.append(dict(code="other_no_budget"))
+        elif price <= remaining:
+            verdict = "yes"
+            reasons.append(dict(code="month_ok", remaining=max(0, remaining), budget=month_budget))
+        else:
+            verdict = "careful"
+            reasons.append(dict(code="month_over", remaining=max(0, remaining), budget=month_budget))
+            nxt = (when.replace(day=1) + timedelta(days=32)).replace(day=1)
+            if month_budget and price <= month_budget:  # a fresh month's budget would hold it
+                wait_until = str(nxt)
+        return dict(verdict=verdict, payer="other", amount=price, currency=currency, date=str(when), label=str(label or "")[:80],
+                    cash=None, opening=None, lowest_before=None, lowest_after=None, lowest_date=None, buffer=None,
+                    month_budget=month_budget or None, month_spent=month_spent, month_remaining=remaining, reasons=reasons,
+                    wait_until=wait_until, shortfall=0, series=[], notes=["other_pays"],
+                    note="paid by someone else: counted in your spending and budget, never taken from your cash")
 
     # ---------- insights ----------
     def spending_insights(self, period="month", language="en", currency=None):
@@ -568,7 +603,7 @@ class StudentMixin:
         s = self._setting("email", {})
         with self.store.read() as c:
             log = [dict(r) for r in c.execute("SELECT id,kind,recipient,subject,status,error,created FROM email_log ORDER BY id DESC LIMIT 10")]
-        return dict(configured=mailer.configured(), address=s.get("address", ""), digest=s.get("digest", "off"),
+        return dict(configured=mailer.configured(), provider=mailer.provider(), address=s.get("address", ""), digest=s.get("digest", "off"),
                     weekday=int(s.get("weekday", 0)), skip_quiet=bool(s.get("skip_quiet", True)),
                     reminders=bool(s.get("reminders")), language=s.get("language", "en"), last_digest=s.get("last_digest"), log=log)
 

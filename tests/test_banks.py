@@ -216,3 +216,52 @@ def test_evidence_must_be_the_exact_figure_in_its_currency():
         data = {"fee_send": {"amount": amount.replace(",", ""), "currency": cur}}
         dropped = verify_evidence(data, {"fee_send": quote}, [("https://bank.example", quote)])
         assert (dropped == []) is keep, (amount, quote)
+
+
+def test_fee_knowledge_keeps_only_quoted_figures_with_their_page():
+    from finance.bank_kb import verify_fee_items, fee_lines
+    page = ("International transfers\nTelegraphic transfer fee: AUD 20 per transfer\nCable charge 150 元\n"
+            "汇款手续费：汇款金额的1‰，最低50元，最高260元\n\nAbout us\nOpening hours 9-5")
+    pages = [("https://bank.example/fees", page)]
+    assert "Opening hours" not in fee_lines(page) and "电" not in fee_lines("nothing\nhere") and "Cable charge" in fee_lines(page)
+    items = [
+        {"kind": "send_fee", "label": "TT fee", "amount": "20", "currency": "AUD", "quote": "Telegraphic transfer fee: AUD 20 per transfer"},
+        {"kind": "cable_fee", "label": "电讯费", "amount": "150", "currency": "CNY", "quote": "Cable charge 150 元"},
+        {"kind": "fx_fee", "label": "汇款手续费", "pct": "0.1", "min": "50", "max": "260", "quote": "汇款手续费：汇款金额的1‰，最低50元，最高260元"},
+        {"kind": "send_fee", "label": "made up", "amount": "25", "currency": "AUD", "quote": "Telegraphic transfer fee: AUD 20 per transfer"},
+        {"kind": "send_fee", "label": "not on page", "amount": "5", "currency": "AUD", "quote": "Fee AUD 5"},
+        {"kind": "send_fee", "label": "wrong currency", "amount": "20", "currency": "USD", "quote": "Telegraphic transfer fee: AUD 20 per transfer"},
+    ]
+    kept = verify_fee_items(items, pages)
+    assert [k["label"] for k in kept] == ["TT fee", "电讯费", "汇款手续费"]
+    assert all(k["url"] == "https://bank.example/fees" and k["quote"] for k in kept)
+
+
+def test_reading_a_bank_fills_its_fee_knowledge_and_ai_finds_more_banks(local, monkeypatch):
+    monkeypatch.setattr("finance.banks._public_host", lambda h: True)
+    page = "<p>International Money Transfer fee AUD 6</p><p>Cable charge AUD 10</p>"
+    url = "https://www.commbank.com.au/international/international-money-transfer.html"
+    answers = {
+        "pricing": json.dumps({"found": True, "fee_send": {"amount": "6", "currency": "AUD"},
+                               "evidence": {"fee_send": "International Money Transfer fee AUD 6"},
+                               "fees": [{"kind": "send_fee", "label": "IMT fee", "amount": "6", "currency": "AUD", "quote": "International Money Transfer fee AUD 6"},
+                                        {"kind": "cable_fee", "label": "Cable", "amount": "10", "currency": "AUD", "quote": "Cable charge AUD 10"},
+                                        {"kind": "cable_fee", "label": "Invented", "amount": "99", "currency": "AUD", "quote": "Cable charge AUD 99"}]}),
+        "discover": json.dumps({"banks": [{"name": "Macquarie Bank", "country": "AU", "website": "https://www.macquarie.com.au",
+                                           "fee_page": "https://www.macquarie.com.au/fees", "currencies": ["AUD"]},
+                                          {"name": "Bank of China", "country": "CN", "fee_page": "https://www.boc.cn/fees", "currencies": ["CNY", "AUD"]},
+                                          {"name": "Agricultural Bank of China", "country": "CN", "fee_page": "https://www.abchina.com/fees", "currencies": ["CNY"]},
+                                          {"name": "Fake", "country": "Australia", "website": "http://insecure.example"}]}),
+    }
+    local.page_reader = lambda p: answers["discover"] if "most often use" in p else answers["pricing"]
+    local.refresh_bank("owner", "cba", "AUD", "CNY", client=FakeHTTP({url: (200, page, None)}))
+    kb = local.bank_knowledge("cba")
+    assert sorted(k["label"] for k in kb) == ["Cable", "IMT fee"] and all(k["url"] == url for k in kb)
+    assert next(b for b in local.banks("AUD", "CNY") if b["id"] == "cba")["knowledge"]
+    assert local.discover_banks("AUD") == 2  # Macquarie and ABC are new; Bank of China is already known; "Fake" is not a bank entry
+    banks = {b["id"]: b for b in local.banks("AUD", "CNY")}
+    assert banks["x_macquarie_bank"]["origin"] == "ai" and banks["x_macquarie_bank"]["sides"] == ["send"]
+    assert banks["x_macquarie_bank"]["urls"][0] == "https://www.macquarie.com.au/fees"
+    assert "https://www.boc.cn/fees" in banks["boc"]["urls"]  # a known bank only gains the page the AI pointed to
+    assert not any("abchina" in u for u in banks["boc"]["urls"]) and "x_agricultural_bank_of_china" in banks  # never mixed up
+    assert not local._discovery_stale("AUD")

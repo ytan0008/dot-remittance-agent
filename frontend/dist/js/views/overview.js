@@ -1,3 +1,4 @@
+import {suggestMinRate} from '../api.js';
 import {centerFocus} from '../tactile.js';
 import {state, t, api, toast, isOwner, invalidate, rerender, modal, closeModal} from '../core.js';
 import {esc, amt, panel, icons, options, empty, tag, field} from '../ui.js';
@@ -193,6 +194,7 @@ function editor(p = {}) {
     form.addEventListener('input', refresh);
     form.addEventListener('change', refresh);
     refresh();
+    suggestMinRate(form, () => [form.source.value, form.target.value]);
   }});
 }
 

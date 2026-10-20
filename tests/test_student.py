@@ -146,6 +146,7 @@ class FakeSMTP:
 @pytest.fixture
 def smtp(monkeypatch):
     FakeSMTP.sent = []
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
     monkeypatch.setenv("SMTP_HOST", "smtp.test")
     monkeypatch.setenv("SMTP_FROM", "dot@test.example")
     monkeypatch.setattr(mailer.smtplib, "SMTP", FakeSMTP)
@@ -154,6 +155,7 @@ def smtp(monkeypatch):
 
 def test_email_settings_validation(local, monkeypatch):
     monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
     for bad in ("not-an-email", "a@b.com\nBcc: x@y.com", "a@b"):
         with pytest.raises(Denied):
             local.set_email("owner", bad, "weekly")
@@ -220,3 +222,36 @@ def test_student_api_and_agent(local, smtp, monkeypatch):
     assert reply["trace"][-1]["tool"] == "list_scholarships" and "Equity grant" in reply["message"]
     reply = agent.chat("给我本周的消费总结和建议", "s3", "zh-CN")
     assert reply["trace"][-1]["tool"] == "spending_insights"
+
+
+class FakeResponse:
+    def __init__(self, status, body):
+        self.status_code, self.body = status, body
+
+    def json(self):
+        return self.body
+
+
+def test_resend_takes_one_key_and_explains_its_limits(local, monkeypatch):
+    calls = []
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_secret_key")
+    monkeypatch.delenv("RESEND_FROM", raising=False)
+    reply = [FakeResponse(200, {"id": "abc"})]
+    monkeypatch.setattr(mailer.httpx, "post", lambda url, **kw: calls.append((url, kw)) or reply[0])
+    s = local.set_email("owner", "me@uni.edu", "weekly", True, "en")
+    assert s["configured"] is True and s["provider"] == "resend"
+    local.send_report("owner")
+    url, kw = calls[0]
+    assert url == "https://api.resend.com/emails" and kw["json"]["to"] == ["me@uni.edu"]
+    assert kw["json"]["from"] == "DOT <onboarding@resend.dev>" and kw["json"]["html"] and kw["json"]["text"]
+    assert kw["headers"]["Authorization"] == "Bearer re_test_secret_key"
+    # no verified domain yet: only the account's own address can receive, and the user is told so
+    reply[0] = FakeResponse(403, {"message": "You can only send testing emails to your own email address (x@y.com)."})
+    with pytest.raises(Denied) as err:
+        mailer.send("someone@else.edu", "Report", "text")
+    assert err.value.code == "email_testing_only"
+    reply[0] = FakeResponse(401, {"message": "API key is invalid"})
+    with pytest.raises(Denied) as err:
+        mailer.send("me@uni.edu", "Report", "text")
+    assert err.value.code == "email_key" and "re_test_secret_key" not in str(err.value)

@@ -29,6 +29,7 @@ from decimal import Decimal, InvalidOperation
 from urllib.parse import urlparse, urljoin
 import httpx
 from .domain import Denied, canonical, now, decimals, from_minor, to_minor, floor_minor
+from .bank_kb import FEES_FIELD, fee_lines
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS bank_pricing (bank TEXT NOT NULL, source TEXT NOT NULL, target TEXT NOT NULL, data TEXT NOT NULL,
@@ -170,14 +171,15 @@ def pricing_prompt(bank, source, target, pages):
             '"rate_date": "YYYY-MM-DD or null", "fee_send": {"amount": "...", "currency": "..."} or null, "fee_pct": "percent or null", '
             '"intermediary": {"amount": "...", "currency": "..."} or null, "fee_receive": {"amount": "...", "currency": "..."} or null, '
             '"notes": "one short sentence", "evidence": {"rate": "...", "fee_send": "...", "fee_pct": "...", "intermediary": "...", '
-            '"fee_receive": "..."}}. evidence holds, for every figure you give, the exact text from the page it comes from '
+            '"fee_receive": "..."}, ' + FEES_FIELD + '}. evidence holds, for every figure you give, the exact text from the page it comes from '
             '(copied verbatim, at most 160 characters, containing the number); a figure without such a quote will be discarded. '
             f"The rate is how many {target} one {source} becomes through this bank: a bank in the sending country sells {target}; "
             f"a bank in the receiving country buys {source} (for example a Chinese bank's spot exchange buying rate for {source}). "
             "Tables are often quoted per 100 units of foreign currency: divide accordingly. fee_send is the bank's own charge for "
             "sending an international transfer online; fee_receive is what it charges for receiving one. Use null for anything the "
             "pages do not state; never guess, never use outside knowledge. found=false if the pages say nothing useful.\n\n"
-            + "\n\n".join(f"PAGE {u}\n{t}" for u, t in pages))
+            + "\n\n".join(f"PAGE {u}\n{t}" for u, t in pages)
+            + "\n\nLINES ABOUT FEES (found by keyword; quote them exactly):\n" + "\n".join(fee_lines(t) for _, t in pages))
 
 
 def knowledge_prompt(bank, source, target):
@@ -401,6 +403,25 @@ class BanksMixin:
         if self._auto is None:
             self._auto = {}
         key = f"{source}-{target}"
+        stale = [c for c in (source, target) if self._discovery_stale(c)]
+        if stale:
+            state = self._auto.setdefault(key, {"pending": set(), "done": set(), "failed": set(), "lock": threading.Lock()})
+            state["pending"].add("discovering")  # the screen shows it is still looking
+
+            def find_then_read():
+                try:
+                    for cur in stale:
+                        try:
+                            self.discover_banks(cur)
+                        except Exception:  # no model answer: the built-in banks are read as before
+                            pass
+                finally:
+                    state["pending"].discard("discovering")
+                return self.auto_refresh_banks(source, target, wait=wait, client=client)
+            if wait:
+                return find_then_read()
+            threading.Thread(target=find_then_read, daemon=True, name="banks-discover").start()
+            return self.auto_status(source, target)
         state = self._auto.setdefault(key, {"pending": set(), "done": set(), "failed": set(), "lock": threading.Lock()})
         with state["lock"]:
             todo = [b["id"] for b in self.banks(source, target) if b["sides"] and self._stale(b) and b["id"] not in state["pending"]]
@@ -438,6 +459,18 @@ class BanksMixin:
     def _banks_schema(self):
         with self.store.tx() as c:
             c.executescript(SCHEMA)
+            self._kb_schema(c)
+
+    def _all_banks(self):
+        """The built-in banks (with any pages and currencies the AI added to them), then the banks the AI found."""
+        catalog = self.catalog_banks()
+        out = []
+        for b in BANKS:
+            extra = catalog.get(b["id"], {})
+            out.append(dict(b, urls=list(dict.fromkeys(b["urls"] + extra.get("extra_urls", [])))[:4],
+                            currencies=sorted(set(b["currencies"]) | set(extra.get("extra_currencies", []))), origin="builtin"))
+        out += [dict(b, days=tuple(b.get("days") or (1, 3))) for bid, b in catalog.items() if b.get("origin") == "ai"]
+        return out
 
     def banks(self, source=None, target=None):
         """The bank list; with a pair, each bank's known pricing for it."""
@@ -448,18 +481,23 @@ class BanksMixin:
                 for r in c.execute("SELECT * FROM bank_pricing WHERE source=? AND target=?", (source.upper(), target.upper())):
                     prices[r["bank"]] = dict(json.loads(r["data"]), origin=r["origin"], status=r["status"], error=r["error"],
                                              updated=r["updated"], urls=json.loads(r["urls"] or "[]"))
-        for b in BANKS:
+        knowledge = {}
+        for item in self.bank_knowledge():
+            knowledge.setdefault(item["bank"], []).append(item)
+        for b in self._all_banks():
             sides = [x for x, cur in (("send", source), ("receive", target)) if cur and cur.upper() in b["currencies"]]
             row = dict(b, days=list(b["days"]), sides=sides, side=sides[0] if sides else None)
             row["pricing"] = prices.get(b["id"])
+            row["knowledge"] = knowledge.get(b["id"], [])[:30]
             out.append(row)
         return out
 
     def _bank(self, bank_id):
         bank_id = find_bank(bank_id) or bank_id
-        if bank_id not in BY_ID:
+        bank = next((b for b in self._all_banks() if b["id"] == bank_id), None)
+        if not bank:
             raise Denied("unknown bank", "bank_unknown")
-        return BY_ID[bank_id]
+        return bank
 
     def _plausible(self, data, source, target):
         """A rate more than 15% away from the reference is a misreading (or a planted number): drop it."""
@@ -511,6 +549,7 @@ class BanksMixin:
                 errors.append(f"{urlparse(u).hostname}: {getattr(exc, 'code', type(exc).__name__)}")
         if pages:
             raw = self._ask_pages(pricing_prompt(bank, source, target, pages))
+            self.store_fee_items(bank["id"], raw.get("fees"), pages)  # the knowledge base: every fee these pages state, with its quote
             data = clean_pricing(raw) if raw.get("found") else {}
             dropped = verify_evidence(data, raw.get("evidence"), pages) if data else []
             data = self._plausible(data, source, target) if data else data

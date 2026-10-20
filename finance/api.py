@@ -56,6 +56,14 @@ class Recipient(Model):
     country: str = ""
     account: str = ""
     kind: str = "individual"
+    bank: str = Field(default="", max_length=80)
+
+
+class OwnAccount(Model):
+    currency: str = Field(min_length=3, max_length=3)
+    bank: str = Field(default="", max_length=80)
+    account: str = Field(default="", max_length=34)
+    country: str = Field(default="", max_length=2)
 
 
 class Approval(Model):
@@ -239,6 +247,13 @@ class AccountIn(Model):
     type: str
     currency: str
     balance: str | None = Field(default=None, max_length=24)
+    paid_by: str = "me"
+    payer_name: str | None = Field(default=None, max_length=20)
+
+
+class AccountPayer(Model):
+    paid_by: str
+    payer_name: str | None = Field(default=None, max_length=20)
 
 
 class ExpenseIn(Model):
@@ -249,6 +264,11 @@ class ExpenseIn(Model):
     category: str
     source: str = "manual"
     recurring: str | None = None
+
+
+class SandboxCurrency(Model):
+    currency: str = Field(min_length=3, max_length=3)
+    amount: str | None = Field(None, max_length=20)
 
 
 class ExpensePatch(Model):
@@ -338,6 +358,7 @@ class AffordIn(Model):
     currency: str | None = None
     date: str | None = None
     label: str = Field(default="", max_length=80)
+    payer: str = "me"
 
 
 class EmailIn(Model):
@@ -683,7 +704,9 @@ def create_app(finance=None, agent=None, background=None):
         purge_demos()
         ws = "demo-" + secrets.token_hex(8)  # every visitor gets their own sandbox: nobody sees anyone else's entries
         app.state.demos[ws] = time.time()
-        open_workspace(ws)
+        f, _ = open_workspace(ws)
+        for currency, amount in (("AUD", "1000"), ("CNY", "5000"), ("USD", "500")):  # the demo shows test money from the start
+            f.add_sandbox_currency("owner", currency, amount)
         return session_response(response, "owner", ws)
 
     @app.get("/session")
@@ -739,6 +762,14 @@ def create_app(finance=None, agent=None, background=None):
         return service().verify_route(actor, rid)
 
     # ---------- funds ----------
+    @app.post("/sandbox/currencies")
+    def add_sandbox_currency(body: SandboxCurrency, actor=Depends(role)):
+        return service().add_sandbox_currency(actor, body.currency, body.amount)
+
+    @app.delete("/sandbox/currencies/{currency}")
+    def remove_sandbox_currency(currency: str, actor=Depends(role)):
+        return service().remove_sandbox_currency(actor, currency)
+
     @app.get("/balances")
     def balances(actor=Depends(role)):
         return service().balances()
@@ -784,6 +815,14 @@ def create_app(finance=None, agent=None, background=None):
     @app.post("/recipients")
     def recipient(body: Recipient, actor=Depends(role)):
         return service().add_recipient(actor, **body.model_dump())
+
+    @app.post("/recipients/me")
+    def own_account(body: OwnAccount, actor=Depends(role)):
+        return service().add_own_account(actor, body.currency.upper(), body.bank, body.account.replace(" ", ""), body.country.upper())
+
+    @app.delete("/recipients/me/{rid}")
+    def remove_own_account(rid: str, actor=Depends(role)):
+        return service().remove_own_account(actor, rid)
 
     @app.get("/transfers")
     def history(status: str | None = None, rail: str | None = None, actor=Depends(role)):
@@ -975,7 +1014,11 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.post("/accounts")
     def add_account(body: AccountIn, actor=Depends(role)):
-        return service().add_account(actor, body.name, body.type, body.currency, body.balance)
+        return service().add_account(actor, body.name, body.type, body.currency, body.balance, body.paid_by, body.payer_name)
+
+    @app.put("/accounts/{aid}/payer")
+    def set_account_payer(aid: str, body: AccountPayer, actor=Depends(role)):
+        return service().set_account_payer(actor, aid, body.paid_by, body.payer_name)
 
     @app.delete("/accounts/{aid}")
     def remove_account(aid: str, actor=Depends(role)):
@@ -1067,7 +1110,7 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.post("/afford")
     def afford(body: AffordIn, actor=Depends(role)):
-        return service().afford(actor, body.amount, body.currency, body.date, body.label)
+        return service().afford(actor, body.amount, body.currency, body.date, body.label, body.payer)
 
     @app.get("/insights")
     def insights(period: str = "month", lang: str = "en", currency: str | None = None, actor=Depends(role)):

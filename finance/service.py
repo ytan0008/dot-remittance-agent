@@ -20,6 +20,7 @@ from .templates import TemplatesMixin
 from .money import MoneyMixin
 from .plans import PlansMixin, TimelineMixin
 from .banks import BanksMixin
+from .bank_kb import BankKnowledgeMixin
 from .decide import DecideMixin
 
 ACTIVE = ("pending", "unknown")
@@ -45,7 +46,9 @@ def audited(method):
 TEST_RECIPIENTS = {"ui-acceptance"}
 
 
-class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, MotivationMixin, WatchMixin, TemplatesMixin, MoneyMixin, PlansMixin, TimelineMixin, BanksMixin, DecideMixin):
+SELF_ID = re.compile(r"me(-[a-z]{3}(-\d{1,2})?)?")  # your own accounts: "me", "me-cny", "me-cny-2"
+
+class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, MotivationMixin, WatchMixin, TemplatesMixin, MoneyMixin, PlansMixin, TimelineMixin, BanksMixin, BankKnowledgeMixin, DecideMixin):
     """Single-tenant service. Authorization is derived by the server, never taken from model input."""
 
     def __init__(self, config=None, provider=None, rates=None):
@@ -229,9 +232,12 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
 
     # ---------- recipients ----------
     @audited
-    def add_recipient(self, actor, recipient_id, name, address="", enabled=True, currency="", country="", account="", kind="individual"):
+    def add_recipient(self, actor, recipient_id, name, address="", enabled=True, currency="", country="", account="", kind="individual",
+                      bank=""):
         self.owner(actor)
-        body = self._recipient_body(recipient_id, name, address, currency, country, account, kind)
+        if kind == "self" or SELF_ID.fullmatch(recipient_id or ""):
+            raise Denied("your own accounts are added as \"me\" (add_own_account)", "recipient_reserved")
+        body = self._recipient_body(recipient_id, name, address, currency, country, account, kind, bank)
         with self.store.tx() as c:
             c.execute("INSERT INTO recipients VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,enabled=excluded.enabled",
                       (recipient_id, canonical(body), int(enabled)))
@@ -239,11 +245,36 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
                              address=mask(address), account=mask(account), enabled=enabled)
         return body
 
-    def _recipient_body(self, recipient_id, name, address="", currency="", country="", account="", kind="individual"):
+    def add_own_account(self, actor, currency, bank="", account="", country=""):
+        """One of YOUR accounts (e.g. Bank of China in China, and in Australia): a payment to it is a move between your own
+        accounts. Its name is always "me" and its ID "me-<currency>" (a second one in that currency gets -2, -3…)."""
+        self.owner(actor)
+        currency = (currency or "").upper()
+        with self.store.tx() as c:
+            taken = {r[0] for r in c.execute("SELECT id FROM recipients WHERE id LIKE 'me-%'")}
+            base = "me-" + currency.lower()
+            rid = next(x for x in [base] + [f"{base}-{n}" for n in range(2, 100)] if x not in taken)
+            body = self._recipient_body(rid, "me", "", currency, country, account, "self", bank)
+            c.execute("INSERT INTO recipients VALUES (?,?,1)", (rid, canonical(body)))
+            self.store.event(c, actor, "recipient.self_add", "ok", rid, account=mask(account), bank=body.get("bank", ""))
+        return body
+
+    def remove_own_account(self, actor, recipient_id):
+        self.owner(actor)
+        if not SELF_ID.fullmatch(recipient_id or ""):
+            raise Denied("not one of your own accounts", "recipient_invalid")
+        with self.store.tx() as c:
+            if not c.execute("DELETE FROM recipients WHERE id=?", (recipient_id,)).rowcount:
+                raise Denied("account not found", "recipient_missing")
+            self.store.event(c, actor, "recipient.self_remove", "ok", recipient_id)
+        return self.recipients()
+
+    def _recipient_body(self, recipient_id, name, address="", currency="", country="", account="", kind="individual", bank=""):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", recipient_id or "") or not (name or "").strip():
             raise Denied("invalid recipient ID or name", "recipient_invalid")
-        if kind not in ("individual", "business"):
+        if kind not in ("individual", "business", "self"):
             raise Denied("recipient type must be individual or business", "recipient_invalid")
+        bank = re.sub(r"\s+", " ", str(bank or "")).strip()[:80]
         if address:
             from web3 import Web3
             if not Web3.is_address(address):
@@ -255,8 +286,12 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
             raise Denied("unknown economy", "economy_unknown")
         if account and not re.fullmatch(r"[A-Za-z0-9 -]{4,34}", account):
             raise Denied("account reference must be 4-34 letters or digits", "recipient_account")
-        return dict(id=recipient_id, name=name.strip()[:100], address="", rail="sandbox", currency=currency,
-                    country=country, account=account, kind=kind)
+        out = dict(id=recipient_id, name=name.strip()[:100], address="", rail="sandbox", currency=currency,
+                   country=country, account=account, kind=kind)
+        if bank:  # the bank it is held at, and which bank in DOT's list that is (for rates and fees)
+            from .banks import find_bank
+            out.update(bank=bank, bank_id=find_bank(bank, currency))
+        return out
 
     def recipients(self):
         with self.store.read() as c:
@@ -466,6 +501,9 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
             if rail == "evm":
                 available = self.evm.balance() - reserved
             else:
+                if not self._in_sandbox(c, b["source"]):
+                    raise Denied(f"{b['source']} is not in your sandbox — record your balance, or add it to the sandbox first",
+                                 "sandbox_currency_missing")
                 total = c.execute("SELECT total FROM balances WHERE currency=?", (b["source"],)).fetchone()
                 available = (int(total[0]) if total else 0) - reserved
             if available < b["reserve"]:
@@ -687,7 +725,17 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
                 else:
                     total = int(c.execute("SELECT total FROM balances WHERE currency=?", (body["source"],)).fetchone()[0])
                     c.execute("UPDATE balances SET total=? WHERE currency=?", (str(total - cost), body["source"]))
-                # Recipient credit is external; never add it to the sender's balances.
+                # Money to someone else leaves you. Money to your OWN account (a move between your accounts) arrives in
+                # your balance in that currency — the amount the quote said would arrive.
+                if body.get("recipient", {}).get("kind") == "self" and body.get("receive") is not None:
+                    got = int(body["receive"])
+                    have = self._latest_cash(c, body["target"])
+                    if have is not None or not self._in_sandbox(c, body["target"]):
+                        self._record_cash(c, actor, body["target"], (have or 0) + got, str(date.today()), "transfer",
+                                          f"from my {body['source']} account · {transfer_id[:8]}")
+                    else:
+                        total = int(c.execute("SELECT total FROM balances WHERE currency=?", (body["target"],)).fetchone()[0])
+                        c.execute("UPDATE balances SET total=? WHERE currency=?", (str(total + got), body["target"]))
             c.execute("UPDATE transfers SET status=?,actual_cost=?,completed_at=? WHERE id=?",
                       (status, str(cost) if cost is not None else None, now() if status in ("completed", "failed") else None,
                        transfer_id))
@@ -740,6 +788,8 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
             out = []
             for r in c.execute("SELECT * FROM balances ORDER BY currency"):
                 reserved = sum(b["reserve"] for b in active if b["source"] == r["currency"] and b.get("rail", "sandbox") == "sandbox")
+                if not reserved and not self._in_sandbox(c, r["currency"]):
+                    continue  # test money from an older version for a currency you never added: not shown, not spendable
                 own = self._latest_cash(c, r["currency"]) is not None
                 out.append(dict(currency=r["currency"], decimals=decimals(r["currency"]), total=r["total"], reserved=str(reserved),
                                 available=str(int(r["total"]) - reserved), rail="sandbox", basis="cash" if own else "test_funds",
@@ -789,8 +839,8 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
                 self.store.event(c, actor, "sandbox.fund", "ok", currency, units=str(value), label="simulated test funds")
                 return self.balances()
             row = c.execute("SELECT total FROM balances WHERE currency=?", (currency,)).fetchone()
-            if not row:
-                raise Denied("sandbox ledger does not hold this currency", "currency_unknown")
+            if not row or not self._in_sandbox(c, currency):
+                raise Denied("add this currency to the sandbox first", "sandbox_currency_missing")
             c.execute("UPDATE balances SET total=? WHERE currency=?", (str(int(row[0]) + value), currency))
             self.store.event(c, actor, "sandbox.fund", "ok", currency, units=str(value), label="simulated test funds")
         return self.balances()

@@ -6,6 +6,7 @@ What to exchange: upcoming needs per currency (tuition, a term's living costs, b
 the cash you hold in that currency; a shortfall becomes "exchange about X from your main currency at today's rate".
 Every figure is a reference estimate, not a quote.
 """
+import json
 import re
 from datetime import date, timedelta
 from decimal import Decimal
@@ -15,6 +16,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS cash_balances (id INTEGER PRIMARY KEY AUTOINCREMENT, currency TEXT NOT NULL, amount INTEGER NOT NULL,
     as_of TEXT NOT NULL, source TEXT NOT NULL, label TEXT, created INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS cash_currency ON cash_balances(currency, as_of);
+CREATE TABLE IF NOT EXISTS sandbox_currencies (currency TEXT PRIMARY KEY, added INTEGER NOT NULL);
 """
 HORIZON = 60  # days of upcoming needs considered
 
@@ -33,6 +35,46 @@ class MoneyMixin:
         r = c.execute("SELECT amount FROM cash_balances WHERE currency=? AND as_of<=? ORDER BY as_of DESC, created DESC, id DESC LIMIT 1",
                       (currency, str(date.today()))).fetchone()
         return None if r is None else int(r[0])
+
+    @classmethod
+    def _in_sandbox(cls, c, currency):
+        """The sandbox holds a currency you have a balance in, or one you added to it yourself — nothing else."""
+        return cls._latest_cash(c, currency) is not None or c.execute(
+            "SELECT 1 FROM sandbox_currencies WHERE currency=?", (currency,)).fetchone() is not None
+
+    def add_sandbox_currency(self, actor, currency, amount=None):
+        """Put a currency you do not hold into the sandbox, starting from the test amount you give (or nothing)."""
+        self.owner(actor)
+        currency = (currency or "").upper()
+        if not re.fullmatch(r"[A-Z]{3}", currency):
+            raise Denied("currency must be an ISO code", "currency_invalid")
+        start = units(str(amount), decimals(currency)) if amount not in (None, "", "0") else 0
+        if start > 10000 * 10 ** decimals(currency):
+            raise Denied("test top-up limited to 10,000 per action", "fund_limit")
+        with self.store.tx() as c:
+            if self._in_sandbox(c, currency):
+                raise Denied("this currency is already in the sandbox", "sandbox_currency_exists")
+            c.execute("INSERT INTO sandbox_currencies VALUES (?,?)", (currency, now()))
+            c.execute("INSERT INTO balances(currency,total) VALUES (?,?) ON CONFLICT(currency) DO UPDATE SET total=excluded.total",
+                      (currency, str(start)))  # a fresh start, whatever an older version left there
+            self.store.event(c, actor, "sandbox.currency_add", "ok", currency, units=str(start), label="simulated test funds")
+        return self.balances()
+
+    def remove_sandbox_currency(self, actor, currency):
+        """Take an added currency out again; one you hold, or one with a payment on its way, stays."""
+        self.owner(actor)
+        currency = (currency or "").upper()
+        with self.store.tx() as c:
+            if self._latest_cash(c, currency) is not None:
+                raise Denied("this is a currency you hold; clear its balance on the overview instead", "sandbox_currency_own")
+            busy = any(json.loads(r[0])["source"] == currency
+                       for r in c.execute("SELECT body FROM transfers WHERE status IN ('pending','unknown')"))
+            if busy:
+                raise Denied("a payment from this currency is still on its way", "sandbox_currency_busy")
+            if not c.execute("DELETE FROM sandbox_currencies WHERE currency=?", (currency,)).rowcount:
+                raise Denied("this currency is not in the sandbox", "currency_unknown")
+            self.store.event(c, actor, "sandbox.currency_remove", "ok", currency)
+        return self.balances()
 
     # what changes a balance inside DOT after a statement was taken: those a statement of the same day or older cannot undo
     MOVEMENTS = ("exchange", "transfer", "test_funds")

@@ -61,9 +61,6 @@ class Store:
                 for name, kind in columns.items():
                     if name not in present:
                         c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
-            # Simulated test funds; amounts are minor units.
-            for currency, total in (("AUD", "100000"), ("USD", "50000"), ("CNY", "500000")):
-                c.execute("INSERT OR IGNORE INTO balances VALUES (?,?)", (currency, total))
 
     @contextmanager
     def tx(self):

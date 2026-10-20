@@ -129,6 +129,9 @@ export function deck(root, view, t) {
     head.title = t('cards.hint');
   }
   root.dataset.deckView = view;
+  // every card's final height is known now (folds, hidden empties, grips): size the rows in this same frame, so a
+  // rebuilt page never shows one frame of the wrong layout
+  [...grid.children].forEach(fit);
   wire(root, t);
 }
 
@@ -142,6 +145,10 @@ const fit = el => {
     el.style.gridRowEnd = `span ${Math.max(1, Math.ceil(el.offsetHeight + GAP))}`;
 };
 const sizer = new ResizeObserver(entries => entries.forEach(e => fit(e.target)));
+/** Size every card's rows now — after a page has drawn its charts and lists, in the same frame, so nothing jumps. */
+export function refit(root) {
+  root?.querySelectorAll('.deck > *').forEach(fit);
+}
 function pack(grid) {
   [...grid.children].forEach(el => { sizer.observe(el); fit(el); });
   new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) { sizer.observe(n); fit(n); } })))
@@ -154,7 +161,7 @@ function save(root) {
   store.set('dot.deck.' + root.dataset.deckView, [...grid.children].filter(el => el.dataset.card).map(el => ({k: el.dataset.card, s: Number(el.dataset.span) || 12})));
 }
 
-/** FLIP: whatever moved since `first` glides to its new place with a little overshoot — the push. */
+/** FLIP: whatever moved since `first` glides to its new place — smoothly, without overshoot, so nothing wobbles. */
 function flip(nodes, first) {
   if (still()) return;
   for (const el of nodes) {
@@ -162,7 +169,7 @@ function flip(nodes, first) {
     if (!a) continue;
     const dx = a.left - b.left, dy = a.top - b.top;
     if (Math.abs(dy) < 1 && Math.abs(dx) < 1) continue;
-    el.animate([{transform: `translate(${dx}px, ${dy}px)`}, {transform: 'none'}], {duration: 460, easing: 'cubic-bezier(.22,1.4,.36,1)'});
+    el.animate([{transform: `translate(${dx}px, ${dy}px)`}, {transform: 'none'}], {duration: 380, easing: 'cubic-bezier(.2,.8,.2,1)'});
   }
 }
 const snapshot = grid => new Map([...grid.children].map(el => [el, el.getBoundingClientRect()]));
@@ -247,39 +254,58 @@ function wire(root, t) {
     Object.assign(card.style, {position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', zIndex: 70, margin: 0, pointerEvents: 'none'});
     d = {card, grid, slot, ox: x - r.left, oy: y - r.top, x, y, px: r.left, py: r.top, vx: 0, vy: 0, last: performance.now(),
          start: [r.left, r.top], home: slot.nextElementSibling === card ? card.nextElementSibling : slot.nextElementSibling, raf: 0, w: r.width, h: r.height,
-         span: Number(card.dataset.span) || 12, shared: new Map()};
+         span: Number(card.dataset.span) || 12, shared: new Map(), calm: 0, mx: x, my: y, dwell: null};
     grid.appendChild(card);  // out of the flow while it flies
     root.classList.add('arranging');
     buzz(10);
     d.raf = requestAnimationFrame(frame);
   };
 
-  const pick = () => {
+  // Where a card sits in the layout — never where an animation happens to be carrying it. Hit-testing against moving
+  // cards made the free slot jump back and forth (it moves, the cards slide, the pointer seems to be over another card).
+  const box = el => {
+    const g = d.grid.getBoundingClientRect(), left = g.left + el.offsetLeft, top = g.top + el.offsetTop;
+    return {left, top, right: left + el.offsetWidth, bottom: top + el.offsetHeight, width: el.offsetWidth, height: el.offsetHeight};
+  };
+  const rearrange = (change, now) => {
+    const first = snapshot(d.grid);
+    change();
+    flip([...d.grid.children].filter(el => el !== d.card), first);
+    d.calm = now + 280; d.mx = d.x; d.my = d.y;  // let the others settle and the pointer move on before the next change
+    buzz(4);
+  };
+
+  const pick = now => {
     const cx = d.x, cy = d.y;  // where the finger or pointer aims, not the card's centre (a wide card held by its edge)
+    // a half lent for side by side is given back only once the pointer has really left that pair
+    for (const [el, s] of d.shared) {
+      const r = s.r;
+      if (cx < r.left - 30 || cx > r.right + 30 || cy < r.top - 30 || cy > r.bottom + 30)
+        rearrange(() => { setSpan(el, s.span); setSpan(d.slot, d.span); d.shared.delete(el); }, now);
+    }
+    if (now < d.calm || Math.hypot(cx - d.mx, cy - d.my) < 14) return;
     const items = [...d.grid.children].filter(el => el !== d.card && el !== d.slot && !el.classList.contains('card-empty'));
     if (!items.length) return;
     // distance to a card's edge (0 when the pointer is over it), so a wide card is as easy to reach as a narrow one
-    const centre = el => { const r = el.getBoundingClientRect(); return {r, x: r.left + r.width / 2, y: r.top + r.height / 2,
+    const measure = el => { const r = box(el); return {r, x: r.left + r.width / 2, y: r.top + r.height / 2,
       dist: Math.hypot(Math.max(r.left - cx, 0, cx - r.right), Math.max(r.top - cy, 0, cy - r.bottom))}; };
     let best = null;
-    for (const el of items) { const c = centre(el); if (!best || c.dist < best.dist || (c.dist === best.dist && Math.hypot(c.x - cx, c.y - cy) < Math.hypot(best.x - cx, best.y - cy))) best = {el, ...c}; }
-    const here = centre(d.slot).dist;
-    if (here === 0 || best.dist > here - 24) return;  // hysteresis: over the slot, or nothing clearly closer, keeps it
+    for (const el of items) { const c = measure(el); if (!best || c.dist < best.dist || (c.dist === best.dist && Math.hypot(c.x - cx, c.y - cy) < Math.hypot(best.x - cx, best.y - cy))) best = {el, ...c}; }
+    if (measure(d.slot).dist === 0 || best.dist > measure(d.slot).dist - 24) { d.dwell = null; return; }  // over the slot, or nothing clearly closer
     const sameRow = Math.abs(cy - best.y) < best.r.height * .3;
     const before = sameRow ? cx < best.x : cy < best.y;
     const adjacent = (before && best.el.previousElementSibling === d.slot) || (!before && best.el.nextElementSibling === d.slot);
-    const share = sameRow && !phone() && Number(d.slot.dataset.span) + Number(best.el.dataset.span) > 12 && !d.shared.has(best.el);
-    if (adjacent && !share) return;
-    const first = snapshot(d.grid);
-    if (!adjacent) { if (before) best.el.before(d.slot); else best.el.after(d.slot); }
-    // give back what neighbours lent, unless they are still beside the slot
-    for (const [el, s0] of d.shared) {
-      if (el !== best.el || !sameRow) { setSpan(el, s0); d.shared.delete(el); }
-    }
-    if (share) { d.shared.set(best.el, Number(best.el.dataset.span)); setSpan(best.el, 6); setSpan(d.slot, 6); }
-    else if (!d.shared.size) setSpan(d.slot, d.span);
-    flip([...d.grid.children].filter(el => el !== d.card), first);
-    buzz(4);
+    if (!adjacent) { d.dwell = null; rearrange(() => { if (before) best.el.before(d.slot); else best.el.after(d.slot); }, now); return; }
+    // side by side: hold at a card's edge for a moment (a pass across it does nothing)
+    const edge = sameRow && !phone() && !d.shared.has(best.el) && Number(d.slot.dataset.span) + Number(best.el.dataset.span) > 12
+      && (cx < best.r.left + best.r.width * .3 || cx > best.r.right - best.r.width * .3);
+    if (!edge) { d.dwell = null; return; }
+    if (d.dwell?.el !== best.el) { d.dwell = {el: best.el, since: now}; return; }
+    if (now - d.dwell.since < 320) return;
+    d.dwell = null;
+    const r = best.r, span = Number(best.el.dataset.span);
+    rearrange(() => { setSpan(best.el, 6); setSpan(d.slot, 6); }, now);
+    d.shared.set(best.el, {span, r: {left: Math.min(r.left, box(d.slot).left), right: Math.max(r.right, box(d.slot).right), top: r.top, bottom: r.bottom}});
   };
 
   function frame(now) {
@@ -287,6 +313,7 @@ function wire(root, t) {
     const dt = clamp(now - d.last, 8, 50); d.last = now;
     let tx = d.x - d.ox, ty = d.y - d.oy;
     const s = d.slot.getBoundingClientRect(), dist = Math.hypot(tx - s.left, ty - s.top), R = 110;
+    d.slot.style.setProperty('--near', clamp(1 - dist / 360, 0, 1).toFixed(3));  // the landing shadow deepens as it comes close
     if (dist < R) { const w = Math.pow(1 - dist / R, 2) * .55; tx += (s.left - tx) * w; ty += (s.top - ty) * w; }  // drawn into the slot, smoothly
     const nx = d.px + (tx - d.px) * .5, ny = d.py + (ty - d.py) * .5;
     d.vx += ((nx - d.px) / dt * 16.67 - d.vx) * .35; d.vy += ((ny - d.py) / dt * 16.67 - d.vy) * .35;
@@ -298,7 +325,7 @@ function wire(root, t) {
       d.card.style.transform = `${base} rotate(${clamp(d.vx * .35, -3.5, 3.5)}deg) rotate(${a}rad) scale(${(st * 1.015).toFixed(4)}, ${(1.015 / st).toFixed(4)}) rotate(${-a}rad)`;
     }
     if (d.y < 70) scrollBy(0, -12); else if (d.y > innerHeight - 70) scrollBy(0, 12);
-    pick();
+    pick(now);
     d.raf = requestAnimationFrame(frame);
   }
 
@@ -308,7 +335,7 @@ function wire(root, t) {
     cancelAnimationFrame(d.raf);
     if (cancel) {
       const first = snapshot(grid);
-      for (const [el, s0] of d.shared) setSpan(el, s0);
+      for (const [el, s] of d.shared) setSpan(el, s.span);
       setSpan(slot, d.span);
       if (d.home && d.home !== card && d.home.parentElement === grid) d.home.before(slot);
       flip([...grid.children].filter(el => el !== card), first);

@@ -144,3 +144,40 @@ def test_a_same_amount_pair_is_only_suggested_until_you_confirm_it(local):
     assert local.spending_summary("2026-10")["currencies"]["AUD"]["total"] == 10000  # 100 at Coles, once
     local.unmatch("owner", bpay["id"])  # and it can be undone
     assert local.expense(bpay["id"])["kind"] == "spend" and local.spending_summary("2026-10")["currencies"]["AUD"]["total"] == 20000
+
+
+def test_what_others_pay_is_my_spending_but_never_my_money(local):
+    today = date.today()
+    d = lambda n: (today - timedelta(days=n)).strftime("%d/%m/%Y")
+    local.set_month_budget("owner", "AUD", "1000")
+    mine = local.add_account("owner", "My debit", "debit", "AUD", "2000")
+    parents = local.add_account("owner", "Mum's card", "credit", "AUD", paid_by="other", payer_name="Mum and Dad")
+    assert parents["paid_by"] == "other" and parents["payer_name"] == "Mum and Dad" and "owed" not in parents
+    local.import_csv("owner", "p.csv", f"Date,Description,Amount\n{d(0)},WOOLWORTHS,-80.00\n{d(0)},PAYMENT RECEIVED THANK YOU,500.00\n",
+                     account_id=parents["id"])
+    local.import_csv("owner", "m.csv", f"Date,Description,Amount\n{d(0)},COLES,-20.00\n", account_id=mine["id"])
+    local.review("owner", [{"id": e["id"], "category": "groceries"} for e in local.expenses(status="pending")])
+    s = local.spending_summary()
+    aud = s["currencies"]["AUD"]
+    assert aud["total"] == 10000 and aud["mine"] == 2000 and aud["others"] == {"Mum and Dad": 8000}  # one total, split
+    assert aud["category_split"]["groceries"] == {"mine": 2000, "others": 8000}
+    assert aud["others_by_category"] == {"Mum and Dad": {"groceries": 8000}}
+    assert s["budget"]["spent"] == 10000 and s["budget"]["others_spent"] == 8000  # one budget, with what others paid inside it
+    assert aud["cash_out"] == 2000  # only my 20 left my money
+    assert not any(c["name"] == "Mum's card" for c in s["cards"]) and s["unmatched_transfers"] == 0
+    assert local.cash_balances()["AUD"]["amount"] == 200000 and local._baseline_monthly("AUD") == 2000
+    renamed = next(a for a in local.set_account_payer("owner", parents["id"], "other", "Grandma") if a["id"] == parents["id"])
+    assert renamed["payer_name"] == "Grandma" and "Grandma" in local.spending_summary()["currencies"]["AUD"]["others"]
+    back = next(a for a in local.set_account_payer("owner", parents["id"], "me") if a["id"] == parents["id"])
+    assert back["paid_by"] == "me" and back["payer_name"] is None and "owed" in back
+
+
+def test_can_i_afford_it_when_someone_else_pays(local):
+    local.set_month_budget("owner", "AUD", "300")
+    other = local.afford("owner", "100", "AUD", payer="other")
+    assert other["payer"] == "other" and other["cash"] is None and other["reasons"][0]["code"] == "other_pays" and other["verdict"] == "yes"
+    big = local.afford("owner", "900", "AUD", payer="other")  # beyond the month's budget: careful, never from my cash
+    assert big["verdict"] == "careful" and any(r["code"] == "month_over" for r in big["reasons"])
+    assert local.afford("owner", "100", "AUD").get("payer") is None
+    with pytest.raises(Denied):
+        local.afford("owner", "10", "AUD", payer="family")

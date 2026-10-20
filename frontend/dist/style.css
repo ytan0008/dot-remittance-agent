@@ -145,6 +145,8 @@ nav a.active{background:var(--ink);color:var(--paper)}nav a.active b{color:var(-
 
 /* ---------- top bar ---------- */
 .shell{margin-left:var(--sidebar);position:relative;z-index:1;min-height:100dvh}
+/* while a card is carried, the page it lives in rises above the sidebar, so the card floats over everything */
+.shell:has(#view.arranging){z-index:30}
 .topbar{position:sticky;top:0;z-index:15;height:64px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 clamp(16px,3vw,40px);background:color-mix(in srgb,var(--ground) 78%,transparent);backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
 .crumbs{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);min-width:0}
 .crumbs i{width:4px;height:4px;border-radius:50%;background:var(--faint)}.crumbs b{color:var(--ink);font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -721,6 +723,7 @@ dialog#modal.closing::backdrop{animation:fade .22s reverse forwards}
 .modal-title{font-size:24px;font-weight:570;letter-spacing:-.03em;margin-bottom:16px}
 #toast{position:fixed;left:50%;bottom:28px;z-index:300;transform:translate(-50%,30px) scale(.96);opacity:0;filter:blur(6px);background:var(--ink);color:var(--paper);padding:12px 18px;border-radius:999px;font-size:13px;box-shadow:0 20px 40px -18px rgba(0,0,0,.5);transition:all .45s var(--ease);max-width:calc(100vw - 32px);text-align:center}
 #toast.show{transform:translate(-50%,0) scale(1);opacity:1;filter:none}
+#toast[popover]{inset:auto;left:50%;bottom:28px;margin:0;border:0;overflow:visible;color:var(--paper);background:var(--ink)}
 #toast.good::before{content:"● "}#toast.bad::before{content:"⊘ "}
 .drawer{position:fixed;inset:0;z-index:80;background:color-mix(in srgb,var(--ground) 40%,transparent);backdrop-filter:blur(0);transition:backdrop-filter .4s,background .4s}
 .drawer.open{backdrop-filter:blur(8px)}
@@ -1260,7 +1263,7 @@ input.mini-input{width:96px!important}input[type=date].mini-input{width:auto!imp
 
 /* ---------- jelly tiles ---------- */
 .jelly-stage{display:grid;gap:8px;will-change:transform}
-.jelly-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.jelly-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.jelly-head .link{white-space:nowrap;flex:none}
 .jelly-head small{font-size:12px;color:var(--muted)}
 .jelly-board{position:relative;border-radius:var(--radius);background:radial-gradient(circle,var(--dot) 1px,transparent 1.2px) 0 0/18px 18px;border:1px dashed var(--line);
   min-height:150px;touch-action:pan-y;overflow:visible}
@@ -1269,19 +1272,14 @@ input.mini-input{width:96px!important}input[type=date].mini-input{width:auto!imp
   background:var(--paper);border:1px solid var(--line-2);box-shadow:var(--shadow);user-select:none;-webkit-user-select:none;transform-origin:50% 50%}
 .jelly-live .jelly-tile{position:absolute;left:0;top:0;touch-action:none;cursor:grab;will-change:transform}
 .jelly-live .jelly-tile.grabbing{cursor:grabbing;box-shadow:0 26px 50px -24px rgba(0,0,0,.35)}
+.jelly-live .jelly-tile{box-shadow:0 10px 24px -16px rgba(0,0,0,.28)}  /* a stacked tile casts onto the one below */
 .jelly-tile.need{border-style:dashed;background:var(--paper-2)}
 .jt-code{font:700 12px var(--mono);letter-spacing:.1em;padding:3px 8px;border-radius:999px;border:1px solid var(--line-2);justify-self:start}
 .jelly-tile b{font-size:clamp(17px,1.8vw,21px);font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;line-height:1.15}
 .jelly-tile small{font-size:11px;color:var(--muted);line-height:1.35}
 .jt-x{position:absolute;top:8px;right:8px;width:24px;height:24px;border-radius:50%;color:var(--muted);font-size:15px;line-height:1}
 .jt-x:hover{background:var(--soft);color:var(--ink)}
-.jelly-link{position:absolute;left:0;top:0;z-index:4;display:grid;gap:3px;justify-items:center;text-align:center;padding:10px 14px;border-radius:14px;
   background:var(--ink);color:var(--paper);font-size:12px;white-space:nowrap;box-shadow:var(--shadow);animation:pop .45s var(--ease)}
-.jelly-link b{font:700 13px var(--mono);letter-spacing:.06em}
-.jelly-link span{opacity:.8}
-.jelly-link .button{margin-top:4px;background:var(--paper);color:var(--ink);border-color:var(--paper)}
-.jelly-ripple{position:absolute;z-index:2;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;border:1.5px solid var(--ink);pointer-events:none;animation:jelly-ripple .75s cubic-bezier(.16,1,.3,1) forwards}
-@keyframes jelly-ripple{from{transform:scale(.4);opacity:.9}to{transform:scale(14);opacity:0}}
 @media (max-width:700px){.jelly-tile{width:118px;padding:12px}}
 /* hover lift needs room inside horizontal scrollers, or the top edge is clipped */
 .route-chips{padding:9px 6px 16px;margin:-7px -6px 4px}
@@ -1306,13 +1304,7 @@ input.mini-input{width:96px!important}input[type=date].mini-input{width:auto!imp
 @media (prefers-reduced-motion:reduce){.dock a{transition:none}}
 
 /* ---------- jelly v2: liquid bridges, magnet, motion ---------- */
-.jelly-goo{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:1}
-.jelly-goo path{fill:var(--ink);opacity:.9}
-.jelly-goo path.preview{opacity:.28}
 .jelly-live .jelly-tile{transition:box-shadow .35s var(--ease),border-color .3s}
-.jelly-live .jelly-tile.magnet{border-color:var(--ink);box-shadow:0 0 0 3px color-mix(in srgb,var(--ink) 14%,transparent),var(--shadow)}
-.jelly-ripple.strong{border-width:2px;animation-duration:.95s}
-.jelly-link{z-index:6}
 
 /* ---------- assistant: result board ---------- */
 .agent-board{height:440px;overflow:hidden}
@@ -1336,8 +1328,6 @@ input.mini-input{width:96px!important}input[type=date].mini-input{width:auto!imp
 .acard.ask{border:1.5px dashed var(--ink);animation:ask-breathe 2.2s ease-in-out infinite}
 .acard.v-yes .ac-big{color:var(--good, inherit)}.acard.v-no .ac-big{color:var(--bad, inherit)}
 @keyframes ask-breathe{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--ink) 8%,transparent),var(--shadow)}}
-.board-panel .jelly-link{max-width:240px}
-.board-panel .jelly-link b{font:600 11.5px var(--sans, inherit);letter-spacing:0}
 @media (max-width:860px){.agent-board{height:520px}.acard.jelly-tile{width:calc(50% - 18px)}}
 @media (max-width:420px){.acard.jelly-tile{width:calc(100% - 24px)}}
 
@@ -1793,7 +1783,7 @@ article.panel.folded .card-fold i{transform:rotate(-45deg)}
 article.panel.folded > :not(.panel-head):not(.card-grip){display:none!important}
 article.panel.folded{padding-bottom:4px}
 
-.card-block.dragging{box-shadow:0 40px 80px -30px rgba(0,0,0,.45);cursor:grabbing;transform-origin:50% 30%;will-change:transform}
+.card-block.dragging{z-index:90!important;box-shadow:0 50px 90px -30px rgba(0,0,0,.5),0 18px 30px -18px rgba(0,0,0,.25)!important;cursor:grabbing;transform-origin:50% 30%;will-change:transform}
 #view.arranging{user-select:none;-webkit-user-select:none}
 @media (prefers-reduced-motion:reduce){.card-block{transition:none}}
 
@@ -1861,10 +1851,16 @@ article.panel.folded{padding-bottom:4px}
 .card-block .panel-head .card-fold{margin-left:auto}
 
 /* ---------- the deck: one 12-column grid, every card on its own ---------- */
-.deck{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));column-gap:18px;row-gap:0;grid-auto-rows:1px;align-items:start;grid-auto-flow:row dense;margin-bottom:0}
+.deck{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));column-gap:18px;row-gap:0;grid-auto-rows:1px;align-items:start;grid-auto-flow:row dense;margin-bottom:0;position:relative}
 .deck > *{grid-column:span var(--span,12);min-width:0;margin:0!important;position:relative;top:auto}
 .deck > .card-wrap{display:grid;gap:18px}
-.card-slot{border-radius:22px;background:color-mix(in srgb,var(--soft) 70%,transparent);box-shadow:inset 0 0 0 1px var(--line)}
+.card-slot{position:relative;border-radius:22px;background:transparent;
+  box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--ink) calc(8% + var(--near,0) * 22%),transparent);transition:box-shadow .2s}
+/* the landing shadow: where the card will fall, soft and far away, then darker and sharper as it comes close */
+.card-slot::after{content:"";position:absolute;inset:8px;border-radius:20px;background:#000;
+  opacity:calc(.03 + var(--near,0) * .13);filter:blur(calc(16px - var(--near,0) * 10px));transform:scale(calc(.93 + var(--near,0) * .07));
+  transition:opacity .2s,filter .2s,transform .2s}
+:root[data-theme="dark"] .card-slot::after{background:#fff}
 .card-size{position:absolute;right:6px;bottom:6px;width:18px;height:18px;cursor:ew-resize;opacity:0;transition:opacity .25s;border-radius:6px;z-index:2}
 .card-size::before,.card-size::after{content:"";position:absolute;right:4px;bottom:4px;width:8px;height:2px;border-radius:2px;background:var(--muted);transform:rotate(-45deg);transform-origin:100% 50%}
 .card-size::after{width:4px;bottom:7px;right:4px}
@@ -1923,3 +1919,32 @@ article.panel.panel-focus > .panel-head h2{font-size:1.1em}
 .auth-lang{position:absolute;top:max(18px,env(safe-area-inset-top));right:16px}
 .auth-lang select{height:36px;border-radius:999px;padding:0 30px 0 14px;font-size:13px;background:var(--paper);border:1px solid var(--line)}
 .match-q{color:var(--ink-2)}
+.ledger-empty{display:grid;gap:12px;padding:6px 0;color:var(--ink-2)}
+.ledger-acts{display:grid;gap:6px;justify-items:end}
+.acct-chip.by-other{border-style:dashed}
+.ac-payer,.afford-payer{display:inline-flex;gap:4px;padding:4px;border-radius:999px;background:var(--soft);align-self:center;width:max-content}
+.ac-payer label,.afford-payer label{display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:7px 14px;border-radius:999px;font-size:13px;white-space:nowrap;transition:background .2s,color .2s}
+.ac-payer input,.afford-payer input{position:absolute;opacity:0;pointer-events:none}
+.ac-payer label:has(input:checked){background:var(--ink);color:var(--paper)}
+.afford-payer label.on{background:var(--ink);color:var(--paper)}
+/* one total, split: what you paid (ink) and what someone else paid (light) */
+.payer-split{display:grid;gap:4px;margin-top:6px;font-size:12.5px;color:var(--ink-2)}
+.payer-split li{display:flex;align-items:center;gap:8px}.payer-split b{margin-left:auto;font-weight:600;color:var(--ink)}
+.payer-split .sw{width:10px;height:10px;border-radius:3px;background:var(--ink)}.payer-split .sw.other{background:color-mix(in srgb,var(--ink) 28%,transparent)}
+.cat-track.two,.budget-track.two{position:relative}
+.cat-track.two .bar-fill,.budget-track.two .bar-fill{position:absolute;inset:0}
+.cat-track .bar-fill.other,.budget-track .bar-fill.other{background:color-mix(in srgb,var(--ink) 28%,transparent)}
+.split-note{display:block;color:var(--muted);font-size:11px;margin-left:16px}
+.others-copy{margin-top:8px}
+.kind-tag.k-other{background:var(--soft)}
+.payer-name{display:grid;gap:4px;margin-top:8px}.payer-name[hidden]{display:none}
+.my-accounts{display:grid;gap:10px;padding:14px 16px;border-radius:16px;background:var(--soft);margin-bottom:16px}
+.my-head{display:grid;gap:2px}.my-head small{color:var(--muted);font-size:12px}
+.initial.me{background:var(--ink);color:var(--paper)}
+.from-to{align-items:start}
+/* the bank fee knowledge base: each fee with its quote and page */
+.kb{margin-top:6px;font-size:12.5px}.kb summary{cursor:pointer;color:var(--ink-2);font-weight:600;list-style:none}
+.kb summary::-webkit-details-marker{display:none}.kb summary::before{content:"+ ";color:var(--muted)}.kb[open] summary::before{content:"− "}
+.kb-list{display:grid;gap:10px;margin:10px 0 6px;padding:0}.kb-list li{display:grid;gap:4px;padding:10px 12px;border-radius:12px;background:var(--soft)}
+.kb-val{font-family:var(--mono);font-size:12px}.kb-row td{padding-top:0!important;border-top:0!important}
+.tag.k-ai{background:var(--ink);color:var(--paper)}

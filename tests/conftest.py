@@ -27,9 +27,16 @@ class FakeRates:
         return dict(available=False, reason="test")
 
 
+def seed_sandbox(f):
+    """The test money most tests pay from: 1,000 AUD, 5,000 CNY, 500 USD in the sandbox."""
+    for currency, amount in (("AUD", "1000"), ("CNY", "5000"), ("USD", "500")):
+        f.add_sandbox_currency("owner", currency, amount)
+
+
 @pytest.fixture
 def local(tmp_path):
     f = Finance(Config(db=str(tmp_path / "local.db"), sandbox_settle_seconds=0), rates=FakeRates())
+    seed_sandbox(f)
     f.add_recipient("owner", "family", "Family", currency="CNY", country="CN", account="6222000011112222")
     return f
 

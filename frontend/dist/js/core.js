@@ -54,12 +54,16 @@ export const refreshView = () => bus.refresh();
 
 /* ---------- toast ---------- */
 let toastTimer;
+/* The message line lives in the browser's top layer (a popover), shown again each time so it sits above an open dialog —
+   otherwise an error raised inside Settings or any form dialog would appear behind it and nobody would see it. */
+const lift = (el, on) => { try { if (el.showPopover) { if (el.matches(':popover-open')) el.hidePopover(); if (on) el.showPopover(); } } catch { /* no popover support */ } };
 export function toast(text, tone = '') {
   const el = $('#toast');
   el.textContent = text; el.className = tone; el.hidden = false;
+  lift(el, true);
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.classList.remove('show'); setTimeout(() => { el.hidden = true; }, 300); }, 4200);
+  toastTimer = setTimeout(() => { el.classList.remove('show'); setTimeout(() => { lift(el, false); el.hidden = true; }, 300); }, 4200);
 }
 
 /* ---------- modal zooms out of the element that opened it ---------- */
