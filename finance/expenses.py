@@ -70,7 +70,12 @@ ACCOUNT_TYPES = ("debit", "credit", "cash")
 # "Grandma"…). Spending someone else pays is still YOUR spending — it counts in categories, insights and your one monthly
 # budget, where it is shown apart — but it is never your money or your debt.
 PAYERS = ("me", "other")
-EXPENSE_COLUMNS = {"account_id": "TEXT", "kind": "TEXT", "match_id": "TEXT", "match_hint": "TEXT"}
+EXPENSE_COLUMNS = {"account_id": "TEXT", "kind": "TEXT", "match_id": "TEXT", "match_hint": "TEXT",
+                   "paid_by": "TEXT", "payer_name": "TEXT"}  # who paid this entry: me / other (+ name); NULL = as its account
+# SQL: an entry someone else paid — said so on the entry, or (said nothing) bought on an account someone else pays
+# (COALESCE keeps it strictly true/false: a NULL would drop the entry from both "mine" and "others")
+PAID_BY_OTHER = ("(COALESCE(paid_by, '') = 'other' OR (paid_by IS NULL AND COALESCE(account_id, '') IN "
+                 "(SELECT id FROM accounts WHERE paid_by='other')))")
 # Paying off a card, seen from either side (the debit statement or the card statement).
 REPAY_WORDS = ["credit card payment", "card repayment", "repayment", "payment thank you", "payment - thank you", "thank you payment",
                "payment received", "autopay", "cc payment", "amex payment", "visa payment", "mastercard payment", "bpay credit card",
@@ -223,6 +228,24 @@ class ExpensesMixin:
                         "AND COALESCE(kind,'spend') NOT IN ('card_repayment','own_transfer')", (a["id"], date.today().strftime("%Y-%m"))))
                 out.append(a)
             return out
+
+    @staticmethod
+    def payer_of(e, others):
+        """Who paid an entry: None for me, else their name ("" when unnamed). others: account id -> payer name."""
+        if e.get("paid_by") == "me":
+            return None
+        if e.get("paid_by") == "other":
+            return e.get("payer_name") or others.get(e.get("account_id")) or ""
+        return others.get(e.get("account_id"))
+
+    @staticmethod
+    def _entry_payer(paid_by, payer_name):
+        """An entry's own say on who paid: me, other (with a name), or nothing (then its account decides)."""
+        if paid_by in (None, "", "account"):
+            return None, None
+        if paid_by not in PAYERS:
+            raise Denied("paid_by must be me or other", "expense_invalid")
+        return paid_by, (str(payer_name or "").strip()[:20] or None) if paid_by == "other" else None
 
     @staticmethod
     def _payer(paid_by, payer_name):
@@ -662,9 +685,11 @@ class ExpensesMixin:
                     note="extracted by the AI model; check before saving")
 
     # ---------- save, review, learn ----------
-    def add_expense(self, actor, day, amount, currency, description, category, source="manual", status="confirmed", recurring=None, account_id=None):
+    def add_expense(self, actor, day, amount, currency, description, category, source="manual", status="confirmed", recurring=None, account_id=None,
+                    paid_by=None, payer_name=None):
         if actor not in ("owner", "agent"):
             raise Denied("permission required", "permission_denied")
+        paid_by, payer_name = self._entry_payer(paid_by, payer_name)
         if actor == "agent":
             status = "pending"  # the agent may suggest entries; only the student confirms them
         if category not in CATEGORIES:
@@ -687,9 +712,9 @@ class ExpensesMixin:
             if kind == "income" and category != "income":
                 kind = "refund"  # money back under a spending category is a refund of it
             c.execute("INSERT INTO expenses(id,date,amount,currency,description,merchant,category,source,status,fingerprint,duplicate_of,"
-                      "recurring_id,created,confirmed,account_id,kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                      "recurring_id,created,confirmed,account_id,kind,paid_by,payer_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (eid, str(d), amount, currency, description.strip()[:200], merchant_key(description), category, source, status, fp,
-                       dup, None, now(), now() if status == "confirmed" else None, account_id, kind))
+                       dup, None, now(), now() if status == "confirmed" else None, account_id, kind, paid_by, payer_name))
             if account_id:
                 self.match_transfers(c)
             self.store.event(c, actor, "expenses.add", status, eid, source=source, category=category)
@@ -752,8 +777,9 @@ class ExpensesMixin:
             self.store.event(c, actor, "expenses.review", "ok", None, confirmed=confirmed, skipped=skipped, learned=learned)
         return dict(confirmed=confirmed, skipped=skipped, learned=learned)
 
-    def update_expense(self, actor, eid, category=None, amount=None, description=None, day=None):
+    def update_expense(self, actor, eid, category=None, amount=None, description=None, day=None, paid_by=None, payer_name=None):
         self.owner(actor)
+        payer = self._entry_payer(paid_by, payer_name) if paid_by is not None else None
         if day is not None:
             day = _calendar_day(day)
         if amount is not None:
@@ -772,6 +798,8 @@ class ExpensesMixin:
                 raise Denied("unknown category", "expense_invalid")
             c.execute("UPDATE expenses SET category=COALESCE(?,category), amount=COALESCE(?,amount), description=COALESCE(?,description),"
                       " date=COALESCE(?,date) WHERE id=?", (category, amount, description, day, eid))
+            if payer is not None:  # "account" clears it: the account decides again
+                c.execute("UPDATE expenses SET paid_by=?, payer_name=? WHERE id=?", (*payer, eid))
             if category and category != r["category"] and r["merchant"]:
                 c.execute("INSERT INTO category_rules VALUES (?,?,?) ON CONFLICT(pattern) DO UPDATE SET category=excluded.category,"
                           "updated=excluded.updated", (brand(r["merchant"]), category, now()))
@@ -861,7 +889,7 @@ class ExpensesMixin:
             out, cash_out = {}, {}
             for e in self.expenses(status="confirmed", month=m, limit=5000):
                 k = kind_of(e)
-                payer = others.get(e["account_id"])
+                payer = self.payer_of(e, others)
                 if payer is not None:  # someone else paid: your spending, not your cash
                     if k in ("spend", "refund") and e["category"] not in ("transfer", "income"):
                         key = (e["currency"], e["category"])
@@ -925,9 +953,9 @@ class ExpensesMixin:
                 rates[cur] = dict(rate=ref["rate"], observed=ref.get("observed"))
         b = self.month_budget()
         spent_in = by_currency.get(b["currency"]) or {} if b else {}
-        # one budget for everything you spend; inside it, how much of it others paid
-        budget = dict(b, spent=spent_in.get("total", 0), others_spent=sum(spent_in.get("others", {}).values()),
-                      others=spent_in.get("others", {})) if b else None
+        # two budgets: mine for what I pay, and one for what others pay for me
+        budget = dict(b, spent=spent_in.get("mine", 0), others_spent=sum(spent_in.get("others", {}).values()),
+                      others=spent_in.get("others", {}), total_spent=spent_in.get("total", 0)) if b else None
         return dict(month=month, previous_month=prev, currencies=by_currency, cash_out=cash_now, cards=cards, unmatched_transfers=unmatched, budget=budget,
                     combined=dict(currency=display, amount=total, rates=rates, unconverted=missing) if by_currency else None,
                     pending=counts["pending"], expected=counts["expected"],

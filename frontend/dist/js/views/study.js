@@ -107,8 +107,8 @@ function cashflowPanel() {
       <div><span class="eyebrow">${t('study.lowest')}</span>${amt(cf.lowest.amount, cur)}<small>${day(cf.lowest.date)}</small></div>
       <div class="${short ? 'bad' : ''}"><span class="eyebrow">${t('study.shortfall')}</span><b>${short ? day(short) : t('study.none')}</b></div>
     </div>`;
-  const table = `<div class="table-wrap"><table class="table cash-table"><thead><tr><th>${t('study.month')}</th><th>${t('study.in')}</th><th>${t('study.living')}</th><th>${t('study.tuition')}</th><th>${t('study.closing')}</th></tr></thead><tbody>
-    ${cf.months.map(r => `<tr class="${r.closing < 0 ? 'neg' : ''}"><td class="nowrap">${esc(r.month)}</td><td>${amt(r.income + r.other_in, cur)}</td><td>${amt(r.living + r.other_out, cur)}</td><td>${r.tuition ? amt(r.tuition, cur) : '—'}</td><td>${amt(r.closing, cur)}</td></tr>`).join('')}
+  const table = `<div class="table-wrap"><table class="table cash-table"><thead><tr><th>${t('study.month')}</th><th>${t('study.in')}</th><th>${t('study.living')}</th>${cf.others_monthly ? `<th>${t('study.others_pay')}</th>` : ''}<th>${t('study.tuition')}</th><th>${t('study.closing')}</th></tr></thead><tbody>
+    ${cf.months.map(r => `<tr class="${r.closing < 0 ? 'neg' : ''}"><td class="nowrap">${esc(r.month)}</td><td>${amt(r.income + r.other_in, cur)}</td><td>${amt(r.living + r.other_out, cur)}</td>${cf.others_monthly ? `<td>${r.others ? '+' + money(r.others, cur) : '—'}</td>` : ''}<td>${r.tuition ? amt(r.tuition, cur) : '—'}</td><td>${amt(r.closing, cur)}</td></tr>`).join('')}
     </tbody></table></div>`;
   const notes = cf.notes.map(n => `<p class="fine">· ${t('study.note.' + n)}</p>`).join('') +
     (cf.other_currency_terms.length ? `<p class="fine">· ${t('study.note.other_currency', {names: cf.other_currency_terms.join(', ')})}</p>` : '');

@@ -125,6 +125,7 @@ class FxRuleIn(Model):
 class MonthBudget(Model):
     currency: str
     amount: str | None = Field(default=None, max_length=24)
+    others: str | None = Field(default=None, max_length=24)
 
 
 class Chat(Model):
@@ -264,6 +265,8 @@ class ExpenseIn(Model):
     category: str
     source: str = "manual"
     recurring: str | None = None
+    paid_by: str | None = Field(default=None, max_length=8)
+    payer_name: str | None = Field(default=None, max_length=20)
 
 
 class SandboxCurrency(Model):
@@ -276,6 +279,8 @@ class ExpensePatch(Model):
     amount: int | None = Field(None, ge=-10**12, le=10**12)
     description: str | None = Field(None, max_length=200)
     date: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    paid_by: str | None = Field(None, max_length=8)
+    payer_name: str | None = Field(None, max_length=20)
 
 
 class QuickText(Model):
@@ -1045,7 +1050,7 @@ def create_app(finance=None, agent=None, background=None):
     @app.post("/expenses")
     def add_expense(body: ExpenseIn, actor=Depends(role)):
         return service().add_expense(actor, body.date, body.amount, body.currency, body.description, body.category, body.source,
-                                     recurring=body.recurring)
+                                     recurring=body.recurring, paid_by=body.paid_by, payer_name=body.payer_name)
 
     @app.post("/expenses/review")
     def review(body: ReviewIn, actor=Depends(role)):
@@ -1053,7 +1058,7 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.patch("/expenses/{eid}")
     def patch_expense(eid: str, body: ExpensePatch, actor=Depends(role)):
-        return service().update_expense(actor, eid, body.category, body.amount, body.description, body.date)
+        return service().update_expense(actor, eid, body.category, body.amount, body.description, body.date, body.paid_by, body.payer_name)
 
     @app.delete("/expenses/{eid}")
     def delete_expense(eid: str, actor=Depends(role)):
@@ -1181,7 +1186,7 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.put("/budget/month")
     def put_month_budget(body: MonthBudget, actor=Depends(role)):
-        return service().set_month_budget(actor, body.currency, body.amount) or {}
+        return service().set_month_budget(actor, body.currency, body.amount, body.others) or {}
 
     @app.post("/banks/auto")
     def banks_auto(body: BankRefresh, actor=Depends(role)):

@@ -268,16 +268,20 @@ class DecideMixin:
     def month_budget(self):
         return self._setting("month_budget", None)
 
-    def set_month_budget(self, actor, currency, amount):
+    def set_month_budget(self, actor, currency, amount, others=None):
+        """Two budgets for the month in one currency: mine (what I pay) and others (what others pay for me, e.g. my parents'
+        card). Either may be empty; both empty removes the budget."""
         self.owner(actor)
         currency = (currency or "").upper()
-        if amount in (None, "", "0", 0):
+        blank = lambda v: v in (None, "", "0", 0)
+        if blank(amount) and blank(others):
             with self.store.tx() as c:
                 c.execute("DELETE FROM student_settings WHERE key='month_budget'")
             return None
-        value = units(str(_dec(amount)), decimals(currency))
+        value = 0 if blank(amount) else units(str(_dec(amount)), decimals(currency))
+        theirs = 0 if blank(others) else units(str(_dec(others)), decimals(currency))
         with self.store.tx() as c:
-            self._put_setting(c, "month_budget", dict(currency=currency, amount=value))
+            self._put_setting(c, "month_budget", dict(currency=currency, amount=value, others_amount=theirs))
             self.store.event(c, actor, "budget.month", "ok", currency)
         return self.month_budget()
 
@@ -285,14 +289,18 @@ class DecideMixin:
         out, b = [], self.month_budget()
         month = date.today().strftime("%Y-%m")
         if b:
-            spent = (self.spending_summary(month)["currencies"].get(b["currency"]) or {}).get("total", 0)
-            pct = spent * 100 // max(1, b["amount"])
-            if pct >= 100:
-                out.append((f"budget:{month}:over", "budget_over", month, "alert", dict(currency=b["currency"], spent=str(from_minor(spent, b["currency"])),
-                                                                                      budget=str(from_minor(b["amount"], b["currency"])))))
-            elif pct >= 85:
-                out.append((f"budget:{month}:near", "budget_near", month, "warn", dict(currency=b["currency"], pct=int(pct),
-                                                                                     budget=str(from_minor(b["amount"], b["currency"])))))
+            d = self.spending_summary(month)["currencies"].get(b["currency"]) or {}
+            for who, spent, limit in (("", d.get("mine", 0), b.get("amount", 0)),
+                                      ("_others", sum((d.get("others") or {}).values()), b.get("others_amount", 0))):
+                if not limit:
+                    continue
+                pct = spent * 100 // max(1, limit)
+                if pct >= 100:
+                    out.append((f"budget{who}:{month}:over", f"budget{who}_over", month, "alert", dict(currency=b["currency"],
+                                spent=str(from_minor(spent, b["currency"])), budget=str(from_minor(limit, b["currency"])))))
+                elif pct >= 85:
+                    out.append((f"budget{who}:{month}:near", f"budget{who}_near", month, "warn", dict(currency=b["currency"], pct=int(pct),
+                                budget=str(from_minor(limit, b["currency"])))))
         # a week without any entry (when you have used spending before): one gentle nudge per week
         with self.store.read() as c:
             any_ever = c.execute("SELECT 1 FROM expenses LIMIT 1").fetchone()

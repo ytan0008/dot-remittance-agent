@@ -6,7 +6,7 @@
 
 **一个会「理解 · 规划 · 安全执行」的金融 Agent —— 比较方案、预测汇率、提醒你何时换汇，并把日常开销理清楚。**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-394%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-397%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![总览](docs/screenshots/overview.png)
 
@@ -162,7 +162,7 @@ Agent 每轮对话先调用 `record_plan` 记录**意图、提取的金额币种
 **一本账。**总览里的余额就是汇款页的“可用”：模拟付款完成后自动从余额里扣除并记一笔“汇款后自动更新”；没填过余额的币种才使用测试资金，并明确标注。
 记账里可以添加**借记卡、信用卡、现金账户**，导入账单时选择账户。信用卡还款和本人账户互转会在两边自动配对（金额相同、±5 天），
 连没写“还款”的也能从另一边认出来，所以刷卡 100 再还款 100 只算一次消费；退款冲减对应类别；统计分开显示“消费”“现金流出”和“信用卡待还”；
-信用卡余额永远不算作你的钱，币种余额 = 所有借记卡和现金账户之和。账户可以设为**他人付**（比如爸妈的卡，名字随你起，如“爸妈”）：上面的开销仍是你的消费，也算进你唯一的月度预算，但不算你的钱，也不算你的欠款。每个总数都会拆开显示——“我自己付”和“爸妈付”——汇总、每个分类条（深浅两色）、预算条和明细列表（可筛选）里都有；学期现金流不把他人付的部分算进去，「我买得起吗」可以选谁来付，还能一键复制本月这张卡替你付了什么发给对方。沙盒只显示你账上有的币种，其他币种要手动添加才能用测试资金试。
+信用卡余额永远不算作你的钱，币种余额 = 所有借记卡和现金账户之和。账户可以设为**他人付**（比如爸妈的卡，名字随你起，如“爸妈”）：上面的开销仍是你的消费，但不算你的钱，也不算你的欠款；每笔记账也可以单独指定是谁付的（优先于账户）。每月有**两条预算**——“我的预算”和“他人付预算”——各自统计、各自提醒，「我买得起吗」按付款人看对应的预算。**学期现金流**从你账上有的钱出发，学期内每个月由他人付预算承担一部分生活费（最多承担当月生活费那么多）。每个总数都会拆开显示——“我自己付”和“爸妈付”——汇总、每个分类条（深浅两色）、预算条和明细列表（可筛选）里都有；学期现金流不把他人付的部分算进去，「我买得起吗」可以选谁来付，还能一键复制本月这张卡替你付了什么发给对方。沙盒只显示你账上有的币种，其他币种要手动添加才能用测试资金试。
 
 **帮你决定什么时候换。**汇率页的焦点是“现在换合适吗？”：今天在过去 90 天里的位置（有足够天数时按你银行自己的牌价）、
 按你要换的金额算出“再等 7 天有百分之几的可能更好，最可能多/少多少钱，80% 区间”，预测跑不赢“汇率不变”时直接说明。
@@ -335,7 +335,7 @@ $env:ENABLE_DEMO_LOGIN = 'true'
 ## 🧪 测试
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 394 项（含两轮安全审计用例）：服务、风控、记账、AI 盯盘、转账模板、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
+.\.venv\Scripts\python -m pytest -q        # 397 项（含两轮安全审计用例）：服务、风控、记账、AI 盯盘、转账模板、学生理财、成长、邮件、提醒、API、规则规划器、6 种语言
 .\.venv\Scripts\python -m finance.demo     # 离线演示：未授权被拒 → 授权 → 执行 → 幂等 → 超时恢复
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .

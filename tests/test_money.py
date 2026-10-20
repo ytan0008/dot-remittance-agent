@@ -162,7 +162,7 @@ def test_what_others_pay_is_my_spending_but_never_my_money(local):
     assert aud["total"] == 10000 and aud["mine"] == 2000 and aud["others"] == {"Mum and Dad": 8000}  # one total, split
     assert aud["category_split"]["groceries"] == {"mine": 2000, "others": 8000}
     assert aud["others_by_category"] == {"Mum and Dad": {"groceries": 8000}}
-    assert s["budget"]["spent"] == 10000 and s["budget"]["others_spent"] == 8000  # one budget, with what others paid inside it
+    assert s["budget"]["spent"] == 2000 and s["budget"]["others_spent"] == 8000 and s["budget"]["total_spent"] == 10000  # two budgets
     assert aud["cash_out"] == 2000  # only my 20 left my money
     assert not any(c["name"] == "Mum's card" for c in s["cards"]) and s["unmatched_transfers"] == 0
     assert local.cash_balances()["AUD"]["amount"] == 200000 and local._baseline_monthly("AUD") == 2000
@@ -173,7 +173,7 @@ def test_what_others_pay_is_my_spending_but_never_my_money(local):
 
 
 def test_can_i_afford_it_when_someone_else_pays(local):
-    local.set_month_budget("owner", "AUD", "300")
+    local.set_month_budget("owner", "AUD", "300", "500")  # mine 300, what others pay for me 500
     other = local.afford("owner", "100", "AUD", payer="other")
     assert other["payer"] == "other" and other["cash"] is None and other["reasons"][0]["code"] == "other_pays" and other["verdict"] == "yes"
     big = local.afford("owner", "900", "AUD", payer="other")  # beyond the month's budget: careful, never from my cash
@@ -181,3 +181,51 @@ def test_can_i_afford_it_when_someone_else_pays(local):
     assert local.afford("owner", "100", "AUD").get("payer") is None
     with pytest.raises(Denied):
         local.afford("owner", "10", "AUD", payer="family")
+
+
+def test_each_entry_can_say_who_paid(local):
+    today = str(date.today())
+    parents = local.add_account("owner", "Mum's card", "credit", "AUD", paid_by="other", payer_name="Mum and Dad")
+    local.add_expense("owner", today, -3000, "AUD", "Dinner", "dining", paid_by="other", payer_name="Grandma")  # no account: the entry says
+    on_card = local.add_expense("owner", today, -5000, "AUD", "Books", "shopping", account_id=parents["id"])  # the account says
+    mine_on_card = local.add_expense("owner", today, -1000, "AUD", "Snack", "dining", account_id=parents["id"], paid_by="me")  # the entry wins
+    local.add_expense("owner", today, -2000, "AUD", "Bus", "transport")  # nothing said: mine
+    aud = local.spending_summary()["currencies"]["AUD"]
+    assert aud["total"] == 11000 and aud["mine"] == 3000 and aud["others"] == {"Grandma": 3000, "Mum and Dad": 5000}
+    local.update_expense("owner", on_card["id"], paid_by="me")
+    assert local.spending_summary()["currencies"]["AUD"]["mine"] == 8000
+    local.update_expense("owner", on_card["id"], paid_by="account")  # back to the account's payer
+    assert local.spending_summary()["currencies"]["AUD"]["others"]["Mum and Dad"] == 5000
+    assert local.expense(mine_on_card["id"])["paid_by"] == "me"
+    with pytest.raises(Denied):
+        local.add_expense("owner", today, -100, "AUD", "x", "dining", paid_by="uncle")
+
+
+def test_two_budgets_and_their_reminders(local):
+    today = str(date.today())
+    local.set_month_budget("owner", "AUD", "100", "50")
+    local.add_expense("owner", today, -9000, "AUD", "Rent share", "rent")  # 90% of mine
+    local.add_expense("owner", today, -6000, "AUD", "Groceries", "groceries", paid_by="other", payer_name="Mum and Dad")  # 120% of theirs
+    b = local.spending_summary()["budget"]
+    assert (b["amount"], b["spent"], b["others_amount"], b["others_spent"]) == (10000, 9000, 5000, 6000)
+    kinds = {k for _, k, *_ in local.budget_reminders()}
+    assert "budget_near" in kinds and "budget_others_over" in kinds and "budget_over" not in kinds
+
+
+def test_term_cash_flow_counts_what_others_pay_each_month(local):
+    from datetime import timedelta
+    start, end = date.today(), date.today() + timedelta(days=89)
+    local.set_cash("owner", "AUD", "5000")
+    local.add_term("owner", name="Term", currency="AUD", start=str(start), end=str(end), tuition="0", tuition_due=str(start),
+                   living="1000", income="0")
+    alone = local.cashflow("AUD", 3)
+    local.set_month_budget("owner", "AUD", "400", "600")  # Mum and Dad pay up to 600 of my living costs a month
+    helped = local.cashflow("AUD", 3)
+    assert helped["others_monthly"] == 60000 and "others_pay" in helped["notes"]
+    first = helped["months"][0]
+    assert 0 < first["others"] <= first["living"]
+    spent_alone = alone["opening"]["total"] - alone["lowest"]["amount"]
+    spent_helped = helped["opening"]["total"] - helped["lowest"]["amount"]
+    assert abs(spent_helped - spent_alone * 0.4) <= 200  # only the 400 of 1000 a month comes out of my money
+    local.set_month_budget("owner", "AUD", "400", "5000")  # more than the living costs: never counted as income
+    assert local.cashflow("AUD", 3)["lowest"]["amount"] >= helped["opening"]["total"] - 100

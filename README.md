@@ -6,7 +6,7 @@
 
 **A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-394%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-397%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -173,7 +173,7 @@ records "updated after a payment"; only currencies you never entered use labelle
 credit card and cash accounts**; statements are imported into an account. Card repayments and moves between your own
 accounts are paired on both sides (same amount, ±5 days) — even an unlabelled repayment is recognised from its other side —
 so 100 on the card plus a 100 repayment counts once. Refunds net against their category; the summary separates spending,
-cash out and card owed; a credit card balance never counts as money you have. An account can be **paid by someone else** (a parent's card — call them whatever you like, e.g. *Mum and Dad*): what you spend on it is still your spending and sits in your one monthly budget, but never in your cash or your debt. Every total is shown split — *paid by me* and *paid by Mum and Dad* — in the summary, each category bar (two shades), the budget bar and the entry list (with a filter); term projections leave their part out, *Can I afford it?* lets you choose who pays, and one tap copies a note of what their card paid for this month. The sandbox shows only the currencies you hold; add any other one by hand to try it with test money.
+cash out and card owed; a credit card balance never counts as money you have. An account can be **paid by someone else** (a parent's card — call them whatever you like, e.g. *Mum and Dad*): what you spend on it is still your spending, but never your cash or your debt. Each entry can also say who paid it (it overrides its account). The month has **two budgets** — *mine* and *paid by others* — each tracked and reminded on its own, and *Can I afford it?* checks the budget of whoever pays. The **term cash flow** starts from the money you hold and, each term month, lets the others' budget carry part of the living costs (never more than them). Every total is shown split — *paid by me* and *paid by Mum and Dad* — in the summary, each category bar (two shades), the budget bar and the entry list (with a filter); term projections leave their part out, *Can I afford it?* lets you choose who pays, and one tap copies a note of what their card paid for this month. The sandbox shows only the currencies you hold; add any other one by hand to try it with test money.
 
 **Deciding when.** The Rates page leads with "Is now a good time?": where today sits in the last 90 days (on your bank's
 own rate once enough days are recorded), and for YOUR amount the chance that waiting a week is better, the most likely
@@ -357,7 +357,7 @@ Easiest: sign up at [resend.com](https://resend.com), create an API key and put 
 ## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 394 tests (incl. two rounds of security-audit cases): service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
+.\.venv\Scripts\python -m pytest -q        # 397 tests (incl. two rounds of security-audit cases): service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
 .\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .

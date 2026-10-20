@@ -235,9 +235,12 @@ class StudentMixin:
     # ---------- spending baseline ----------
     def _spending(self, currency, start, end, own_only=False):
         """Confirmed day-to-day spending. own_only: only what left YOUR money — not what someone else paid by card."""
+        from .expenses import PAID_BY_OTHER
         sql = "SELECT * FROM expenses WHERE status='confirmed' AND amount<0 AND currency=? AND date BETWEEN ? AND ?"
-        if own_only:
-            sql += " AND (account_id IS NULL OR account_id NOT IN (SELECT id FROM accounts WHERE paid_by='other'))"
+        if own_only == "others":  # only what others paid for me
+            sql += " AND " + PAID_BY_OTHER
+        elif own_only:
+            sql += " AND NOT " + PAID_BY_OTHER
         with self.store.read() as c:
             rows = c.execute(sql, (currency, str(start), str(end))).fetchall()
         return [dict(r) for r in rows if r["category"] not in NOT_SPENDING]
@@ -273,6 +276,8 @@ class StudentMixin:
         holdings = sum(e["amount"] for e in budget if e["kind"] == "holding" and e["currency"] == currency)
         buffer = sum(e["amount"] for e in budget if e["kind"] == "buffer" and e["currency"] == currency)
         baseline = self._baseline_monthly(currency)
+        set_budget = self.month_budget()  # what others pay for me each month (their budget), in this currency
+        others_monthly = set_budget.get("others_amount", 0) if set_budget and set_budget["currency"] == currency else 0
         spans = [(date.fromisoformat(t["start"]), date.fromisoformat(t["end"]), t) for t in terms]
         points = []  # dated one-off flows, shown individually
         for t in terms:
@@ -308,15 +313,17 @@ class StudentMixin:
             if covering:
                 living = sum(_share(t["living"], d) for t in covering)
                 income = sum(_share(t["income"], d) for t in covering)
+                others = min(_share(others_monthly, d), living)  # others cover part of the living costs, never more than them
             else:
-                living, income = _share(baseline, d), 0
+                living, income, others = _share(baseline, d), 0, 0  # the baseline is already only what you paid yourself
                 used_baseline = used_baseline or baseline > 0
             point = by_day.get(str(d), 0)
-            balance += income - living + point
+            balance += income + others - living + point
             key = d.strftime("%Y-%m")
-            row = rows.setdefault(key, dict(month=key, income=0, living=0, tuition=0, other_in=0, other_out=0, closing=0, low=None))
+            row = rows.setdefault(key, dict(month=key, income=0, living=0, others=0, tuition=0, other_in=0, other_out=0, closing=0, low=None))
             row["income"] += income
             row["living"] += living
+            row["others"] += others
             for p in points:
                 if p["date"] == str(d):
                     if p["kind"] == "tuition":
@@ -336,7 +343,9 @@ class StudentMixin:
         notes = (["cash_balance"] if cash else ["ledger_simulated"] + (["holdings_unverified"] if holdings else [])) + (["baseline_used"] if used_baseline else [])
         if not terms:
             notes.append("no_terms")
-        return dict(currency=currency, start=str(today), end=str(end), opening=dict(ledger=ledger, holdings=holdings, cash=cash["amount"] if cash else None, cash_as_of=cash["as_of"] if cash else None, total=opening),
+        if others_monthly and terms:
+            notes.append("others_pay")
+        return dict(currency=currency, start=str(today), end=str(end), others_monthly=others_monthly, opening=dict(ledger=ledger, holdings=holdings, cash=cash["amount"] if cash else None, cash_as_of=cash["as_of"] if cash else None, total=opening),
                     buffer=buffer, baseline_monthly=baseline, months=list(rows.values()), daily=daily,
                     events=sorted(points, key=lambda p: p["date"]), lowest=dict(date=lowest[0], amount=lowest[1]),
                     first_negative=first_negative, below_buffer=lowest[1] < buffer, terms=[t["name"] for t in terms],
@@ -379,10 +388,12 @@ class StudentMixin:
         month_budget = self._month_budget(currency, when)
         set_budget = self.month_budget()  # a monthly budget you set on the Spending page wins over the term's living costs
         if set_budget and set_budget["currency"] == currency:
-            month_budget = set_budget["amount"]
+            month_budget = set_budget.get("others_amount", 0) if payer == "other" else set_budget["amount"]
+        elif payer == "other":
+            month_budget = 0  # no budget for what others pay
         month_spent = 0
-        if when.strftime("%Y-%m") == today.strftime("%Y-%m"):
-            month_spent = -sum(r["amount"] for r in self._spending(currency, today.replace(day=1), today))
+        if when.strftime("%Y-%m") == today.strftime("%Y-%m"):  # what was spent this month out of that same budget
+            month_spent = -sum(r["amount"] for r in self._spending(currency, today.replace(day=1), today, own_only="others" if payer == "other" else True))
         remaining = month_budget - month_spent if month_budget else None
         if payer == "other":
             return self._afford_other(price, currency, when, label, month_budget, month_spent, remaining)

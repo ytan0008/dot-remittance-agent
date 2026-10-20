@@ -372,7 +372,7 @@ function notifyNew(list) {
   }
 }
 const REMINDER_VIEW = {fx_rule_ready: 'markets', fx_rule_done: 'markets', fx_rule_blocked: 'markets', fx_rule_due: 'markets',
-  budget_near: 'spending', budget_over: 'spending', log_nudge: 'spending', ai_good_time: 'send', ai_deadline: 'send', rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', scholarship_due: 'study', tuition_due: 'study', challenge_ending: 'progress', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
+  budget_near: 'spending', budget_over: 'spending', budget_others_near: 'spending', budget_others_over: 'spending', log_nudge: 'spending', ai_good_time: 'send', ai_deadline: 'send', rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', scholarship_due: 'study', tuition_due: 'study', challenge_ending: 'progress', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
 
 function drawer() {
   const list = state.data.reminders || [];
