@@ -1,3 +1,4 @@
+import {centerFocus} from '../tactile.js';
 import {state, t, api, toast, isOwner, invalidate, rerender, modal, closeModal} from '../core.js';
 import {esc, amt, panel, icons, options, empty, tag, field} from '../ui.js';
 import {money, day, num, approx, decimalsOf} from '../i18n.js';
@@ -122,12 +123,21 @@ function gapsPanel(m) {
     </li>`).join('');
   const body = `${short.length ? '' : `<p class="ov-good">${icons.check}${t('ov.g.none', {n: m.horizon})}</p>`}
     ${rows ? `<ul class="ov-gaps">${rows}</ul>` : ''}
-    ${unknown.length ? `<p class="fine">${t('ov.g.unknown', {c: unknown.map(g => g.currency).join(', ')})} <button class="link sm" data-action="ov-edit">${t('ov.edit')}</button></p>` : ''}
-    <div class="ov-mail"><span>${t('ov.g.mail')}</span><button class="link" data-action="go" data-view="study">${t('ov.g.mail_set')} ${icons.arrow}</button></div>`;
+    ${unknown.length ? `<p class="fine">${t('ov.g.unknown', {c: unknown.map(g => g.currency).join(', ')})} <button class="link sm" data-action="ov-edit">${t('ov.edit')}</button></p>` : ''}`;
   return panel(`${t('ov.g.title')}${short.length ? ` <span class="ov-badge">${short.length}</span>` : ''}`, body, {cls: 'ov-gaps-panel', sub: t('ov.g.sub', {n: m.horizon})});
 }
 
 /* ---------- next up and recent payments ---------- */
+/* the last exchange that beat the month's average: something worth showing your parents */
+function savingsCard() {
+  const r = (state.data.fxRules || []).filter(x => x.status === 'done' && Number(x.result?.saved?.saved) > 0).sort((a, b) => b.result.at - a.result.at)[0];
+  if (!r || Date.now() / 1000 - r.result.at > 14 * 86400) return '';
+  const res = r.result;
+  return panel(t('save.title'), `<div class="save-card"><span class="save-num">+${num(res.saved.saved, 0)} <small>${esc(r.source)}</small></span>
+    <p>${t('save.line', {d: day(new Date(res.at * 1000).toISOString().slice(0, 10)), a: num(res.spent / 100, 0), s: esc(r.source), b: num(res.received / 100, 2), t: esc(r.target), n: res.saved.days})}</p>
+    <button class="button sm" data-action="save-share" data-id="${esc(r.id)}">${t('rule.share')}</button></div>`, {cls: 'save-panel'});
+}
+
 function nextPanel() {
   const list = (state.data.reminders || []).slice(0, 4);
   return panel(t('ov.next'), list.length ? `<ul class="list">${list.map(r => `<li class="row sev-${esc(r.severity)}"><span class="state-dot"></span>
@@ -228,18 +238,29 @@ export const view = {
     const cur = refCurrency.get();
     try { state.data.money = await api('/overview/money' + (cur ? '?display=' + encodeURIComponent(cur) : '')); delete state.errors.money; }
     catch (e) { state.errors.money = e.message; }
+    try { state.data.fxRules = await api('/fx-rules'); } catch { state.data.fxRules = []; }
   },
   mount(root) {
     root.querySelectorAll('.bar-fill[data-ratio]').forEach(el => el.style.setProperty('--ratio', el.dataset.ratio));
+    centerFocus(root.querySelector('.ov-plans'), '.ov-plan');  // a swipeable row on phones: the middle card leads
     root.querySelector('#ov-ref')?.addEventListener('change', async e => { refCurrency.set(e.target.value); await view.load(); rerender(); });
   },
   render() {
     const m = state.data.money;
     if (!m) return panel(t('ov.cash_now'), empty(state.errors.money || t('common.loading')));
-    return `${cashPanel(m)}${plansPanel(m)}<div class="ov-pair-panels">${gapsPanel(m)}${sandboxCard(m)}</div><div class="split">${nextPanel()}${recentPanel()}</div>`;
+    // Less on screen: cards that would only say "nothing yet" are left out
+    const reminders = (state.data.reminders || []).length, payments = (state.data.transfers || []).some(p => p.status !== 'superseded' && !p.test);
+    const lower = [reminders ? nextPanel() : '', payments ? recentPanel() : ''].filter(Boolean);
+    return `${cashPanel(m)}${savingsCard()}${plansPanel(m)}<div class="ov-pair-panels">${gapsPanel(m)}${m.plans.length ? sandboxCard(m) : ''}</div>${lower.length === 2 ? `<div class="split">${lower.join('')}</div>` : lower.join('')}`;
   },
   actions: {
     'ov-edit'() { ui.editing = !ui.editing; rerender(); },
+    async 'save-share'(el) {
+      const r = (state.data.fxRules || []).find(x => x.id === el.dataset.id), res = r?.result;
+      if (!res) return;
+      const text = t('rule.share_text', {d: day(new Date(res.at * 1000).toISOString().slice(0, 10)), a: num(res.spent / 100, 0), s: r.source, b: num(res.received / 100, 2), t: r.target, x: num(res.saved.saved, 0)});
+      try { await navigator.clipboard.writeText(text); toast(t('rule.copied'), 'good'); } catch { toast(text); }
+    },
     async 'ov-clear'(el) { await api('/cash/' + encodeURIComponent(el.dataset.currency), 'DELETE'); await reload(); },
     'plan-new'() { editor(); },
     'plan-open'(el) { editor(state.data.money.plans.find(p => p.id === el.dataset.id)); },

@@ -1,9 +1,13 @@
 import {state, need, invalidate, bus, toast, modal, closeModal, formError, $, $$, api, isOwner, value} from './core.js';
 import {t, initLang, setLang, LANGS, lang, relative, region, when} from './i18n.js';
 import {esc, icons, options, field, empty, panel} from './ui.js';
+import {authScreen} from './auth.js';
 import {field as dotField, transition, reveal, interactive, countUp, swipe, progress, reduced} from './motion.js';
 import {deformTitles} from './deform.js';
-import {springNav} from './navspring.js';
+import {liquid, gesturePages, dragDismiss, expandFrom} from './tactile.js';
+import {deck} from './cards.js';
+import {mountAssistant, syncAssistant} from './assistant.js';
+bus.expandFrom = expandFrom;
 import {view as overview} from './views/overview.js';
 import {view as agent, send as sendChat, paint as paintChat} from './views/agent.js';
 import {view as sendView, enableNotifications} from './views/send.js';
@@ -31,6 +35,7 @@ const ORDER = GROUPS.flatMap(g => g[1]);
 let pendingPaint = false, refreshTimer = 0, events = null, primed = false;
 
 /* ---------- shell ---------- */
+
 function shellText() {
   $$('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   $$('[data-i18n-label]').forEach(el => el.setAttribute('aria-label', t(el.dataset.i18nLabel)));
@@ -45,7 +50,9 @@ function shellText() {
   }
   nav.querySelectorAll('a[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === state.view));
   dock.querySelectorAll('[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === state.view || (a.dataset.view === 'more' && !DOCK.includes(state.view))));
-  springNav($('#nav'), 'y'); springNav($('#dock'), 'x');  // start at once: the animation runs on the compositor
+  $$('.nav-blob').forEach(el => el.remove());
+  liquid($('#nav'), {axis: 'y', key: 'nav', extend: 22}); liquid($('#dock'), {axis: 'x', key: 'dock'});  // one indicator glides; the items never move
+  syncAssistant();
   $('#lang-select').innerHTML = LANGS.map(([c, n]) => `<option value="${c}" ${c === lang ? 'selected' : ''}>${n}</option>`).join('');
   $('#crumb').textContent = t('nav.' + state.view);
   document.title = `${t('nav.' + state.view)} · DOT`;
@@ -58,7 +65,7 @@ function status() {
   badge.className = 'env-badge ' + (state.connected ? 'ok' : 'off');
   badge.querySelector('span').textContent = state.connected ? t('env.sandbox') : t('shell.offline');
   $('#side-status').textContent = state.connected ? t('shell.connected') : t('shell.disconnected');
-  $('#avatar').textContent = state.role ? state.role[0].toUpperCase() : '·';
+  $('#avatar').textContent = state.user ? (state.user.name || state.user.email)[0].toUpperCase() : state.role ? state.role[0].toUpperCase() : '·';
   const count = (state.data.reminders || []).length;
   $('#bell-count').hidden = !count; $('#bell-count').textContent = count;
   notifyNew(state.data.reminders);
@@ -68,12 +75,16 @@ function status() {
 function heading(id) {
   const page = id === 'send' && state.send.tab === 'templates' ? 'templates' : id;
   return `<div class="page-head reveal"><div><span class="eyebrow">${String(ORDER.indexOf(id) + 1).padStart(2, '0')} / ${esc(t('nav.' + id)).toUpperCase()}</span><h1>${t('page.' + page)}<i>.</i></h1><p>${t('page.' + page + '_d')}</p></div>
-    ${id === 'overview' ? `<div class="head-actions"><button class="button ghost" data-action="go" data-view="agent">${icons.agent}${t('overview.ask')}</button><button class="button primary magnetic" data-action="go" data-view="send">${icons.plus}${t('action.new_transfer')}</button></div>` : ''}</div>`;
+    ${id === 'overview' ? `<div class="head-actions"><button class="button ghost" data-action="go" data-view="agent">${icons.agent}${t('overview.ask')}</button><button class="button primary" data-action="go" data-view="send">${icons.plus}${t('action.new_transfer')}</button></div>` : ''}</div>`;
 }
 
 export function enhance(root, quiet = false) {
   if (quiet) root.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
   reveal(root); interactive(root); deformTitles(root);
+  if (root.id === 'view' && state.role) deck(root, state.view, t);  // cards you arrange; the first is the focus
+  // Liquid Tab: every page-tab bar and segmented choice; keyed by page and position, because a click re-renders them.
+  root.querySelectorAll('.page-tabs, .segmented').forEach((el, i) => liquid(el, {axis: 'x', key: `${state.view}:${i}:${el.className}`}));
+
   if (!quiet) countUp(root, (n, d) => new Intl.NumberFormat(lang, {minimumFractionDigits: d, maximumFractionDigits: d}).format(n));
 }
 bus.enhance = enhance;
@@ -83,7 +94,8 @@ function paint(quiet = false) {
   const v = BY_ID[state.view], root = $('#view'), html = document.documentElement;
   pendingPaint = false;
   if (quiet) html.dataset.quiet = '1';
-  if (!state.role) root.innerHTML = heading(state.view) + loginPanel();
+  root.style.opacity = '';  // a swipe may have carried the old page away
+  if (!state.role) root.innerHTML = heading(state.view) + `<div class="skeleton reveal in"><i></i><i></i><i></i></div>`;  // the sign-in stage covers it
   else root.innerHTML = heading(state.view) + v.render();
   enhance(root, quiet);
   if (state.role) v.mount?.(root);
@@ -93,9 +105,13 @@ function paint(quiet = false) {
 
 const editing = () => document.activeElement?.closest?.('#view') && document.activeElement.matches('input:not([type=checkbox]):not([type=range]),textarea,select');
 
+const arranging = () => !!document.querySelector('#view.arranging, #view .card-block.resizing');
+addEventListener('dot:arranged', () => bus.flush());
+
 function render() {
   // Never rebuild the page under a streaming answer or while the user types; catch up afterwards.
-  if (editing() || (state.chat.streaming && ['agent', 'overview'].includes(state.view))) { pendingPaint = true; return; }
+  // Nor under a card being dragged or resized: a live-rate refresh would rebuild the deck and drop it mid-flight.
+  if (editing() || arranging() || (state.chat.streaming && ['agent', 'overview'].includes(state.view))) { pendingPaint = true; return; }
   const y = scrollY;
   paint(true);
   scrollTo(0, y);
@@ -231,26 +247,64 @@ function connectEvents() {
 }
 
 /* ---------- session ---------- */
-function loginPanel() {
-  return panel(t('login.title'), `<form id="login-form" class="form-block"><p class="intro">${t('login.intro')}</p>
-    ${field('access-token', t('login.token'), `<input id="access-token" type="password" name="token" required minlength="24" autocomplete="off" placeholder="Owner / Agent / Viewer">`)}
-    <div class="form-error"></div><button class="button primary">${t('login.connect')}</button></form>`, {cls: 'login-panel'});
-}
-
 async function session() {
   try {
     const s = await api('/session');
-    Object.assign(state, {role: s.role, model: s.model_configured, modelName: s.model});
-  } catch {
-    if (state.health?.demo_login) {
-      await api('/session/demo', 'POST', {});
-      const s = await api('/session');
-      Object.assign(state, {role: s.role, model: s.model_configured, modelName: s.model});
-    }
-  }
+    Object.assign(state, {role: s.role, model: s.model_configured, modelName: s.model, user: s.user || null});
+  } catch { Object.assign(state, {role: null, user: null}); }
 }
 
-async function settingsModal() {
+/** Signed out (by you, or because the session ended): clear what was on screen and show the sign-in stage again. */
+let signingIn = false;
+async function backToSignIn() {
+  if (signingIn) return;
+  signingIn = true;
+  try {
+    Object.assign(state, {role: null, user: null, data: {}});
+    if (state.chat) state.chat.messages = [];
+    events?.close(); events = null; closeModal(); closeSheets(); shellText(); paint();
+    await signIn();
+    if (state.role) { connectEvents(); shellText(); if (!builtUnderAuth) await show(state.view); builtUnderAuth = false; }
+  } finally { signingIn = false; }
+}
+addEventListener('dot:signed-out', () => { if (state.role && !document.getElementById('auth')) backToSignIn(); });
+
+/** No session: the sign-in stage (sign up, sign in, demo or an access token). The first page is built underneath before
+    the dot flies into its place, so the hand-over shows a finished page, not a skeleton. */
+let builtUnderAuth = false;
+async function signIn() {
+  try { state.health = await api('/health'); } catch { /* keep the last known */ }
+  await authScreen(state.health || {}, async () => {
+    state.data = {};
+    await session();
+    if (!state.role) return;
+    shellText();
+    await Promise.race([show(state.view), new Promise(r => setTimeout(r, 2500))]);  // never hold the curtain for long
+    builtUnderAuth = true;
+  });
+}
+
+/** What goes to the AI model, and your data: take it with you or wipe it. */
+function privacySection() {
+  const u = state.user;
+  return `<section class="settings-sec privacy-sec"><span class="eyebrow">${t('privacy.title')}</span>
+    <ul class="privacy-list"><li>${t('privacy.sent')}</li><li>${t('privacy.masked')}</li><li>${t('privacy.images')}</li><li>${t('privacy.never')}</li></ul>
+    <div class="row-actions"><a class="button sm" href="/api/account/export" download="dot-export.json">${icons.arrow}${t('privacy.export')}</a>
+      <button type="button" class="button sm ghost" data-action="privacy-clear" data-what="conversations">${t('privacy.clear_chats')}</button>
+      <button type="button" class="button sm ghost" data-action="privacy-clear" data-what="notes">${t('privacy.clear_notes')}</button></div>
+    ${u && !u.original ? `<details class="danger-zone"><summary>${t('privacy.close')}</summary>
+      <form id="close-form" class="inline-form" autocomplete="off"><p class="fine">${t('privacy.close_d')}</p>
+        <div class="grid-2">${field('cl-email', t('auth.q.email'), `<input id="cl-email" name="email" type="email" required>`)}${field('cl-pw', t('privacy.password'), `<input id="cl-pw" name="password" type="password" required>`)}</div>
+        <div class="form-error"></div><button class="button sm">${t('privacy.close_btn')}</button></form></details>`
+      : u ? `<p class="fine">${t('privacy.original')}</p>` : ''}
+    ${u && !u.original ? `<details class="danger-zone"><summary>${t('privacy.claim_title')}</summary>
+      <form id="claim-form" class="inline-form" autocomplete="off"><p class="fine">${t('privacy.claim_d')}</p>
+        ${field('cl-token', 'OWNER_TOKEN', `<input id="cl-token" name="owner_token" type="password" required minlength="24">`)}
+        <div class="form-error"></div><button class="button sm">${t('privacy.claim_btn')}</button></form></details>` : ''}
+  </section>`;
+}
+
+async function settingsModal(focus) {
   if (state.role) await need(['memory', 'economies']);
   if (isOwner()) { try { state.data.email = await api('/email'); } catch { /* shown as unavailable */ } }
   const m = state.data.memory || {};
@@ -269,12 +323,14 @@ async function settingsModal() {
       ${field('set-goal', t('settings.payment_goal'), `<input id="set-goal" name="payment_goal" maxlength="200" value="${esc(m.payment_goal || '')}">`)}
       <div class="form-error"></div><button class="button" ${isOwner() ? '' : 'disabled'}>${t('common.save')}</button></form>
     ${isOwner() ? `<section class="settings-sec email-sec">${emailPanel()}</section>` : ''}
+    ${isOwner() ? privacySection() : ''}
     <section class="settings-sec"><span class="eyebrow">${t('settings.session')}</span>
       <dl class="facts"><div><dt>${t('settings.role')}</dt><dd>${esc(state.role ? t('role.' + state.role) : '—')}</dd></div><div><dt>${t('settings.model')}</dt><dd>${state.model ? esc(state.modelName || t('agent.mode.model')) : t('settings.model_off')}</dd></div>
       <div><dt>${t('settings.rails')}</dt><dd>${t('env.sandbox')}</dd></div></dl>
       <label class="check-label"><input type="checkbox" id="set-notify" ${localStorage.getItem('dot.notify') === '1' ? 'checked' : ''}> ${t('rem.notify')}</label>
       <form id="login-form" class="inline-form">${field('access-token-2', t('login.switch'), `<input id="access-token-2" type="password" name="token" minlength="24" autocomplete="off" required>`)}<div class="form-error"></div>
       <div class="row-actions"><button class="button">${t('login.connect')}</button>${state.role ? `<button type="button" class="button ghost" data-action="logout">${t('login.logout')}</button>` : ''}</div></form></section>`, 'SETTINGS', {mount: root => {
+    if (focus) setTimeout(() => root.querySelector('.' + focus)?.scrollIntoView({block: 'start', behavior: 'smooth'}), 260);  // e.g. "email settings" from the gaps card
     root.querySelector('#set-lang').addEventListener('change', e => changeLang(e.target.value));
     root.querySelector('#em-digest')?.addEventListener('change', e => { const wd = root.querySelector('#em-weekday'); if (wd) wd.disabled = e.target.value !== 'weekly'; });
     root.querySelector('#set-theme').addEventListener('change', e => setTheme(e.target.value));
@@ -299,7 +355,8 @@ function notifyNew(list) {
     try { const n = new Notification('DOT · ' + t('shell.reminders'), {body: reminderText(r), tag: 'dot-' + r.id}); n.onclick = () => { window.focus(); location.hash = REMINDER_VIEW[r.kind] || 'overview'; }; } catch { /* unsupported */ }
   }
 }
-const REMINDER_VIEW = {ai_good_time: 'send', ai_deadline: 'send', rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', scholarship_due: 'study', tuition_due: 'study', challenge_ending: 'progress', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
+const REMINDER_VIEW = {fx_rule_ready: 'markets', fx_rule_done: 'markets', fx_rule_blocked: 'markets', fx_rule_due: 'markets',
+  budget_near: 'spending', budget_over: 'spending', log_nudge: 'spending', ai_good_time: 'send', ai_deadline: 'send', rate_target: 'send', rate_favorable: 'send', exchange_due: 'send', expense_expected: 'spending', scholarship_due: 'study', tuition_due: 'study', challenge_ending: 'progress', goal_deadline: 'plans', obligation_due_soon: 'habits', obligation_overdue: 'habits'};
 
 function drawer() {
   const list = state.data.reminders || [];
@@ -310,7 +367,7 @@ function drawer() {
     <p class="fine">${t('reminder.note')}</p>`;
 }
 
-function openDrawer() { drawer(); $('#drawer').hidden = false; requestAnimationFrame(() => $('#drawer').classList.add('open')); }
+function openDrawer() { drawer(); $('#drawer').hidden = false; requestAnimationFrame(() => $('#drawer').classList.add('open')); dragDismiss($('#drawer-panel'), closeSheets, 'x'); }
 function closeSheets() {
   for (const id of ['#drawer', '#sheet']) {
     const el = $(id);
@@ -322,6 +379,7 @@ function closeSheets() {
 function openSheet() {
   $('#sheet-panel').innerHTML = `<span class="sheet-grip"></span>${GROUPS.map(([g, ids]) => `<span class="nav-caption">${t(g)}</span><div class="sheet-grid">${ids.map(id => `<a href="#${id}" class="${state.view === id ? 'active' : ''}">${icons[id]}<span>${t('nav.' + id)}</span></a>`).join('')}</div>`).join('')}`;
   $('#sheet').hidden = false; requestAnimationFrame(() => $('#sheet').classList.add('open'));
+  dragDismiss($('#sheet-panel'), closeSheets, 'y');
 }
 
 async function changeLang(code) {
@@ -345,13 +403,19 @@ const GLOBAL = {
   prompt(el) { if (state.view !== 'agent' && state.view !== 'overview') location.hash = 'agent'; return sendChat(el.dataset.prompt); },
   async dismiss(el) { await api(`/reminders/${el.dataset.id}/dismiss`, 'POST', {}); invalidate(['reminders']); await need(['reminders']); drawer(); render(); status(); },
   'new-recipient'(el) { return wallets.actions['new-recipient'](el); },
+  'open-settings'(el) { return settingsModal(el.dataset.focus); },
+  async 'privacy-clear'(el) {
+    if (!confirm(t('privacy.clear_q'))) return;
+    await api('/agent/memory/clear', 'POST', {what: el.dataset.what});
+    state.chat.messages = el.dataset.what === 'conversations' ? [] : state.chat.messages;
+    invalidate(); toast(t('privacy.cleared'), 'good');
+  },
   copy(el) { return wallets.actions.copy(el); },
   'open-sheet': openSheet,
   'close-drawer': closeSheets,
   async logout() {
-    await api('/session', 'DELETE');
-    Object.assign(state, {role: null, data: {}, connected: false});
-    events?.close(); closeModal(); shellText(); paint(); toast(t('login.logged_out'));
+    try { await api('/session', 'DELETE'); } catch { /* already gone */ }
+    await backToSignIn();
   },
 };
 
@@ -374,7 +438,7 @@ document.addEventListener('submit', async e => {
   e.preventDefault();
   if (f.dataset.chat !== undefined) { const ta = f.querySelector('textarea'); const text = ta.value; ta.value = ''; return sendChat(text); }
   const key = f.dataset.form || f.id;
-  const handler = key === 'login-form' ? login : key === 'settings-form' ? savePrefs : VIEWS.map(v => v.submit?.[key]).find(Boolean);
+  const handler = key === 'claim-form' ? claimData : key === 'close-form' ? closeAccount : key === 'login-form' ? login : key === 'settings-form' ? savePrefs : VIEWS.map(v => v.submit?.[key]).find(Boolean);
   if (!handler) return;
   const button = f.querySelector('button:not([type=button])');
   if (button) button.disabled = true;
@@ -382,6 +446,19 @@ document.addEventListener('submit', async e => {
   catch (error) { formError(f, error); }
   finally { if (button?.isConnected) button.disabled = false; }
 });
+
+async function claimData(f) {
+  await api('/auth/claim', 'POST', {owner_token: value(f, 'owner_token')});
+  closeModal(); toast(t('privacy.claimed'), 'good');
+  state.data = {}; await session(); await show(state.view);
+}
+
+async function closeAccount(f) {
+  if (!confirm(t('privacy.close_q'))) return;
+  const r = await api('/account/delete', 'POST', {email: value(f, 'email'), password: value(f, 'password')});
+  toast(r.deleted === false ? t('privacy.delete_pending') : t('privacy.closed'));
+  await backToSignIn();
+}
 
 async function login(f) {
   const s = await api('/session', 'POST', {token: value(f, 'token')});
@@ -429,6 +506,7 @@ async function boot() {
     state.health = await api('/health');
     state.connected = true;
     await session();
+    if (!state.role) await signIn();
   } catch {
     state.connected = false;
     $('#banner').textContent = t('err.backend'); $('#banner').hidden = false;
@@ -444,10 +522,13 @@ async function boot() {
       status();
     });
   }
-  await show(state.view);
-  swipe($('#main'), dir => {
-    const i = ORDER.indexOf(state.view), next = ORDER[(i + (dir === 'left' ? 1 : -1) + ORDER.length) % ORDER.length];
-    swipeMode = dir; location.hash = next;
+  if (!builtUnderAuth) await show(state.view);
+  builtUnderAuth = false;
+  mountAssistant();  // DOT on every page
+  // Gesture-driven Transition: the page follows the finger; release decides from distance and speed.
+  gesturePages($('#main'), $('#view'), {
+    canGo: dir => { const i = ORDER.indexOf(state.view); return dir === 'left' ? i < ORDER.length - 1 : i > 0; },
+    go: dir => { const i = ORDER.indexOf(state.view); swipeMode = dir; location.hash = ORDER[i + (dir === 'left' ? 1 : -1)]; },
   });
   setInterval(() => {
     $$('[data-countdown]').forEach(el => {

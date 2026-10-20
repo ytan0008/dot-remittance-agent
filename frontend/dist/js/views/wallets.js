@@ -108,6 +108,7 @@ export const view = {
       if ((state.data.recipients || []).some(r => r.id === id)) throw new Error(t('wallets.r_exists'));
       await api('/recipients', 'POST', {recipient_id: id, name: value(f, 'name'), address: '', currency: value(f, 'currency'),
         country: value(f, 'country'), account: value(f, 'account').replace(/\s+/g, ''), kind: value(f, 'kind'), enabled: true});
+      if (state.view === 'send' && state.send) state.send.recipient = id;  // added from the Send form: pick it right away
       invalidate(['recipients']); closeModal(); toast(t('wallets.saved'), 'good'); rerender();
     },
     async 'fund-form'(f) {

@@ -125,8 +125,8 @@ function cardFor(step) {
     case 'sandbox_timeline':
       return {title: t('ov.s.title'), body: `<small>${day(r.today)} → ${day(r.end)}</small>${(r.negative || []).length ? `<p>${t('sb.low_neg', {a: '', d: ''})} ${esc(r.negative.join(', '))}</p>` : ''}`, foot: go('sandbox')};
     case 'bank_scenarios': {
-      const best = (r.scenarios || [])[0];
-      return {title: t('scen.title'), body: best ? `<b class="ac-big">${esc(money(best.total_receive, r.target))} <small>${esc(r.target)}</small></b><small>${t('scen.best')}</small>` : '<p>—</p>', foot: go('send')};
+      const best = (r.scenarios || []).find(x => x.rank === 1);  // only a fully sourced scenario that arrives in time is "best"
+      return {title: t('scen.title'), body: best ? `<b class="ac-big">${esc(money(best.total_receive, r.target))} <small>${esc(r.target)}</small></b><small>${t('scen.best')}</small>` : `<p>${t('scen.best_none')}</p>`, foot: go('send')};
     }
     case 'request_details': {
       const fm = forms.get(step.formKey);
@@ -255,8 +255,9 @@ export function message(m) {
   </div>`;
 }
 
-export function chatLog(limit) {
+export function chatLog(limit, bare = false) {
   const list = limit ? state.chat.messages.slice(-limit) : state.chat.messages;
+  if (bare) return list.map(message).join('');  // the compact assistant on other pages: no welcome block
   const welcome = `<div class="msg bot welcome done" data-key="welcome-${state.model ? 1 : 0}"><div class="who"><span class="agent-orb sm"><i></i></span>DOT</div><div class="answer">${t('agent.welcome')}</div>${!state.model ? `<p class="mode-note">${t('agent.offline_hint')}</p>` : ''}<div class="suggestions">${suggestions().map(s => `<button class="pill" data-action="prompt" data-prompt="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
   return welcome + list.map(message).join('');
 }
@@ -612,7 +613,7 @@ export const view = {
   },
   render() {
     return `<div class="agent-layout">
-      ${panel(`<span class="agent-orb"><i></i></span>${t('agent.title')}`, `<div class="chat-log" id="chat-log">${chatLog()}</div>${composer()}<p class="fine">${t('agent.disclaimer')}</p>`, {cls: 'chat-panel', sub: state.model ? `${t('agent.mode.model')}${state.modelName ? ' · ' + esc(state.modelName) : ''}` : t('agent.mode.rules')})}
+      ${panel(`<span class="agent-orb"><i></i></span>${t('agent.title')}`, `<div class="chat-log" id="chat-log">${chatLog()}</div>${composer()}<p class="chat-privacy">${t('agent.disclaimer')} · ${t('privacy.chat_note')}</p>`, {cls: 'chat-panel', sub: state.model ? `${t('agent.mode.model')}${state.modelName ? ' · ' + esc(state.modelName) : ''}` : t('agent.mode.rules')})}
       <div class="agent-side">
         <div id="side-form-host" class="side-form-host">${sideForm()}</div>
         ${boardPanel()}
@@ -632,7 +633,7 @@ export async function send(text) {
   state.chat.streaming = true;
   paint();
   try {
-    for await (const e of stream('/chat/stream', {message: text, session: state.chat.session, language: lang})) {
+    for await (const e of stream('/chat/stream', {message: text, session: state.chat.session, language: lang, page: state.view})) {
       if (e.type === 'start') { m.mode = e.mode; m.note = e.note; }
       if (e.type === 'understand') m.plan = e;
       if (e.type === 'plan') m.steps = (e.steps || []).map(s => ({tool: s.tool, status: 'planned'}));
@@ -679,11 +680,11 @@ function morph(old, next) {
 
 /** Repaints the conversation and the card board in place, so streaming never flickers. */
 export function paint() {
-  for (const log of document.querySelectorAll('#chat-log, #mini-chat-log')) {
-    const limit = log.id === 'mini-chat-log' ? 2 : 0;
+  for (const log of document.querySelectorAll('#chat-log, #mini-chat-log, #ai-pop-log')) {
+    const limit = log.id === 'mini-chat-log' ? 2 : log.id === 'ai-pop-log' ? 8 : 0;
     const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 120;
     const next = log.cloneNode(false);
-    next.innerHTML = chatLog(limit);
+    next.innerHTML = chatLog(limit, log.id === 'ai-pop-log');
     morph(log, next);
     if (stick) log.scrollTo({top: log.scrollHeight, behavior: 'smooth'});
   }

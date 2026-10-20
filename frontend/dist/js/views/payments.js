@@ -125,7 +125,7 @@ export function renderDetail(p) {
   const actions = [];
   if (editable && owner) actions.push(`<button type="button" class="button ghost" data-action="cancel-payment" data-id="${esc(p.id)}">${t('action.cancel_payment')}</button>`);
   if (editable && canPrepare() && !expired) actions.push(`<button type="button" class="button ghost" data-action="show-modify">${t('action.modify')}</button>`);
-  if (p.status === 'approved' && !expired && canPrepare()) actions.push(`<button type="button" class="button primary magnetic" data-action="execute" data-id="${esc(p.id)}">${t('action.submit')} ${icons.arrow}</button>`);
+  if (p.status === 'approved' && !expired && canPrepare()) actions.push(`<button type="button" class="button primary" data-action="execute" data-id="${esc(p.id)}">${t('action.submit')} ${icons.arrow}</button>`);
   if (ACTIVE.includes(p.status) && canPrepare()) actions.push(`<button type="button" class="button primary" data-action="reconcile" data-id="${esc(p.id)}">${icons.reset}${t('action.reconcile')}</button>`);
   if (editable && expired) actions.push(`<button type="button" class="button primary" data-action="requote" data-id="${esc(p.id)}">${t('action.requote')}</button>`);
   if (['completed', 'failed'].includes(p.status)) actions.push(`<button type="button" class="button" data-action="receipt" data-id="${esc(p.id)}">${icons.print}${t('action.receipt')}</button>`);

@@ -1,8 +1,6 @@
 import {t, money} from './i18n.js';
 
 export const esc = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-export const attr = esc;
-
 export const chip = (status, ns = 'status') => `<span class="chip s-${esc(status)}"><i></i>${esc(t(ns + '.' + status))}</span>`;
 export const tag = (kind, extra = '') => `<span class="tag k-${esc(kind)} ${extra}">${esc(t('kind.' + kind))}</span>`;
 export const amt = (minor, currency, cls = '') => `<span class="amt ${cls}">${esc(money(minor, currency))}<small>${esc(currency)}</small></span>`;

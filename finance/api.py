@@ -1,4 +1,6 @@
 import asyncio
+import contextvars
+import dataclasses
 import hmac
 import json
 import os
@@ -13,7 +15,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from .domain import Denied, new_request_id
 from .service import Finance
 from .agent import Agent
+from .auth import Users
+from .privacy import export_workspace
 from . import worker
+
+# The workspace (one person's database) this request works on, set from the session before the endpoint runs.
+CURRENT = contextvars.ContextVar("workspace", default="default")
 
 
 class Model(BaseModel):
@@ -72,10 +79,51 @@ class Preference(Model):
     value: str
 
 
+class SignUp(Model):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=200)
+    name: str = Field(default="", max_length=60)
+    owner_token: str = Field(default="", max_length=200)  # claims the data already on this computer
+
+
+class Claim(Model):
+    owner_token: str = Field(min_length=1, max_length=200)
+
+
+class SignIn(Model):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class Clear(Model):
+    what: str
+
+
+class Farewell(Model):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class FxRuleIn(Model):
+    source: str
+    target: str
+    amount: str = Field(max_length=24)
+    min_rate: str = Field(max_length=24)
+    due: str | None = None
+    mode: str = "confirm"
+    bank: str | None = Field(default=None, max_length=40)
+
+
+class MonthBudget(Model):
+    currency: str
+    amount: str | None = Field(default=None, max_length=24)
+
+
 class Chat(Model):
     message: str = Field(min_length=1, max_length=4000)
     session: str = "default"
     language: str = "en"
+    page: str = Field(default="", max_length=40)  # the screen the person is on, so "this" means something
 
 
 class Login(Model):
@@ -183,6 +231,14 @@ class CsvImport(Model):
     filename: str = Field(default="statement.csv", max_length=200)
     content: str = Field(max_length=2_100_000)
     currency: str | None = None
+    account_id: str | None = Field(default=None, max_length=64)
+
+
+class AccountIn(Model):
+    name: str = Field(min_length=1, max_length=60)
+    type: str
+    currency: str
+    balance: str | None = Field(default=None, max_length=24)
 
 
 class ExpenseIn(Model):
@@ -196,10 +252,10 @@ class ExpenseIn(Model):
 
 
 class ExpensePatch(Model):
-    category: str | None = None
-    amount: int | None = None
-    description: str | None = None
-    date: str | None = None
+    category: str | None = Field(None, max_length=40)
+    amount: int | None = Field(None, ge=-10**12, le=10**12)
+    description: str | None = Field(None, max_length=200)
+    date: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 class QuickText(Model):
@@ -217,8 +273,15 @@ class Receipt(Model):
     images: list[Image] | None = Field(default=None, max_length=4)
 
 
+class ReviewItem(Model):
+    id: str = Field(max_length=64)
+    include: bool = True
+    category: str | None = Field(None, max_length=40)
+    amount: int | None = Field(None, ge=-10**12, le=10**12)
+
+
 class ReviewIn(Model):
-    items: list[dict]
+    items: list[ReviewItem] = Field(min_length=1, max_length=5000)
 
 
 class RecurringIn(Model):
@@ -442,6 +505,8 @@ def create_app(finance=None, agent=None, background=None):
         owner, agent_token = os.getenv("OWNER_TOKEN", ""), os.getenv("AGENT_TOKEN", "")
         if len(owner) < 24 or len(agent_token) < 24 or owner == agent_token:
             raise RuntimeError("set distinct OWNER_TOKEN and AGENT_TOKEN (at least 24 characters)")
+        if os.getenv("PUBLIC_DEPLOY") == "true" and (os.getenv("EVM_RPC_URL") or os.getenv("ENABLE_LIVE_PAYMENTS") == "true"):
+            raise RuntimeError("PUBLIC_DEPLOY=true runs the simulation only: leave EVM_RPC_URL empty and ENABLE_LIVE_PAYMENTS false")
         viewer = os.getenv("VIEWER_TOKEN", "")
         if viewer and (len(viewer) < 24 or viewer in (owner, agent_token)):
             raise RuntimeError("VIEWER_TOKEN must be distinct and at least 24 characters")
@@ -450,12 +515,27 @@ def create_app(finance=None, agent=None, background=None):
         app.state.finance.exchange_judge = app.state.agent.judge
         app.state.finance.page_reader = app.state.agent.judge  # reads public bank pages into rates and fees
         app.state.sessions = {}
-        stop = asyncio.Event()
-        run_worker = background if background is not None else os.getenv("ENABLE_WORKER", "true") == "true"
-        task = asyncio.create_task(worker.run(app.state.finance, stop)) if run_worker else None
+        app.state.users = Users(os.path.join(os.path.dirname(os.path.abspath(app.state.finance.config.db)), "users.sqlite3"))
+        app.state.workspaces = {"default": (app.state.finance, app.state.agent)}
+        app.state.stop = stop = asyncio.Event()
+        app.state.loop = asyncio.get_running_loop()
+        app.state.run_worker = run_worker = background if background is not None else os.getenv("ENABLE_WORKER", "true") == "true"
+        app.state.tasks = [asyncio.create_task(worker.run(app.state.finance, stop))] if run_worker else []
+        app.state.demos = {}
+        folder = os.path.join(os.path.dirname(os.path.abspath(app.state.finance.config.db)), "users")
+        if os.path.isdir(folder):  # demo spaces never outlive the server
+            for name in os.listdir(folder):
+                if name.startswith("demo-"):
+                    try:
+                        os.remove(os.path.join(folder, name))
+                    except OSError:
+                        pass
+        app.state.users.retry_deletions(os.remove)
+        for ws in app.state.users.workspaces():  # reminders and digests keep running for every account
+            open_workspace(ws)
         yield
         stop.set()
-        if task:
+        for task in app.state.tasks:
             await task
 
     app = FastAPI(title="Remittance Agent", version="0.3.0", lifespan=lifespan, default_response_class=SafeJSONResponse,
@@ -481,28 +561,52 @@ def create_app(finance=None, agent=None, background=None):
     @app.middleware("http")
     async def browser_guard(request: Request, call_next):
         if request.method not in ("GET", "HEAD", "OPTIONS"):
-            if request.cookies.get("finance_session") or request.url.path.startswith("/session"):
+            if request.cookies.get("finance_session") or request.url.path.startswith(("/session", "/auth")):
                 if request.headers.get("x-workspace-request") != "1":
                     return JSONResponse(status_code=403, content={"error": "same-origin request header required"})
         rid = new_request_id()
+        session = app.state.sessions.get(request.cookies.get("finance_session", ""))
+        CURRENT.set(session["ws"] if session and session["expires"] > time.time() else "default")  # bearer tokens: the default workspace
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Request-Id"] = rid
         return response
 
+    def open_workspace(ws):
+        """One person's own database and assistant; created on first use."""
+        if ws in app.state.workspaces:
+            return app.state.workspaces[ws]
+        if not all(ch.isalnum() or ch == "-" for ch in ws):
+            raise HTTPException(400, "invalid workspace")
+        base = app.state.finance
+        folder = os.path.join(os.path.dirname(os.path.abspath(base.config.db)), "users")
+        config = dataclasses.replace(base.config, db=os.path.join(folder, ws + ".sqlite3"), rpc_url="", live=False, wallet_password="",
+                                     wallet_path=os.path.join(folder, ws + ".keystore.json"))
+        f = Finance(config, rates=base.rates)  # reference rates are shared; money, plans and memory are not
+        a = Agent(f)
+        f.exchange_judge = f.page_reader = a.judge
+        app.state.workspaces[ws] = (f, a)
+        if app.state.run_worker:
+            app.state.loop.call_soon_threadsafe(lambda: app.state.tasks.append(asyncio.ensure_future(
+                worker.run(f, app.state.stop, alive=lambda: app.state.workspaces.get(ws, (None,))[0] is f))))
+        return f, a
+
     def service() -> Finance:
-        return app.state.finance
+        return open_workspace(CURRENT.get())[0]
+
+    def assistant() -> Agent:
+        return open_workspace(CURRENT.get())[1]
 
     def demo_enabled():
         evm = service().evm
         live = bool(evm and evm.environment == "live_chain")
         return os.getenv("ENABLE_DEMO_LOGIN") == "true" and not live
 
-    def session_response(response, actor):
+    def session_response(response, actor, ws="default", user=None):
         stamp = time.time()
         app.state.sessions = {k: v for k, v in app.state.sessions.items() if v["expires"] > stamp}
         sid = secrets.token_urlsafe(32)
-        app.state.sessions[sid] = {"role": actor, "expires": stamp + 28800}
+        app.state.sessions[sid] = {"role": actor, "expires": stamp + 28800, "ws": ws, "user": user}
         response.set_cookie("finance_session", sid, max_age=28800, httponly=True, samesite="strict",
                             secure=os.getenv("COOKIE_SECURE") == "true")
         return {"role": actor}
@@ -512,7 +616,7 @@ def create_app(finance=None, agent=None, background=None):
         # No credentials, request bodies, private keys or raw RPC errors in logs.
         params = {k: v for k, v in exc.params.items() if k in ("checks", "tier", "need", "places")}
         if not getattr(exc, "audited", False):
-            app.state.finance.audit_denial("api", request.url.path, None, str(exc), code=exc.code)
+            service().audit_denial("api", request.url.path, None, str(exc), code=exc.code)
         return SafeJSONResponse(status_code=409, content={"error": str(exc), "code": exc.code, **params})
 
     # ---------- session ----------
@@ -520,16 +624,75 @@ def create_app(finance=None, agent=None, background=None):
     def login(body: Login, response: Response):
         return session_response(response, token_role(body.token))
 
+    def client_of(request):
+        return request.client.host if request.client else ""
+
+    def owner_token_ok(token):
+        expected = os.getenv("OWNER_TOKEN", "")
+        return bool(token) and bool(expected) and hmac.compare_digest(token, expected)
+
+    @app.post("/auth/register")
+    def register(body: SignUp, request: Request, response: Response):
+        claim = owner_token_ok(body.owner_token)
+        if body.owner_token and not claim:
+            raise Denied("that owner token is not right", "auth_token")
+        if os.getenv("ALLOW_SIGNUP", "true") != "true" and not claim:  # closed means closed; only the owner may set up
+            raise Denied("new accounts are closed on this instance", "auth_closed")
+        user = app.state.users.register(body.email, body.password, body.name, client_of(request), claim_default=claim)
+        open_workspace(user["workspace"])
+        return dict(session_response(response, "owner", user["workspace"], user), user=dict(email=user["email"], name=user["name"]))
+
+    @app.post("/auth/login")
+    def sign_in(body: SignIn, request: Request, response: Response):
+        user = app.state.users.verify(body.email, body.password, client_of(request))
+        open_workspace(user["workspace"])
+        return dict(session_response(response, "owner", user["workspace"], user), user=dict(email=user["email"], name=user["name"]))
+
+    @app.post("/auth/claim")
+    def claim_existing(body: Claim, request: Request, actor=Depends(role)):
+        """A signed-in account takes over the data already on this computer — with the owner token from .env only."""
+        s = app.state.sessions.get(request.cookies.get("finance_session", "")) or {}
+        user = s.get("user")
+        if not user:
+            raise Denied("sign in with your account first", "auth_failed")
+        if not owner_token_ok(body.owner_token):
+            raise Denied("that owner token is not right", "auth_token")
+        old = app.state.users.claim_default(user["id"])
+        for v in app.state.sessions.values():
+            if (v.get("user") or {}).get("id") == user["id"]:
+                v["ws"] = "default"
+                v["user"] = dict(v["user"], workspace="default")
+        return {"claimed": True, "previous": old}
+
+    def purge_demos(max_age=86400):
+        for ws, born in list(app.state.demos.items()):
+            if time.time() - born > max_age:
+                app.state.demos.pop(ws, None)
+                app.state.workspaces.pop(ws, None)
+                folder = os.path.join(os.path.dirname(os.path.abspath(app.state.finance.config.db)), "users")
+                for suffix in (".sqlite3", ".sqlite3-wal", ".sqlite3-shm"):
+                    try:
+                        os.remove(os.path.join(folder, ws + suffix))
+                    except OSError:
+                        pass
+
     @app.post("/session/demo")
     def demo_login(response: Response):
         if not demo_enabled():
             raise HTTPException(403, "demo login is available only for local use without a live chain")
-        return session_response(response, "owner")
+        purge_demos()
+        ws = "demo-" + secrets.token_hex(8)  # every visitor gets their own sandbox: nobody sees anyone else's entries
+        app.state.demos[ws] = time.time()
+        open_workspace(ws)
+        return session_response(response, "owner", ws)
 
     @app.get("/session")
-    def session(actor=Depends(role)):
-        a = app.state.agent
-        return {"role": actor, "model_configured": a.configured, "model": a.model if a.configured else None}
+    def session(request: Request, actor=Depends(role)):
+        a = assistant()
+        s = app.state.sessions.get(request.cookies.get("finance_session", "")) or {}
+        user = s.get("user")
+        return {"role": actor, "model_configured": a.configured, "model": a.model if a.configured else None,
+                "user": dict(email=user["email"], name=user["name"], original=s.get("ws") == "default") if user else None}
 
     @app.delete("/session")
     def logout(request: Request, response: Response):
@@ -542,7 +705,8 @@ def create_app(finance=None, agent=None, background=None):
     def health():
         f = service()
         return {"status": "ok", "rails": {"sandbox": "local_simulation", "evm": f.evm.environment if f.evm else None},
-                "evm_error": f.evm_error, "provider_sandbox_connected": False, "demo_login": demo_enabled()}
+                "evm_error": f.evm_error, "provider_sandbox_connected": False, "demo_login": demo_enabled(),
+                "accounts": app.state.users.count() > 0, "signup": os.getenv("ALLOW_SIGNUP", "true") == "true" or app.state.users.count() == 0}
 
     @app.get("/capabilities")
     def capabilities(actor=Depends(role)):
@@ -795,7 +959,27 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.post("/expenses/import")
     def import_csv(body: CsvImport, actor=Depends(role)):
-        return service().import_csv(actor, body.filename, body.content, body.currency)
+        return service().import_csv(actor, body.filename, body.content, body.currency, body.account_id)
+
+    @app.post("/expenses/{eid}/match")
+    def confirm_match(eid: str, body: dict, actor=Depends(role)):
+        return service().confirm_match(actor, eid, bool(body.get("accept")))
+
+    @app.post("/expenses/{eid}/unmatch")
+    def unmatch(eid: str, actor=Depends(role)):
+        return service().unmatch(actor, eid)
+
+    @app.get("/accounts")
+    def accounts(actor=Depends(role)):
+        return service().accounts()
+
+    @app.post("/accounts")
+    def add_account(body: AccountIn, actor=Depends(role)):
+        return service().add_account(actor, body.name, body.type, body.currency, body.balance)
+
+    @app.delete("/accounts/{aid}")
+    def remove_account(aid: str, actor=Depends(role)):
+        return service().remove_account(actor, aid)
 
     @app.post("/expenses/parse")
     def parse_quick(body: QuickText, actor=Depends(role)):
@@ -804,16 +988,16 @@ def create_app(finance=None, agent=None, background=None):
             if not body.ai:
                 return service().parse_quick(body.text, body.currency)
         except Denied:
-            if not app.state.agent.configured:
+            if not assistant().configured:
                 raise
             return {"needs_ai": True, "items": []}
         service().require(actor, "prepare")
-        return app.state.agent.parse_expense_text(body.text, body.currency)
+        return assistant().parse_expense_text(body.text, body.currency)
 
     @app.post("/expenses/receipt")
     def receipt(body: Receipt, actor=Depends(role)):
         service().owner(actor)
-        return app.state.agent.read_documents(body.images or [body.image])
+        return assistant().read_documents(body.images or [body.image])
 
     @app.post("/expenses")
     def add_expense(body: ExpenseIn, actor=Depends(role)):
@@ -822,7 +1006,7 @@ def create_app(finance=None, agent=None, background=None):
 
     @app.post("/expenses/review")
     def review(body: ReviewIn, actor=Depends(role)):
-        return service().review(actor, body.items)
+        return service().review(actor, [i.model_dump(exclude_none=True) for i in body.items])
 
     @app.patch("/expenses/{eid}")
     def patch_expense(eid: str, body: ExpensePatch, actor=Depends(role)):
@@ -926,6 +1110,44 @@ def create_app(finance=None, agent=None, background=None):
     @app.get("/banks")
     def banks(source: str | None = None, target: str | None = None, actor=Depends(role)):
         return service().banks(source, target)
+
+    # ---------- deciding when: waiting in money, rules acted on later ----------
+    @app.get("/decide/wait")
+    def wait_value(source: str, target: str, amount: str, side: str = "spend", bank: str | None = None, due: str | None = None, actor=Depends(role)):
+        return service().wait_value(source, target, amount, side, bank, due)
+
+    @app.get("/fx-rules")
+    def fx_rules(actor=Depends(role)):
+        return service().fx_rules()
+
+    @app.post("/fx-rules")
+    def add_fx_rule(body: FxRuleIn, actor=Depends(role)):
+        return service().add_fx_rule(actor, body.source, body.target, body.amount, body.min_rate, body.due, body.mode, body.bank)
+
+    @app.post("/fx-rules/{rid}/execute")
+    def execute_fx_rule(rid: str, actor=Depends(role)):
+        return service().execute_fx_rule(actor, rid)
+
+    @app.delete("/fx-rules/{rid}")
+    def cancel_fx_rule(rid: str, actor=Depends(role)):
+        return service().cancel_fx_rule(actor, rid)
+
+    @app.get("/budget/month")
+    def get_month_budget(actor=Depends(role)):
+        return service().month_budget() or {}
+
+    @app.put("/budget/month")
+    def put_month_budget(body: MonthBudget, actor=Depends(role)):
+        return service().set_month_budget(actor, body.currency, body.amount) or {}
+
+    @app.post("/banks/auto")
+    def banks_auto(body: BankRefresh, actor=Depends(role)):
+        service().require(actor, "prepare")
+        return service().auto_refresh_banks(body.source, body.target)
+
+    @app.get("/banks/auto")
+    def banks_auto_status(source: str, target: str, actor=Depends(role)):
+        return service().auto_status(source, target)
 
     @app.post("/banks/{bank_id}/refresh")
     def refresh_bank(bank_id: str, body: BankRefresh, actor=Depends(role)):
@@ -1069,36 +1291,98 @@ def create_app(finance=None, agent=None, background=None):
     # ---------- agent memory ----------
     @app.get("/agent/memory")
     def agent_memory(actor=Depends(role)):
-        mem = app.state.agent.memory
+        mem = assistant().memory
         return {"notes": mem.notes(), "episodes": mem.episodes(limit=40), "preferences": service().memory(),
                 "layers": {"conversation_turns": 12, "notes_limit": 200}}
 
     @app.post("/agent/memory")
     def add_note(body: Note, actor=Depends(role)):
         service().owner(actor)
-        return app.state.agent.memory.remember(actor, body.text, body.kind)
+        return assistant().memory.remember(actor, body.text, body.kind)
+
+    @app.post("/agent/memory/clear")
+    def clear_memory(body: Clear, actor=Depends(role)):
+        return assistant().memory.clear(actor, body.what)
+
+    # ---------- your data: take it with you, or close the account ----------
+    @app.get("/account/export")
+    def export_data(request: Request, actor=Depends(role)):
+        f = service()
+        f.owner(actor)
+        s = app.state.sessions.get(request.cookies.get("finance_session", "")) or {}
+        user = s.get("user") or {}
+        data = dict(exported_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), account=dict(email=user.get("email"), name=user.get("name")),
+                    note="everything this workspace holds; signed raw transactions are never exported", tables=export_workspace(f.store))
+        with f.store.tx() as c:
+            f.store.event(c, actor, "account.export", "ok", None)
+        return Response(json.dumps(data, ensure_ascii=False, default=str, indent=1), media_type="application/json",
+                        headers={"Content-Disposition": 'attachment; filename="dot-export.json"'})
+
+    @app.post("/account/delete")
+    def delete_account(body: Farewell, request: Request, response: Response, actor=Depends(role)):
+        s = app.state.sessions.get(request.cookies.get("finance_session", "")) or {}
+        user = s.get("user")
+        if not user:
+            raise Denied("sign in with your account to close it", "auth_failed")
+        if user["workspace"] == "default":
+            raise Denied("this account holds the data that was already on this computer; export it, or remove it on the server",
+                         "account_default")
+        if body.email.strip().lower() != user["email"]:
+            raise Denied("type your own email to confirm", "auth_failed")
+        app.state.users.verify(body.email, body.password, client_of(request))
+        ws = user["workspace"]
+        # 1) nobody can reach it any more: sessions revoked, the account gone, its background work stopped
+        for sid in [k for k, v in app.state.sessions.items() if (v.get("user") or {}).get("id") == user["id"]]:
+            app.state.sessions.pop(sid, None)
+        app.state.users.delete(user["id"])
+        app.state.workspaces.pop(ws, None)  # the worker's alive() turns false
+        response.delete_cookie("finance_session")
+        # 2) the files: each removal is checked; a failure is recorded, retried later, and said out loud
+        folder = os.path.join(os.path.dirname(os.path.abspath(app.state.finance.config.db)), "users")
+        failed = []
+        for suffix in (".sqlite3", ".sqlite3-wal", ".sqlite3-shm", ".keystore.json"):
+            path = os.path.join(folder, ws + suffix)
+            for attempt in range(3):
+                try:
+                    os.remove(path)
+                    break
+                except FileNotFoundError:
+                    break
+                except OSError:
+                    if attempt == 2:
+                        failed.append(path)
+                    else:
+                        time.sleep(.2)
+        if failed:
+            app.state.users.remember_deletion(failed)
+            return JSONResponse(status_code=202, content={"deleted": False, "account_closed": True, "pending_files": len(failed),
+                                                          "code": "delete_pending",
+                                                          "error": "your account is closed; some data files are still locked and will be deleted on retry"})
+        return {"deleted": True}
 
     @app.delete("/agent/memory/{note_id}")
     def forget_note(note_id: int, actor=Depends(role)):
         service().owner(actor)
-        return app.state.agent.memory.forget(actor, note_id)
+        return assistant().memory.forget(actor, note_id)
 
     # ---------- agent ----------
     @app.post("/chat")
     def chat(body: Chat, actor=Depends(role)):
         if actor not in ("owner", "agent"):
             raise Denied("chat runs as the agent and needs owner or agent access", "permission_denied")
-        return app.state.agent.chat(body.message, body.session, body.language)
+        return assistant().chat(body.message, body.session, body.language)
 
     @app.post("/chat/stream")
     def chat_stream(body: Chat, actor=Depends(role)):
         if actor not in ("owner", "agent"):
             raise Denied("chat runs as the agent and needs owner or agent access", "permission_denied")
-        app.state.agent.check(body.message, body.session)
+        a = assistant()
+        a.pages[body.session] = body.page
+        a.check(body.message, body.session)
 
         def events():
             try:
-                for event in app.state.agent.stream(body.message, body.session, body.language):
+                for event in a.stream(body.message, body.session, body.language):
                     yield sse(event)
             except Denied as exc:
                 yield sse({"type": "message", "text": str(exc), "code": exc.code})
@@ -1108,10 +1392,12 @@ def create_app(finance=None, agent=None, background=None):
     @app.get("/events")
     async def events(request: Request, actor=Depends(role)):
         """Pushes the audit high-water mark so every open screen refreshes when anything changes."""
+        f = service()
+
         async def stream():
             last, idle = None, 0
             while not await request.is_disconnected():
-                version = await asyncio.to_thread(service().version)
+                version = await asyncio.to_thread(f.version)
                 if version != last:
                     last, idle = version, 0
                     yield sse({"type": "version", "version": version})

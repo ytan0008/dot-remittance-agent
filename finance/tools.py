@@ -268,12 +268,28 @@ def plan_exchange(ctx, source, target, amount, side="receive", due="", purpose="
 
 
 @tool("bank_scenarios", "Exchange scenarios through real banks: for an amount source→target, combine a sending bank and a receiving "
-      "bank (ids from the bank list, empty for any with known pricing), convert at either side, pay at once or in two parts; "
-      "counts each bank's published rate and wire fees and names the unknown ones. mode send|receive. Public information, not a quote.",
-      {**PAIR, "amount": S, "mode": {"type": "string", "enum": ["send", "receive"]}, "send_bank": S, "receive_bank": S})
-def bank_scenarios(ctx, source, target, amount, mode="send", send_bank="", receive_bank=""):
-    r = ctx.finance.exchange_scenarios(up(source), up(target), amount, mode, send_bank or None, receive_bank or None)
-    return dict(r, scenarios=r["scenarios"][:4])
+      "bank (an id or a name: cba, westpac, nab, anz, boc_au = Bank of China Australia/澳洲中行, boc = Bank of China in China/中国银行, "
+      "icbc, ccb, cmb, hsbc, wise; empty for any with known pricing), convert at either side, pay at once or in two parts; "
+      "counts each bank's published rate and wire fees and names the unknown ones. mode send|receive. due = the date the money "
+      "must arrive (YYYY-MM-DD, empty if none): arrival time is counted and late scenarios are flagged. Each scenario has a tier: "
+      "only tier 'sourced' with rank 1 may be called the best; 'partial' (fees unknown), 'estimate' (AI's own estimate) and "
+      "'reference' are for reference only — say so. Fees are listed per currency; never add different currencies together. "
+      "Public information, not a quote.",
+      {**PAIR, "amount": S, "mode": {"type": "string", "enum": ["send", "receive"]}, "send_bank": S, "receive_bank": S, "due": S})
+def bank_scenarios(ctx, source, target, amount, mode="send", send_bank="", receive_bank="", due=""):
+    r = ctx.finance.exchange_scenarios(up(source), up(target), amount, mode, send_bank or None, receive_bank or None, due or None)
+    return dict(r, scenarios=r["scenarios"][:5])
+
+
+@tool("wait_or_now", "Is waiting worth it, in money? For an amount: side spend = the student converts this much of source; "
+      "receive = they need this much of target. Returns the chance that waiting until the 7-day forecast date is better, the "
+      "expected / best / worst outcome in the source currency (80% interval), where today sits in the last 90 days, and "
+      "whether the forecast beats the unchanged-rate baseline (say so when it does not). bank: optional id or name for the "
+      "bank's own rate; due: must-arrive date or empty. Not a promise.",
+      {**PAIR, "amount": S, "side": {"type": "string", "enum": ["spend", "receive"]}, "bank": S, "due": S})
+def wait_or_now(ctx, source, target, amount, side="spend", bank="", due=""):
+    from .banks import find_bank
+    return ctx.finance.wait_value(up(source), up(target), amount, side, find_bank(bank, up(source)) if bank else None, due or None)
 
 
 @tool("simulate_exchange", "The sandbox: apply the student's exchange plans to their balances in numbers only and show what each "
@@ -445,7 +461,7 @@ def do_action(ctx, action, params, summary):
     return dict(p, for_assistant="Shown to the user with a Confirm button; it runs only when they confirm. Do not claim it is done yet.")
 
 
-RECORDS = ["bills", "recurring", "budget", "terms", "plans", "scholarships", "pending_expenses", "recent_expenses", "cash",
+RECORDS = ["fx_rules", "accounts", "bills", "recurring", "budget", "terms", "plans", "scholarships", "pending_expenses", "recent_expenses", "cash",
            "templates", "recipients", "reminders", "limits", "routes", "email", "banks"]
 
 
@@ -488,6 +504,10 @@ def read_records(ctx, kind, source="", target=""):
         return {k: s[k] for k in ("configured", "digest", "weekday", "reminders", "skip_quiet") if k in s}
     if kind == "banks":
         return f.banks(up(source) or None, up(target) or None)
+    if kind == "accounts":
+        return f.accounts()
+    if kind == "fx_rules":
+        return f.fx_rules()
     raise ValueError("unknown kind")
 
 

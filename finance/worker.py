@@ -5,15 +5,19 @@ import logging
 log = logging.getLogger("finance.worker")
 
 
-async def run(finance, stop, interval=3):
+async def run(finance, stop, interval=3, alive=lambda: True):
     tick = 0
-    while not stop.is_set():
+    while not stop.is_set() and alive():  # alive() turns false when the account is closed
         try:
             await asyncio.to_thread(finance.reconcile_open)
             if tick % 20 == 0:
                 await asyncio.to_thread(finance.refresh_reminders)
             if tick % 4 == 0 and finance.evm:
                 await asyncio.to_thread(finance.evm.info, 10)  # keep the wallet view warm; RPC calls are slow
+            if tick % 7200 == 60 and getattr(finance, "page_reader", None):  # every ~6 hours: banks for the pairs you plan to exchange
+                await asyncio.to_thread(finance.auto_refresh_plans)
+            if tick % 20 == 5:  # ~1 minute: your conditional exchange rules
+                await asyncio.to_thread(finance.check_fx_rules)
             if tick % 200 == 0:  # ~10 minutes; reference data itself is daily and cached
                 await asyncio.to_thread(finance.check_rate_alerts)
                 await asyncio.to_thread(finance.check_watches)

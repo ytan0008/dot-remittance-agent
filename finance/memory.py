@@ -74,10 +74,26 @@ class Memory:
         if actor not in ("owner", "agent"):
             raise Denied("only the owner or the agent can change memory", "permission_denied")
         with self.store.tx() as c:
-            if not c.execute("UPDATE agent_notes SET status='forgotten' WHERE id=? AND status='active'", (int(note_id),)).rowcount:
+            if not c.execute("DELETE FROM agent_notes WHERE id=?", (int(note_id),)).rowcount:  # gone, not hidden
                 raise Denied("memory note not found", "memory_unknown")
             self.store.event(c, actor, "memory.forget", "ok", str(note_id))
         return {"forgotten": int(note_id)}
+
+    def clear(self, actor, what):
+        """Delete conversations (chat turns and their episode records), all notes, or both. Nothing is kept aside."""
+        if actor != "owner":
+            raise Denied("only you can clear your memory", "permission_denied")
+        if what not in ("conversations", "notes", "all"):
+            raise Denied("choose conversations, notes or all", "memory_invalid")
+        with self.store.tx() as c:
+            counts = {}
+            if what in ("conversations", "all"):
+                counts["messages"] = c.execute("DELETE FROM messages").rowcount
+                counts["episodes"] = c.execute("DELETE FROM episodes").rowcount
+            if what in ("notes", "all"):
+                counts["notes"] = c.execute("DELETE FROM agent_notes").rowcount
+            self.store.event(c, actor, "memory.clear", "ok", what, **counts)
+        return counts
 
     @staticmethod
     def note(note_id, c):

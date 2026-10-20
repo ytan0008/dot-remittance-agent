@@ -23,11 +23,48 @@ class MoneyMixin:
     def _money_schema(self):
         with self.store.tx() as c:
             c.executescript(SCHEMA)
+            # One source of truth: where you entered a balance, the payment ledger follows it.
+            for (cur,) in c.execute("SELECT DISTINCT currency FROM cash_balances").fetchall():
+                self._sync_ledger(c, cur)
+
+    @staticmethod
+    def _latest_cash(c, currency):
+        # a balance dated in the future is not money you have today (older data may hold one)
+        r = c.execute("SELECT amount FROM cash_balances WHERE currency=? AND as_of<=? ORDER BY as_of DESC, created DESC, id DESC LIMIT 1",
+                      (currency, str(date.today()))).fetchone()
+        return None if r is None else int(r[0])
+
+    # what changes a balance inside DOT after a statement was taken: those a statement of the same day or older cannot undo
+    MOVEMENTS = ("exchange", "transfer", "test_funds")
+
+    @classmethod
+    def _statement_check(cls, c, currency, minor, as_of):
+        """Whether a bank statement's closing balance may become what you have now. None = yes; otherwise why not:
+        'future' — dated after today; 'duplicate' — this exact snapshot is already recorded (a re-import changes nothing);
+        'stale' — an exchange or payment was recorded on or after its date, which the statement cannot know about.
+        Then the balance stays; you reconcile by entering the balance yourself."""
+        if as_of > str(date.today()):
+            return "future"
+        if minor is not None and c.execute("SELECT 1 FROM cash_balances WHERE currency=? AND source='csv' AND as_of=? AND amount=?",
+                                           (currency, as_of, int(minor))).fetchone():
+            return "duplicate"
+        if c.execute(f"SELECT 1 FROM cash_balances WHERE currency=? AND as_of>=? AND source IN ({','.join('?' * len(cls.MOVEMENTS))})",
+                     (currency, as_of, *cls.MOVEMENTS)).fetchone():
+            return "stale"
+        return None
+
+    def _sync_ledger(self, c, currency):
+        """Payments draw on the balance you see on the overview, not on a separate pot of test money."""
+        amount = self._latest_cash(c, currency)
+        if amount is not None:
+            c.execute("INSERT INTO balances(currency,total) VALUES (?,?) ON CONFLICT(currency) DO UPDATE SET total=excluded.total",
+                      (currency, str(amount)))
 
     def _record_cash(self, c, actor, currency, amount, as_of, source, label=""):
         c.execute("INSERT INTO cash_balances(currency,amount,as_of,source,label,created) VALUES (?,?,?,?,?,?)",
                   (currency, int(amount), as_of, source, (label or "")[:120], now()))
         self.store.event(c, actor, "cash.record", "ok", currency, source=source, as_of=as_of)
+        self._sync_ledger(c, currency)
 
     def set_cash(self, actor, currency, amount, label=""):
         self.owner(actor)
@@ -46,13 +83,14 @@ class MoneyMixin:
         with self.store.tx() as c:
             if not c.execute("DELETE FROM cash_balances WHERE currency=?", ((currency or "").upper(),)).rowcount:
                 raise Denied("no balance recorded for that currency", "cash_unknown")
+            c.execute("UPDATE balances SET total='0' WHERE currency=?", (currency.upper(),))  # nothing left to pay from
             self.store.event(c, actor, "cash.clear", "ok", currency.upper())
         return self.cash_position()
 
     def cash_balances(self):
         """The latest known balance per currency (newest date wins, then the newest entry)."""
         with self.store.read() as c:
-            rows = c.execute("SELECT * FROM cash_balances ORDER BY as_of, created, id").fetchall()
+            rows = c.execute("SELECT * FROM cash_balances WHERE as_of<=? ORDER BY as_of, created, id", (str(date.today()),)).fetchall()
         latest = {}
         for r in rows:
             latest[r["currency"]] = dict(currency=r["currency"], amount=r["amount"], as_of=r["as_of"], source=r["source"], label=r["label"])

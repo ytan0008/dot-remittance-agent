@@ -108,8 +108,15 @@ export function region(code) {
   try { return new Intl.DisplayNames([lang], {type: 'region'}).of(code) || code; } catch { return code; }
 }
 
+// What people actually say, where the CLDR name is the formal one ("澳大利亚元" -> "澳元").
+const SHORT_CURRENCY = {
+  'zh-CN': {AUD: '澳元', NZD: '新西兰元', CAD: '加元', HKD: '港币', USD: '美元', GBP: '英镑', EUR: '欧元', JPY: '日元'},
+  'zh-TW': {AUD: '澳幣', NZD: '紐幣', CAD: '加幣', HKD: '港幣', USD: '美元', GBP: '英鎊', EUR: '歐元', JPY: '日圓', CNY: '人民幣'},
+};
+
 export function currencyName(code) {
   if (code === 'ETH') return 'Ether';
+  if (SHORT_CURRENCY[lang]?.[code]) return SHORT_CURRENCY[lang][code];
   try { return new Intl.DisplayNames([lang], {type: 'currency'}).of(code) || code; } catch { return code; }
 }
 

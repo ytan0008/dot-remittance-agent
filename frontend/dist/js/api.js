@@ -23,6 +23,8 @@ export async function api(path, method = 'GET', body) {
   let value;
   try { value = await res.json(); } catch { throw new ApiError(t('err.offline'), 'offline'); }
   if (!res.ok) {
+    // The session ended (signed out elsewhere, expired, server restarted): the app goes back to the sign-in stage.
+    if (res.status === 401 && !/^\/(session|auth)/.test(path)) dispatchEvent(new CustomEvent('dot:signed-out'));
     let message = value.error || value.detail || '';
     if (Array.isArray(message)) message = message.map(e => e.msg).join('; ');
     throw new ApiError(translate(value.code, message, value), value.code || 'http_' + res.status, value);

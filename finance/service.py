@@ -1,7 +1,7 @@
 import json
 import re
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from decimal import Decimal
 from functools import wraps
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -20,6 +20,7 @@ from .templates import TemplatesMixin
 from .money import MoneyMixin
 from .plans import PlansMixin, TimelineMixin
 from .banks import BanksMixin
+from .decide import DecideMixin
 
 ACTIVE = ("pending", "unknown")
 FINAL = ("completed", "failed", "cancelled", "superseded")
@@ -44,7 +45,7 @@ def audited(method):
 TEST_RECIPIENTS = {"ui-acceptance"}
 
 
-class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, MotivationMixin, WatchMixin, TemplatesMixin, MoneyMixin, PlansMixin, TimelineMixin, BanksMixin):
+class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, MotivationMixin, WatchMixin, TemplatesMixin, MoneyMixin, PlansMixin, TimelineMixin, BanksMixin, DecideMixin):
     """Single-tenant service. Authorization is derived by the server, never taken from model input."""
 
     def __init__(self, config=None, provider=None, rates=None):
@@ -58,6 +59,7 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
         self._motivation_schema()
         self._watch_schema()
         self._templates_schema()
+        self._decide_schema()
         self.rates = rates or Rates()
         self.sandbox = SandboxProvider(self.store, self.rates, self.config.sandbox_settle_seconds)
         self.evm, self.evm_error = provider, None
@@ -108,9 +110,6 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
                              "agent_cannot_submit")
             return
         raise Denied(f"{need} permission required", "permission_denied", need=need)
-
-    def prepare_role(self, actor):
-        self.require(actor, "prepare")
 
     def audit_denial(self, actor, action, correlation, reason, **detail):
         with self.store.tx() as c:
@@ -681,8 +680,13 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
             if self.evm and body.get("rail") == "evm":
                 self.evm.invalidate()
             if body.get("rail", "sandbox") == "sandbox" and status == "completed":
-                total = int(c.execute("SELECT total FROM balances WHERE currency=?", (body["source"],)).fetchone()[0])
-                c.execute("UPDATE balances SET total=? WHERE currency=?", (str(total - cost), body["source"]))
+                cash = self._latest_cash(c, body["source"])
+                if cash is not None:  # your overview balance goes down by what left, and the ledger follows it
+                    self._record_cash(c, actor, body["source"], cash - cost, str(date.today()), "transfer",
+                                      f"transfer {transfer_id[:8]}")
+                else:
+                    total = int(c.execute("SELECT total FROM balances WHERE currency=?", (body["source"],)).fetchone()[0])
+                    c.execute("UPDATE balances SET total=? WHERE currency=?", (str(total - cost), body["source"]))
                 # Recipient credit is external; never add it to the sender's balances.
             c.execute("UPDATE transfers SET status=?,actual_cost=?,completed_at=? WHERE id=?",
                       (status, str(cost) if cost is not None else None, now() if status in ("completed", "failed") else None,
@@ -736,9 +740,10 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
             out = []
             for r in c.execute("SELECT * FROM balances ORDER BY currency"):
                 reserved = sum(b["reserve"] for b in active if b["source"] == r["currency"] and b.get("rail", "sandbox") == "sandbox")
+                own = self._latest_cash(c, r["currency"]) is not None
                 out.append(dict(currency=r["currency"], decimals=decimals(r["currency"]), total=r["total"], reserved=str(reserved),
-                                available=str(int(r["total"]) - reserved), rail="sandbox",
-                                source="local simulation ledger, not provider funds"))
+                                available=str(int(r["total"]) - reserved), rail="sandbox", basis="cash" if own else "test_funds",
+                                source="your overview balance" if own else "local simulation test funds, not provider funds"))
         if self.evm:
             reserved = sum(b["reserve"] for b in active if b.get("rail") == "evm")
             try:
@@ -778,6 +783,11 @@ class Finance(PlanningMixin, HabitsMixin, ExpensesMixin, StudentMixin, Motivatio
         if value > 10000 * 10**decimals(currency):
             raise Denied("test top-up limited to 10,000 per action", "fund_limit")
         with self.store.tx() as c:
+            cash = self._latest_cash(c, currency)
+            if cash is not None:  # you track this currency yourself: test money shows up in that balance
+                self._record_cash(c, actor, currency, cash + value, str(date.today()), "test_funds", "test funds")
+                self.store.event(c, actor, "sandbox.fund", "ok", currency, units=str(value), label="simulated test funds")
+                return self.balances()
             row = c.execute("SELECT total FROM balances WHERE currency=?", (currency,)).fetchone()
             if not row:
                 raise Denied("sandbox ledger does not hold this currency", "currency_unknown")

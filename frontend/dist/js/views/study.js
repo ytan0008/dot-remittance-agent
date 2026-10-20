@@ -69,7 +69,7 @@ function affordPanel() {
         <select name="currency" aria-label="${t('plans.currency')}">${options(currencies().map(c => [c, c]), cur)}</select></div>
       <input name="label" maxlength="80" placeholder="${t('afford.label_ph')}" value="${esc(f.label)}" aria-label="${t('afford.label')}">
       <input name="date" type="date" min="${today()}" value="${esc(f.date || today())}" aria-label="${t('afford.date')}">
-      <button class="button primary magnetic">${t('afford.check')} ${icons.arrow}</button>
+      <button class="button primary">${t('afford.check')} ${icons.arrow}</button>
       <div class="form-error"></div></form>
     <div id="afford-out">${affordResult()}</div>`, {cls: 'afford-panel', sub: t('afford.sub')});
 }

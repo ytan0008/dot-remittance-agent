@@ -1,4 +1,4 @@
-/* Motion: dot field, depth transitions, reveal, tilt, count-up, zoom/pan, swipe, hold-to-confirm.
+/* Motion: dot field, depth transitions, reveal, tilt, count-up, swipe, hold-to-confirm.
    Everything degrades to static when the user prefers reduced motion. */
 export const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -124,34 +124,11 @@ export function reveal(root) {
   items.forEach((el, i) => { el.style.transitionDelay = Math.min(i, 8) * 55 + 'ms'; observer.observe(el); });
 }
 
-/* ---------- 3D tilt and magnetic buttons ---------- */
-export function interactive(root) {
-  if (reduced()) return;
-  root.querySelectorAll('.tilt').forEach(el => {
-    if (el.dataset.tilt) return; el.dataset.tilt = '1';
-    el.addEventListener('pointermove', e => {
-      if (e.pointerType !== 'mouse') return;
-      const r = el.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
-      el.style.setProperty('--rx', (-y * 5).toFixed(2) + 'deg');
-      el.style.setProperty('--ry', (x * 6).toFixed(2) + 'deg');
-      el.style.setProperty('--mx', ((x + .5) * 100).toFixed(1) + '%');
-      el.style.setProperty('--my', ((y + .5) * 100).toFixed(1) + '%');
-      el.classList.add('tilting');
-    });
-    el.addEventListener('pointerleave', () => { el.classList.remove('tilting'); el.style.setProperty('--rx', '0deg'); el.style.setProperty('--ry', '0deg'); });
-  });
-  root.querySelectorAll('.magnetic').forEach(el => {
-    if (el.dataset.magnetic) return; el.dataset.magnetic = '1';
-    el.addEventListener('pointermove', e => {
-      if (e.pointerType !== 'mouse') return;
-      const r = el.getBoundingClientRect();
-      el.style.setProperty('--tx', ((e.clientX - r.left - r.width / 2) * .18).toFixed(1) + 'px');
-      el.style.setProperty('--ty', ((e.clientY - r.top - r.height / 2) * .28).toFixed(1) + 'px');
-    });
-    el.addEventListener('pointerleave', () => { el.style.setProperty('--tx', '0px'); el.style.setProperty('--ty', '0px'); });
-  });
-}
+/* ---------- (no tilt, no magnetic buttons) ----------
+   Removed on purpose: a key button must not chase the cursor (its hit area becomes unpredictable), and tilting a whole data
+   panel is not layered parallax — these pages have no foreground/background layers to separate. Kept as a no-op so callers
+   stay simple. */
+export function interactive() {}
 
 /* ---------- count-up numbers: animate approximately, land on the exact formatted text ---------- */
 export function countUp(root, format) {
@@ -168,81 +145,6 @@ export function countUp(root, format) {
     };
     requestAnimationFrame(step);
   });
-}
-
-/* ---------- zoom / pan / pinch for SVG worlds: zoom in, zoom out, pull close, push far ---------- */
-export function zoomPan(svg, world, {min = .6, max = 3.2, onChange} = {}) {
-  const view = {x: 0, y: 0, k: 1}, goal = {x: 0, y: 0, k: 1};
-  const pointers = new Map();
-  let raf = 0, drag = null, pinch = null;
-  const point = (cx, cy) => {
-    const p = svg.createSVGPoint(); p.x = cx; p.y = cy;
-    return p.matrixTransform(svg.getScreenCTM().inverse());
-  };
-  const apply = () => {
-    world.setAttribute('transform', `translate(${view.x.toFixed(2)} ${view.y.toFixed(2)}) scale(${view.k.toFixed(4)})`);
-    onChange?.(view);
-  };
-  const animate = () => {
-    cancelAnimationFrame(raf);
-    const tick = () => {
-      const ease = reduced() ? 1 : .2;
-      view.x += (goal.x - view.x) * ease; view.y += (goal.y - view.y) * ease; view.k += (goal.k - view.k) * ease;
-      apply();
-      if (Math.abs(goal.k - view.k) > .001 || Math.abs(goal.x - view.x) > .05 || Math.abs(goal.y - view.y) > .05) raf = requestAnimationFrame(tick);
-    };
-    tick();
-  };
-  const zoomAt = (p, k) => {
-    k = Math.max(min, Math.min(max, k));
-    goal.x = p.x - (p.x - goal.x) * (k / goal.k); goal.y = p.y - (p.y - goal.y) * (k / goal.k); goal.k = k;
-    animate();
-  };
-  svg.addEventListener('wheel', e => { e.preventDefault(); zoomAt(point(e.clientX, e.clientY), goal.k * Math.exp(-e.deltaY * .0016)); }, {passive: false});
-  svg.addEventListener('pointerdown', e => {
-    if (e.target.closest('[data-action]')) return;
-    pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
-    // Capture only once the pointer really drags, so a plain click still reaches the node under it.
-    if (pointers.size === 1) drag = {p: point(e.clientX, e.clientY), x: goal.x, y: goal.y, sx: e.clientX, sy: e.clientY, active: false};
-    if (pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      pinch = {d: Math.hypot(a.x - b.x, a.y - b.y), k: goal.k, c: point((a.x + b.x) / 2, (a.y + b.y) / 2)};
-      drag = null;
-      for (const id of pointers.keys()) try { svg.setPointerCapture(id); } catch {}
-    }
-  });
-  svg.addEventListener('pointermove', e => {
-    if (!pointers.has(e.pointerId)) return;
-    pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
-    if (drag && !drag.active && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 4) {
-      drag.active = true;
-      try { svg.setPointerCapture(e.pointerId); } catch {}
-      svg.classList.add('grabbing');
-    }
-    if (pinch && pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      zoomAt(pinch.c, pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d);
-    } else if (drag?.active) {
-      const p = point(e.clientX, e.clientY);
-      goal.x = drag.x + (p.x - drag.p.x); goal.y = drag.y + (p.y - drag.p.y);
-      view.x = goal.x; view.y = goal.y; apply();
-    }
-  });
-  const end = e => { pointers.delete(e.pointerId); if (pointers.size < 2) pinch = null; if (!pointers.size) { drag = null; svg.classList.remove('grabbing'); } };
-  svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
-  svg.addEventListener('dblclick', e => {
-    const node = e.target.closest('[data-focus]');
-    if (node && goal.k < 1.8) {
-      const [cx, cy] = node.dataset.focus.split(',').map(Number), vb = svg.viewBox.baseVal, k = 2.2;
-      goal.k = k; goal.x = vb.width / 2 - cx * k; goal.y = vb.height / 2 - cy * k; animate();
-    } else { goal.x = 0; goal.y = 0; goal.k = 1; animate(); }
-  });
-  return {
-    zoom: f => { const vb = svg.viewBox.baseVal; zoomAt({x: vb.width / 2, y: vb.height / 2}, goal.k * f); },
-    reset: () => { goal.x = 0; goal.y = 0; goal.k = 1; animate(); },
-    focus: (cx, cy, k = 2) => { const vb = svg.viewBox.baseVal; goal.k = k; goal.x = vb.width / 2 - cx * k; goal.y = vb.height / 2 - cy * k; animate(); },
-    get scale() { return goal.k; },
-  };
 }
 
 /* ---------- swipe between sections on touch screens ---------- */

@@ -43,6 +43,8 @@ with sync_playwright() as p:
     page.on('pageerror', lambda e: errors.append(str(e)))
     page.on('console', lambda m: errors.append(m.text) if m.type == 'error' and '401' not in m.text else None)
     page.goto(base)
+    page.locator('#auth [data-go=demo]').click(timeout=30000)  # the sign-in stage: enter the local demo
+    page.locator('#auth').wait_for(state='detached', timeout=15000)
     expect(page.locator('#side-status')).to_have_text('Service connected', timeout=30000)
     assert 'simulation' in page.locator('#env-badge').inner_text().lower(), 'never test spending against a live environment'
     api = "async (a) => { const r = await fetch('/api' + a[0], {method: a[1], headers: {'Content-Type': 'application/json', 'X-Workspace-Request': '1'}, body: a[2] ? JSON.stringify(a[2]) : undefined}); return r.json(); }"

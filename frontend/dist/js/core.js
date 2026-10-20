@@ -46,8 +46,6 @@ export const invalidate = (keys = Object.keys(state.data)) => keys.forEach(k => 
 
 export const isOwner = () => state.role === 'owner';
 export const canPrepare = () => ['owner', 'agent'].includes(state.role);
-export const ownerAttr = () => isOwner() ? '' : 'disabled';
-
 /* ---------- render bus (set by app.js) ---------- */
 export const bus = {render: () => {}, go: () => {}};
 export const rerender = () => bus.render();
@@ -77,6 +75,7 @@ export function modal(title, html, eyebrow = 'WORKSPACE', {wide = false, mount} 
     d.style.setProperty('--oy', lastPointer.y + 'px');
     d.showModal();
     d.classList.remove('closing');
+    d._back = bus.expandFrom?.(d, d.querySelector('.modal-shell'));  // grow out of the card that opened it
   }
   mount?.($('#modal-body'));
   bus.enhance?.($('#modal-body'));
@@ -86,6 +85,10 @@ export function closeModal() {
   const d = $('#modal');
   if (!d.open) return;
   if (reduced()) { d.close(); return; }
+  const back = d._back?.();
+  d._back = null;
+  if (back) { back.then(() => d.close()); return; }  // shrink back into its card
+  d.classList.remove('from-source');
   d.classList.add('closing');
   setTimeout(() => { d.close(); d.classList.remove('closing'); }, 220);
 }

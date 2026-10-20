@@ -20,12 +20,24 @@ function summary() {
     const cats = Object.entries(d.categories).sort((a, b) => b[1] - a[1]);
     const top = cats[0]?.[1] || 1;
     const delta = d.previous ? Math.round((d.total - d.previous) / d.previous * 100) : null;
-    return `<div class="spend-cur"><div class="spend-total"><span class="eyebrow">${esc(cur)}</span>${amt(d.total, cur, 'xl')}
-        <small>${delta === null ? t('spend.no_prev') : t(delta > 0 ? 'spend.more' : 'spend.less', {p: Math.abs(delta)})}</small></div>
+    return `<div class="spend-cur"><div class="spend-total"><span class="eyebrow">${esc(cur)} · ${t('acct.spent')}</span>${amt(d.total, cur, 'xl')}
+        <small>${delta === null ? t('spend.no_prev') : t(delta > 0 ? 'spend.more' : 'spend.less', {p: Math.abs(delta)})}</small>
+        <small>${t('acct.cash_out')} ${esc(money(d.cash_out || 0, cur))} ${esc(cur)}</small></div>
       <ul class="cat-bars">${cats.map(([c, v]) => `<li><span class="cat-name"><i class="cat-dot c-${c}"></i>${esc(t('cat.' + c))}</span><span class="cat-track"><i class="bar-fill" data-ratio="${(v / top).toFixed(3)}"></i></span>${amt(v, cur)}</li>`).join('')}</ul></div>`;
   }).join('') : empty(t('spend.empty_month'));
+  const b = s?.budget, used = b ? Math.min(999, Math.round(b.spent * 100 / Math.max(1, b.amount))) : 0;
+  const budget = b ? `<div class="budget-bar ${used >= 100 ? 'over' : used >= 85 ? 'near' : ''}"><div><b>${t('budget.month', {a: money(b.amount, b.currency), c: esc(b.currency)})}</b>
+      <small>${t('budget.used', {p: used, a: money(Math.max(0, b.amount - b.spent), b.currency), c: esc(b.currency)})}</small></div>
+      <span class="budget-track"><i class="bar-fill" data-ratio="${Math.min(1, used / 100).toFixed(3)}"></i></span>
+      <button class="link sm" data-action="budget-edit">${t('budget.edit')}</button></div>`
+    : `<button class="link sm budget-set" data-action="budget-edit" ${isOwner() ? '' : 'disabled'}>${icons.plus}${t('budget.set')}</button>`;
+  const extra = !s ? '' : [
+    s.combined && currencies.length > 1 ? `<p class="fine">${t('acct.combined', {a: money(s.combined.amount, s.combined.currency), c: s.combined.currency,
+      r: Object.entries(s.combined.rates).map(([c, x]) => `1 ${c} = ${x.rate} ${s.combined.currency}`).join(' · ')})}</p>` : '',
+    (s.cards || []).length ? `<ul class="list card-owed">${s.cards.map(c => `<li class="row"><span class="tag">${t('acct.t.credit')}</span><div><b>${esc(c.name)}</b><small>${t(c.owed > 0 ? 'acct.owed' : 'acct.in_credit')}</small></div>${amt(Math.abs(c.owed), c.currency)}</li>`).join('')}</ul>` : '',
+    s.unmatched_transfers ? `<p class="note">${t('acct.unmatched', {n: s.unmatched_transfers})}</p>` : ''].join('');
   return panel(`<span class="month-nav"><button class="icon-button sm" data-action="spend-month" data-n="-1" aria-label="${t('spend.prev')}">‹</button>${esc(monthLabel(ui.month))}<button class="icon-button sm" data-action="spend-month" data-n="1" aria-label="${t('spend.next')}">›</button></span>`,
-    body + `<p class="fine">${t('spend.summary_note')}</p>`, {cls: 'spend-summary', sub: 'CONFIRMED'});
+    budget + body + extra + `<p class="fine">${t('acct.summary_note')}</p>`, {cls: 'spend-summary', sub: 'CONFIRMED'});
 }
 
 function quickAdd() {
@@ -40,11 +52,12 @@ function quickAdd() {
       <button class="button primary sm" ${p && isOwner() ? '' : 'disabled'}>${icons.check}${t('spend.save')}</button>
     </form>
     <div class="quick-preview ${p ? 'on' : ''}" id="quick-preview">${p ? previewCard(p) : `<small class="muted">${t('spend.quick_hint')}</small>`}</div>
+    ${accountsBar()}
     <div class="spend-actions">
       <label class="drop-zone" id="csv-drop"><input type="file" id="csv-file" accept=".csv,text/csv" hidden ${isOwner() ? '' : 'disabled'}>
         <span class="drop-icon">${icons.payments}</span><span><b>${t('spend.import')}</b><small>${t('spend.import_d')}</small></span></label>
       <label class="drop-zone" id="img-drop"><input type="file" id="receipt-file" accept="image/*" multiple hidden ${isOwner() ? '' : 'disabled'}>
-        <span class="drop-icon">${icons.print}</span><span><b>${t('spend.scan')}</b><small>${t('spend.scan_d2')}</small></span></label>
+        <span class="drop-icon">${icons.print}</span><span><b>${t('spend.scan')}</b><small>${t('spend.scan_d2')} · ${t('privacy.scan_note')}</small></span></label>
     </div></div>`;
 }
 
@@ -172,6 +185,35 @@ function fixedList(items) {
 
 export const openFixed = () => { ui.tab = 'fixed'; };
 
+/* ---------- accounts: debit cards, credit cards and cash kept apart, so a card repayment is never spending twice ---------- */
+const acctName = id => { const a = (state.data.accounts || []).find(x => x.id === id); return a ? ` · ${esc(a.name)}` : ''; };
+const kindTag = r => (['card_repayment', 'own_transfer', 'refund'].includes(r.kind)
+  ? ` · <span class="kind-tag k-${esc(r.kind)}">${t('acct.k.' + r.kind)}${r.match_id ? ' ✓' : ''}</span>` : '')
+  + (r.match_id && isOwner() ? ` <button class="link sm" data-action="unmatch" data-id="${esc(r.id)}">${t('acct.unmatch')}</button>` : '')
+  + (r.match_hint && !r.match_id && isOwner() ? ` · <span class="match-q">${t('acct.match_q')} <button class="link sm" data-action="match-yes" data-id="${esc(r.id)}">${t('acct.match_yes')}</button> <button class="link sm" data-action="match-no" data-id="${esc(r.id)}">${t('acct.match_no')}</button></span>` : '');
+
+function accountsBar() {
+  const list = state.data.accounts || [];
+  const owner = isOwner() ? '' : 'disabled';
+  return `<div class="accounts-bar"><span class="eyebrow">${t('acct.title')}</span>
+    <div class="acct-chips">${list.map(a => `<span class="acct-chip t-${esc(a.type)}"><b>${esc(a.name)}</b><small>${t('acct.t.' + a.type)} · ${esc(a.currency)}${a.type === 'credit'
+      ? ` · ${t(a.owed > 0 ? 'acct.owed' : 'acct.in_credit')} ${esc(money(Math.abs(a.owed || 0), a.currency))}` : a.balance != null ? ` · ${esc(money(a.balance, a.currency))}` : ''}</small>
+      <button class="x" data-action="acct-remove" data-id="${esc(a.id)}" aria-label="${t('common.delete')}" ${owner}>×</button></span>`).join('')}
+      <button type="button" class="button sm ghost" data-action="acct-add" ${owner}>${icons.plus}${t('acct.add')}</button></div>
+    ${list.length ? `<label class="acct-pick"><small>${t('acct.import_to')}</small><select id="csv-account">${options([['', t('acct.none')], ...list.map(a => [a.id, `${a.name} · ${t('acct.t.' + a.type)}`])], ui.account || '')}</select></label>`
+      : `<small class="muted">${t('acct.hint')}</small>`}</div>`;
+}
+
+function accountForm() {
+  modal(t('acct.add'), `<form id="account-form" class="form-block" autocomplete="off">
+    <div class="grid-2"><div class="field"><label for="ac-name">${t('acct.name')}</label><input id="ac-name" name="name" required maxlength="60" placeholder="${t('acct.name_ph')}"></div>
+      <div class="field"><label for="ac-type">${t('acct.type')}</label><select id="ac-type" name="type">${options(['debit', 'credit', 'cash'].map(x => [x, t('acct.t.' + x)]), 'debit')}</select></div></div>
+    <div class="grid-2"><div class="field"><label for="ac-cur">${t('plans.currency')}</label><select id="ac-cur" name="currency">${options(['AUD', 'CNY', 'USD', 'EUR', 'GBP', 'JPY', 'KRW', 'VND', 'NZD', 'SGD', 'HKD'].map(c => [c, c]), (state.data.memory || {}).display_currency || 'AUD')}</select></div>
+      <div class="field"><label for="ac-bal">${t('acct.balance')} <small class="muted">${t('tf.optional')}</small></label><input id="ac-bal" name="balance" inputmode="decimal" maxlength="24"></div></div>
+    <p class="fine">${t('acct.form_note')}</p>
+    <div class="form-error"></div><div class="modal-actions"><button class="button primary">${t('acct.save')} ${icons.arrow}</button></div></form>`, 'ACCOUNT');
+}
+
 function tabs() {
   return `<div class="page-tabs" role="tablist">${[['entries', t('spend.tab_entries')], ['fixed', t('spend.tab_fixed')]].map(([v, l]) =>
     `<button type="button" role="tab" aria-selected="${ui.tab === v}" class="${ui.tab === v ? 'on' : ''}" data-action="spend-tab" data-v="${v}">${v === 'fixed' ? icons.habits : icons.spending}${esc(l)}</button>`).join('')}</div>`;
@@ -179,7 +221,7 @@ function tabs() {
 
 function recentList() {
   const rows = (state.data.spendMonth || []).filter(r => r.status === 'confirmed');
-  return panel(`${t('spend.recent')} <span class="muted">/ ${rows.length}</span>`, rows.length ? `<ul class="list spend-list">${rows.slice(0, 60).map(r => `<li class="row"><span class="cat-dot c-${esc(r.category)}"></span><div><b>${esc(r.description)}</b><small>${day(r.date)} · ${esc(t('spend.src.' + r.source))}</small></div>
+  return panel(`${t('spend.recent')} <span class="muted">/ ${rows.length}</span>`, rows.length ? `<ul class="list spend-list">${rows.slice(0, 60).map(r => `<li class="row"><span class="cat-dot c-${esc(r.category)}"></span><div><b>${esc(r.description)}</b><small>${day(r.date)} · ${esc(t('spend.src.' + r.source))}${acctName(r.account_id)}${kindTag(r)}</small></div>
       <select class="cat-inline" data-recat="${esc(r.id)}" ${isOwner() ? '' : 'disabled'}>${catOptions(r.category)}</select>
       <span class="${r.amount > 0 ? 'income' : ''}">${r.amount > 0 ? '+' : ''}${amt(Math.abs(r.amount), r.currency)}</span>
       <button class="x" data-action="spend-delete" data-id="${esc(r.id)}" aria-label="${t('common.delete')}" ${isOwner() ? '' : 'disabled'}>×</button></li>`).join('')}</ul>` : empty(t('spend.empty_list')));
@@ -194,6 +236,8 @@ export const view = {
       api('/expenses?status=pending'), api('/expenses?status=expected'), api('/recurring'),
       api(`/insights?period=${ui.period}&lang=${encodeURIComponent(lang)}`).catch(() => null)]);
     Object.assign(state.data, {spendSummary: summ, spendMonth: month, spendPending: pending, spendExpected: expected, recurring, spendInsights: insights});
+    try { state.data.accounts = await api('/accounts'); } catch { state.data.accounts = []; }
+    if (ui.account && !state.data.accounts.some(a => a.id === ui.account)) ui.account = '';
     await need(['obligations', 'habits', 'transfers'], true);  // the fixed-costs tab: bills and the payment-habits indicator
     // New rows start selected, except likely duplicates which the student must opt into.
     for (const r of [...pending, ...expected]) if (!ui.known?.has(r.id)) { if (!r.duplicate_of) ui.selected.add(r.id); }
@@ -219,6 +263,7 @@ export const view = {
       if (e.target.id === 'pv-repeat') ui.repeat = e.target.value;
     });
     root.querySelector('#csv-file')?.addEventListener('change', e => e.target.files[0] && importCsv(e.target.files[0]));
+    root.querySelector('#csv-account')?.addEventListener('change', e => { ui.account = e.target.value; });
     root.querySelector('#receipt-file')?.addEventListener('change', e => { if (e.target.files.length) scanImages([...e.target.files]); e.target.value = ''; });
     const imgDrop = root.querySelector('#img-drop');
     if (imgDrop) {  // drag images in (several at once), with a soft jelly hover
@@ -260,6 +305,21 @@ export const view = {
   actions: {
     async 'insight-period'(el) { ui.period = el.dataset.value; await reload(); },
     async 'spend-month'(el) { ui.month = shiftMonth(ui.month, Number(el.dataset.n)); await reload(); },
+    'acct-add'() { accountForm(); },
+    async 'match-yes'(el) { await api(`/expenses/${encodeURIComponent(el.dataset.id)}/match`, 'POST', {accept: true}); await reload(); },
+    async 'match-no'(el) { await api(`/expenses/${encodeURIComponent(el.dataset.id)}/match`, 'POST', {accept: false}); await reload(); },
+    async 'unmatch'(el) { await api(`/expenses/${encodeURIComponent(el.dataset.id)}/unmatch`, 'POST', {}); await reload(); },
+    'budget-edit'() {
+      const b = state.data.spendSummary?.budget;
+      modal(t('budget.title'), `<form id="budget-month-form" class="form-block"><div class="grid-2">
+        <div class="field"><label for="bm-amount">${t('budget.amount')}</label><input id="bm-amount" name="amount" inputmode="decimal" value="${b ? (b.amount / 100) : ''}" placeholder="1500"></div>
+        <div class="field"><label for="bm-cur">${t('plans.currency')}</label><select id="bm-cur" name="currency">${options(['AUD', 'CNY', 'USD', 'EUR', 'GBP', 'NZD', 'CAD', 'JPY', 'KRW', 'SGD', 'HKD'].map(c => [c, c]), b?.currency || (state.data.memory || {}).display_currency || 'AUD')}</select></div></div>
+        <p class="fine">${t('budget.note')}</p><div class="form-error"></div><div class="modal-actions"><button class="button primary">${t('budget.save')}</button></div></form>`, 'BUDGET');
+    },
+    async 'acct-remove'(el) {
+      if (!confirm(t('acct.remove_q'))) return;
+      await api('/accounts/' + encodeURIComponent(el.dataset.id), 'DELETE'); await reload();
+    },
     async 'spend-confirm'() { await submitReview(true); },
     async 'spend-skip'() { await submitReview(false); },
     async 'spend-make-recurring'(el) {
@@ -275,6 +335,15 @@ export const view = {
     async 'quick-ai'() { await parseQuick(true); },
   },
   submit: {
+    async 'budget-month-form'(f) {
+      await api('/budget/month', 'PUT', {currency: f.querySelector('[name=currency]').value, amount: f.querySelector('[name=amount]').value.trim() || null});
+      closeModal(); toast(t('budget.saved'), 'good'); invalidate(['reminders']); await reload();
+    },
+    async 'account-form'(f) {
+      const v = n => f.querySelector(`[name=${n}]`).value.trim();
+      const a = await api('/accounts', 'POST', {name: v('name'), type: v('type'), currency: v('currency'), balance: v('balance') || null});
+      ui.account = a.id; closeModal(); toast(t('acct.saved'), 'good'); invalidate(['money']); await reload();
+    },
     async 'fixed-form'(f) {
       const v = Object.fromEntries(new FormData(f));
       const amount = String(v.amount).replace(',', '.').trim();
@@ -409,10 +478,13 @@ async function importCsv(file) {
   drop?.classList.add('busy');
   try {
     const content = await readText(file);
-    const r = await api('/expenses/import', 'POST', {filename: file.name, content, currency: (state.data.memory || {}).display_currency || null});
+    const r = await api('/expenses/import', 'POST', {filename: file.name, content, currency: (state.data.memory || {}).display_currency || null,
+      account_id: ui.account || null});
     ui.lastImport = r;
     const dups = r.rows.filter(x => x.duplicate_of).length;
-    toast(t('spend.imported', {n: r.rows.length, d: dups}), 'good');
+    toast(t('spend.imported', {n: r.rows.length, d: dups}) + (r.matched ? ' · ' + t('acct.matched', {n: r.matched}) : ''), 'good');
+    // the statement's balance was not taken as what you have now: say why, so the user can reconcile by hand
+    if (r.balance_note) setTimeout(() => toast(t('spend.balance_' + r.balance_note)), 1600);
     await reload();
     document.querySelector('.review-panel')?.scrollIntoView({behavior: 'smooth', block: 'start'});
   } catch (e) { toast(e.message, 'bad'); }

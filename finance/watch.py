@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS rate_watches (id TEXT PRIMARY KEY, source TEXT NOT NU
 VERDICTS = ("good_time", "deadline", "wait", "below_floor", "neutral")
 REMIND = ("good_time", "deadline")  # verdicts worth a reminder when the judgment changes into them
 CONFIDENCE = ("low", "medium", "high")
-EVENT_KINDS = ("rate_target", "rate_favorable", "exchange_due", "ai_good_time", "ai_deadline")  # one-off events, not live states
+EVENT_KINDS = ("rate_target", "rate_favorable", "exchange_due", "ai_good_time", "ai_deadline",
+               "fx_rule_ready", "fx_rule_done", "fx_rule_blocked")  # one-off events, not live states
 
 
 def _pct(a, b):

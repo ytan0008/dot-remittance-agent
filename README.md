@@ -6,7 +6,7 @@
 
 **A finance agent that understands, plans and executes safely — it compares options, forecasts rates, reminds you when to exchange, and keeps your spending in order.**
 
-![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-196%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-111?style=flat-square) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-111?style=flat-square) ![Vanilla JS](https://img.shields.io/badge/Vanilla%20JS-ES%20modules-111?style=flat-square) ![Tests](https://img.shields.io/badge/tests-386%20passed-111?style=flat-square) ![i18n](https://img.shields.io/badge/i18n-EN%20·%20简%20·%20繁%20·%20VI%20·%20JA%20·%20KO-111?style=flat-square)
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -141,8 +141,11 @@ Recall works across languages (word matching for Latin scripts, character bigram
 - The dot-grid background becomes a **magnifying lens** around the cursor; a constellation of dots, lines and circles drifts with scroll parallax
 - **Depth transitions** between pages: going forward pushes the old page away and blurs it while the new one pulls close; **swipe** between pages on mobile
 - The rate chart supports **wheel / pinch zoom and drag to pan**; result cards on the agent board are soft “jelly” tiles you can drag, join and open
-- Modals zoom out of the click point over a blurred backdrop; scroll reveal, 3D card tilt, magnetic buttons, count-up numbers, line-drawing animations
+- Modals grow out of the card that opened them; a liquid indicator follows the tabs; scroll reveal, count-up numbers, line-drawing animations
 - Respects `prefers-reduced-motion`; zero external dependencies under a strict `'self'` CSP
+
+**From sign-in to the app.** On success the sign-in dot flies to the top-left: its pupil opens into the brand ring (your
+avatar on a phone) while the app, already built underneath, fades in.
 
 ### Where things are
 
@@ -158,6 +161,35 @@ Email settings live in **Settings** (top right).
 (sent / on the way / left) and only what is left goes into the exchange scenarios. Existing goals are converted on upgrade
 and the originals archived, never deleted.
 
+**Accounts and sign-in.** Sign up and sign in with an email and a password (salted scrypt hashes only; five wrong tries
+lock that email for five minutes). Every account has its own database; data already on the machine is claimed only with
+the `OWNER_TOKEN` ("This computer's data is mine"). "Try the demo" opens a throw-away demo workspace, never anyone's real
+data. The language can be chosen right on the sign-in stage. The sign-in stage is a jelly dot that follows
+the cursor, can be grabbed and springs back, nods as you type, closes its eye for passwords and shakes its head (and the
+phone) on a mistake — one question at a time.
+
+**One ledger.** The overview balance is what the Send page shows as available: a completed simulated payment lowers it and
+records "updated after a payment"; only currencies you never entered use labelled test funds. Spending has **debit card,
+credit card and cash accounts**; statements are imported into an account. Card repayments and moves between your own
+accounts are paired on both sides (same amount, ±5 days) — even an unlabelled repayment is recognised from its other side —
+so 100 on the card plus a 100 repayment counts once. Refunds net against their category; the summary separates spending,
+cash out and card owed; a credit card balance never counts as money you have.
+
+**Deciding when.** The Rates page leads with "Is now a good time?": where today sits in the last 90 days (on your bank's
+own rate once enough days are recorded), and for YOUR amount the chance that waiting a week is better, the most likely
+gain or loss in your currency and its 80% range — saying plainly when the forecast does not beat "the rate stays the
+same". **Conditional exchange**: "when 1 CNY ≥ 0.2150 AUD, exchange up to 60,000 CNY before 10 Nov" — tell me to confirm,
+or exchange automatically (simulation: your recorded balances change); never above the cap or your balance, never twice,
+never after the date; close to the date it only warns. Afterwards: how much better than the 30-day average, ready to copy
+to your parents. Scenarios show the **rate margin in money**, apart from the fee. Spending has a **monthly budget**.
+
+**Each page has a focus; you arrange the cards.** Every component is its own card; the focus card stands out; cards that
+would only say "nothing yet" step aside; secondary detail starts folded. Drag a card by its title or the handle on top
+(it leans with its speed, the others slide out of the way, the free slot draws it in, Esc cancels); drop it beside
+another to share the row; drag the corner to change its width; fold it, or use Alt+↑/↓. Cards pack like masonry, so the
+space between any two cards is always the same and no holes are left. **DOT on every page**: a
+draggable dot that snaps to the edge; tap it (or Ctrl+K) for the same conversation, aware of the page you are on.
+
 **Do everything by chat.** Apart from paying itself, anything in the app can be asked of the assistant: add a bill or a
 subscription, set a balance, log or recategorize spending, add a term, track a scholarship, change the email digest, toggle
 routes, set limits… It reads your records first (`read_records`), then shows a **confirm card** (`do_action`) with the action
@@ -165,12 +197,15 @@ and its details; nothing runs until you press *Confirm*, and the server validate
 submitting a payment still happens only by your hand on the Send page.
 
 **Banks and scenarios.** On the Send page you pick the two currencies and, optionally, your sending and receiving banks.
-DOT reads each bank's official public pages (rate tables, fee schedules) with the AI model — rate, sending fee, intermediary
-and receiving fees, with the links and the time. When a bank's pages cannot be read or do not say, the model's own
-knowledge of that bank's standard fees and usual rate margin fills in, labelled as an estimate; typing the figures is the
-last resort. It then lays out **exchange scenarios**: convert
-at the sending bank or let the receiving bank convert, pay at once or in two parts (the second at the experimental 7-day
-forecast; every part pays the fixed fees again), each with every known fee and a list of what is unknown. A scenario can
+Sources, in order: ① the AI reads each bank's official public pages — and **every figure must come with the exact page
+text it was read from**; a figure whose quote is not on the page, or lacks the number, is dropped (page text is untrusted
+data); ② what the bank does not publish comes from Wise's public third-party comparison data, collected daily, with the
+collection time; ③ only then the model's own knowledge, labelled as an estimate; ④ typing the figures last. Opening the Rates page, or picking a pair on Send, **reads every bank for that pair automatically** (figures younger than a day are kept); the worker refreshes the pairs in your exchange plans every six hours. Bank of China
+(Australia) appears on both sides. **Exchange scenarios** convert at the sending or the receiving bank, at once or in two
+parts. Fees stay **in their own currency**; a total converts at the reference rate and says so. Only scenarios whose every
+figure is sourced and that arrive by your date are ranked — only they can be "best"; missing fees make one "provisional",
+AI estimates sit under "for reference". With a must-arrive date, the arrival time (e.g. 1–3 business days by wire) gives a
+**latest start date**; the second part sits exactly on the forecast's date, and is flagged when it cannot arrive in time. A scenario can
 become exchange plans, or be tried in the **sandbox**, which shows what you hold today and then, by date, what plans,
 goals, bills, subscriptions, term costs and the scenario would do to each currency — each source can be left out.
 
@@ -216,8 +251,15 @@ flowchart LR
 | Progress: badges, forgiving streak, challenges, levels, celebrations | `finance/motivation.py` |
 | Reference rates, historical analysis, backtested forecast | `finance/rates.py` |
 | Sandbox provider | `finance/providers.py` |
+| Cash position, exchange needs | `finance/money.py` |
+| Bank rates and fees (official page → third-party → estimate), exchange scenarios | `finance/banks.py` |
+| Deciding when: wait value, conditional exchange rules, monthly budget, bank-rate history | `finance/decide.py` |
+| Exchange plans | `finance/plans.py` |
+| Accounts, sign-in, sign-up limits, owner-token claim | `finance/auth.py` |
+| Masking before the model, export | `finance/privacy.py` |
+| Chat actions behind a confirm card | `finance/actions.py` |
 | API, SSE, standalone server | `finance/api.py`, `finance/web.py`, `finance/worker.py` |
-| Frontend (native ES modules) | `frontend/dist/js/**` |
+| Frontend shell, pages, sign-in, card deck, assistant dot (native ES modules) | `frontend/dist/js/app.js`, `views/*`, `auth.js`, `cards.js`, `assistant.js` |
 
 ---
 
@@ -319,20 +361,30 @@ Add your SMTP server to `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP
 - **Nothing counts unconfirmed**: imported, scanned and assistant-logged expenses stay pending until the owner reviews them; receipt photos are downscaled in the browser and never stored
 - **Exact amounts**: integer minor units everywhere; values above 2^53 travel as strings and are formatted with BigInt in the browser
 - **Model constraints**: tool whitelist, argument validation, bounded rounds; messages that look like private keys or API keys are rejected
+- **Masked before the model**: account numbers, card numbers, IBANs and emails become placeholders such as `[ACCT_1 …2222]`; the real values go back only into tool arguments, on this machine. Images cannot be masked — the screen says so
+- **Outside content is data**: bank pages, receipts and statement text are untrusted; a bank figure needs its exact page quote and must be within 15% of the reference rate, or it is dropped
+- **Your data**: Settings → Privacy & your data: export everything (JSON), permanently delete conversations or memory notes, close a (new) account
+- **Signing out**: signing out, an expired session or a sign-out elsewhere all return to the sign-in stage
+- **Isolation**: one database per account; the demo is its own space; with `PUBLIC_DEPLOY=true` the server refuses to start if a chain or live payments are configured (see `.env.competition.example`)
+- **Existing data**: data already on the instance belongs to no one until claimed with `OWNER_TOKEN` (at sign-up or in Settings); each demo session gets its own throw-away workspace, deleted after 24 h
+- **Ledger integrity**: a statement balance only becomes what you have when it is the newest word — future-dated, re-imported or older-than-an-exchange balances are kept apart and you are asked to reconcile; rule executions are atomic (never twice, never after their date, never above the balance)
+- **Strict input**: real calendar dates, bounded integer amounts, typed review items; the sign-up limit is counted and reserved in one transaction; a fee figure must be written with its currency, in a sentence that names no other currency and is not a minimum or limit
+- **Audited**: two rounds of adversarial tests (157 cases: access, CSRF, SSRF, races, ledger, evidence) are part of the test suite
+- **Acceptance and usability**: [real-model tuition scenario](docs/acceptance/tuition-scenario.md) · [usability test kit](docs/usability-test.md) (Chinese)
 
 ---
 
 ## 🧪 Tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q        # 196 tests: service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
+.\.venv\Scripts\python -m pytest -q        # 386 tests (incl. two rounds of security-audit cases): service, guardrails, spending, AI exchange watch, transfer templates, student money, progress, email, reminders, API, rule planner, 6 languages
 .\.venv\Scripts\python -m finance.demo     # offline demo: unauthorized blocked → approve → execute → idempotent retry → timeout recovery
 
 docker build -f tests/browser/Dockerfile -t remittance-agent-browser-test .
 docker run --rm --network remittance-agent_default --mount "type=bind,source=$PWD/artifacts,target=/artifacts" remittance-agent-browser-test
 ```
 
-Browser acceptance covers the full payment flow plus a sweep of 16 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
+Browser acceptance covers the full payment flow plus a sweep of 13 pages × 6 languages × desktop/mobile (no JS errors, no untranslated keys, no horizontal overflow).
 
 ---
 
